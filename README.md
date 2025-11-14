@@ -50,7 +50,7 @@ This diagram details the precise API call flow (REST & gRPC) between all microse
 
 *(Need to upload my capstone_sequance.drawio.png` file to this repo and update the path below)*
 ``
-`![API Call Flow Sequence Diagram](temp)`
+`![API Call Flow Sequence Diagram](https://github.com/ahrazkk/Aegis-Clinical-MLOps-Platform/blob/main/SequenceDiagram.png?raw=true)`
 
 ## 🤖 The AI Model
 
