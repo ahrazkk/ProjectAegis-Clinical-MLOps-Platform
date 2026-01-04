@@ -32,12 +32,43 @@ from .serializers import (
     PredictionLogSerializer,
 )
 from .services.ddi_predictor import get_ddi_service, DDIPrediction
+from .services.knowledge_graph import KnowledgeGraphService
 
 logger = logging.getLogger(__name__)
 
 
-# ============== Sample Drug Data (for demo) ==============
-# In production, this would come from the database
+def get_drug_from_knowledge_graph(name: str) -> Dict:
+    """Look up drug from Neo4j Knowledge Graph."""
+    try:
+        kg = KnowledgeGraphService
+        if kg.is_connected():
+            results = kg.search_drugs(name, limit=1)
+            if results:
+                drug = results[0]
+                return {
+                    'name': drug.get('name', name),
+                    'smiles': drug.get('smiles', ''),
+                    'drugbank_id': drug.get('id', '')
+                }
+    except Exception as e:
+        logger.warning(f"Knowledge graph lookup failed: {e}")
+    return None
+
+
+def get_known_interaction(drug1_id: str, drug2_id: str) -> Dict:
+    """Check for known interaction in Knowledge Graph."""
+    try:
+        kg = KnowledgeGraphService
+        if kg.is_connected():
+            result = kg.check_interaction(drug1_id, drug2_id)
+            if result:
+                return result
+    except Exception as e:
+        logger.warning(f"Interaction lookup failed: {e}")
+    return None
+
+
+# Fallback sample drugs if KG is unavailable
 SAMPLE_DRUGS = {
     'warfarin': {
         'name': 'Warfarin',
@@ -51,7 +82,7 @@ SAMPLE_DRUGS = {
     },
     'ibuprofen': {
         'name': 'Ibuprofen',
-        'smiles': 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O',
+        'smiles': 'CC(C)CC1=CC=C(C(C)C(=O)O)C=C1',
         'drugbank_id': 'DB01050'
     },
     'metformin': {
@@ -59,25 +90,35 @@ SAMPLE_DRUGS = {
         'smiles': 'CN(C)C(=N)NC(=N)N',
         'drugbank_id': 'DB00331'
     },
-    'lisinopril': {
-        'name': 'Lisinopril',
-        'smiles': 'NCCCC[C@H](N[C@@H](CCc1ccccc1)C(=O)O)C(=O)N1CCC[C@H]1C(=O)O',
-        'drugbank_id': 'DB00722'
-    },
-    'atorvastatin': {
-        'name': 'Atorvastatin',
-        'smiles': 'CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)c(-c2ccccc2)n1CC[C@H](O)C[C@H](O)CC(=O)O',
-        'drugbank_id': 'DB01076'
-    },
-    'omeprazole': {
-        'name': 'Omeprazole',
-        'smiles': 'COC1=CC2=NC(CS(=O)C3=NC4=C(N3)C=CC=C4C)=NC2=CC1OC',
-        'drugbank_id': 'DB00338'
-    },
     'simvastatin': {
         'name': 'Simvastatin',
-        'smiles': 'CCC(C)(C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@@H]12',
+        'smiles': 'CCC(C)(C)C(=O)OC1CC(C)C=C2C=CC(C)C(CCC3CC(O)CC(=O)O3)C12',
         'drugbank_id': 'DB00641'
+    },
+    'amiodarone': {
+        'name': 'Amiodarone',
+        'smiles': 'CCCCC1=C(C2=CC=C(OCCN(CC)CC)C=C2)C3=CC(I)=C(OCCC)C(I)=C3O1',
+        'drugbank_id': 'DB01118'
+    },
+    'digoxin': {
+        'name': 'Digoxin',
+        'smiles': 'CC1OC(CC(O)C1O)OC2C(O)CC(OC3C(O)CC(OC4CCC5(C)C(CCC6C5CCC7(C)C(C8=CC(=O)OC8)CCC67)C4)OC3C)OC2C',
+        'drugbank_id': 'DB00390'
+    },
+    'clarithromycin': {
+        'name': 'Clarithromycin',
+        'smiles': 'CCC1OC(=O)C(C)C(OC2CC(C)(OC)C(O)C(C)O2)C(C)C(OC3OC(C)CC(N(C)C)C3O)C(C)(O)CC(C)C(=O)C(C)C(O)C1(C)O',
+        'drugbank_id': 'DB01211'
+    },
+    'fluoxetine': {
+        'name': 'Fluoxetine',
+        'smiles': 'CNCCC(OC1=CC=C(C(F)(F)F)C=C1)C2=CC=CC=C2',
+        'drugbank_id': 'DB00472'
+    },
+    'carbamazepine': {
+        'name': 'Carbamazepine',
+        'smiles': 'NC(=O)N1C2=CC=CC=C2C=CC3=CC=CC=C13',
+        'drugbank_id': 'DB00564'
     }
 }
 
@@ -94,15 +135,34 @@ def get_risk_level(risk_score: float) -> str:
 
 
 def lookup_drug(drug_input: Dict) -> Dict:
-    """Look up drug SMILES from name or ID."""
-    name = drug_input.get('name', '').lower()
+    """Look up drug SMILES from name or ID - first from Knowledge Graph, then fallback."""
+    name = drug_input.get('name', '').lower().strip()
     smiles = drug_input.get('smiles', '')
+    drugbank_id = drug_input.get('drugbank_id', '')
     
-    # If SMILES provided, use it
+    # Always try to get drugbank_id from Knowledge Graph if we have a name
+    if name and not drugbank_id:
+        kg_result = get_drug_from_knowledge_graph(name)
+        if kg_result:
+            drugbank_id = kg_result.get('drugbank_id', '')
+            # If no SMILES provided, use the one from KG
+            if not smiles:
+                smiles = kg_result.get('smiles', '')
+    
+    # If we have drugbank_id now, return with it
+    if drugbank_id:
+        return {
+            'name': drug_input.get('name', 'Unknown'),
+            'smiles': smiles,
+            'drugbank_id': drugbank_id
+        }
+    
+    # If SMILES provided but no drugbank_id found, still return with SMILES
     if smiles:
         return {
             'name': drug_input.get('name', 'Unknown'),
-            'smiles': smiles
+            'smiles': smiles,
+            'drugbank_id': ''
         }
     
     # Try to find in sample data
@@ -114,10 +174,11 @@ def lookup_drug(drug_input: Dict) -> Dict:
         if name in key or key in name:
             return drug
     
-    # Return with dummy SMILES for demo
+    # Return with empty SMILES (will use random features)
     return {
         'name': drug_input.get('name', 'Unknown'),
-        'smiles': 'C'  # Methane as fallback
+        'smiles': '',
+        'drugbank_id': ''
     }
 
 
@@ -129,6 +190,7 @@ class DDIPredictionView(APIView):
     
     Predict drug-drug interaction between two drugs.
     Returns risk score, severity, affected systems, and mechanism hypothesis.
+    Uses Knowledge Graph for known interactions, AI model for novel pairs.
     """
     
     def post(self, request):
@@ -143,51 +205,78 @@ class DDIPredictionView(APIView):
         drug_a = lookup_drug(data['drug_a'])
         drug_b = lookup_drug(data['drug_b'])
         
-        # Get prediction service
-        service = get_ddi_service()
+        # Check for known interaction in Knowledge Graph first
+        known_interaction = None
+        if drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
+            known_interaction = get_known_interaction(
+                drug_a['drugbank_id'], 
+                drug_b['drugbank_id']
+            )
         
-        # Make prediction
-        prediction = service.predict(
-            drug_a['smiles'],
-            drug_b['smiles'],
-            drug_a['name'],
-            drug_b['name']
-        )
+        if known_interaction:
+            # Use known interaction from Knowledge Graph
+            severity = known_interaction.get('severity', 'moderate')
+            mechanism = known_interaction.get('mechanism', 'Known interaction from clinical database.')
+            
+            severity_scores = {'minor': 0.3, 'moderate': 0.6, 'severe': 0.85}
+            risk_score = severity_scores.get(severity, 0.5)
+            
+            response_data = {
+                'drug_a': drug_a['name'],
+                'drug_b': drug_b['name'],
+                'risk_score': risk_score,
+                'risk_level': get_risk_level(risk_score),
+                'severity': severity,
+                'confidence': 0.95,  # High confidence for known interactions
+                'mechanism_hypothesis': mechanism,
+                'affected_systems': [
+                    {'system': 'See mechanism', 'severity': risk_score, 'symptoms': []}
+                ],
+                'inference_time_ms': (time.time() - start_time) * 1000,
+                'source': 'knowledge_graph'
+            }
+        else:
+            # Use AI model for prediction
+            service = get_ddi_service()
+            prediction = service.predict(
+                drug_a.get('smiles', ''),
+                drug_b.get('smiles', ''),
+                drug_a['name'],
+                drug_b['name']
+            )
+            
+            response_data = {
+                'drug_a': prediction.drug_a,
+                'drug_b': prediction.drug_b,
+                'risk_score': prediction.risk_score,
+                'risk_level': get_risk_level(prediction.risk_score),
+                'severity': prediction.severity,
+                'confidence': prediction.confidence,
+                'mechanism_hypothesis': prediction.mechanism_hypothesis,
+                'affected_systems': [
+                    {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                    for sys in prediction.affected_systems
+                ],
+                'inference_time_ms': (time.time() - start_time) * 1000,
+                'source': 'ai_model'
+            }
         
-        inference_time = (time.time() - start_time) * 1000  # ms
-        
-        # Build response
-        response_data = {
-            'drug_a': prediction.drug_a,
-            'drug_b': prediction.drug_b,
-            'risk_score': prediction.risk_score,
-            'risk_level': get_risk_level(prediction.risk_score),
-            'severity': prediction.severity,
-            'confidence': prediction.confidence,
-            'mechanism_hypothesis': prediction.mechanism_hypothesis,
-            'affected_systems': [
-                {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                for sys in prediction.affected_systems
-            ],
-            'inference_time_ms': inference_time
-        }
+        inference_time = response_data['inference_time_ms']
         
         # Include explanation if requested
         if data.get('include_explanation', True):
             response_data['explanation'] = {
-                'raw_probability': prediction.raw_probability,
-                'calibrated_probability': prediction.calibrated_probability,
                 'model_version': 'aegis-v1.0',
-                # XAI visualization data would go here
+                'data_source': response_data.get('source', 'ai_model'),
             }
         
         # Log prediction
         try:
             PredictionLog.objects.create(
                 drug_list=[drug_a['name'], drug_b['name']],
-                risk_score=prediction.risk_score,
-                calibrated_score=prediction.calibrated_probability,
-                severity_prediction=prediction.severity,
+                risk_score=response_data['risk_score'],
+                calibrated_score=response_data['risk_score'],
+                severity_prediction=response_data['severity'],
                 inference_time_ms=inference_time
             )
         except Exception as e:
@@ -266,71 +355,51 @@ class ChatView(APIView):
     """
     
     def post(self, request):
+        from .services.graphrag_chatbot import get_chatbot
+        
         serializer = ChatRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
         data = serializer.validated_data
         message = data['message']
+        context_drugs = data.get('context_drugs', [])
         session_id = data.get('session_id') or str(uuid.uuid4())
         
-        # TODO: Implement GraphRAG with LangChain + Neo4j
-        # For now, return a placeholder response
-        
-        # Simple keyword-based response for demo
-        response_text = self._generate_demo_response(message)
-        
-        response_data = {
-            'response': response_text,
-            'sources': [
-                {
-                    'title': 'DrugBank Database',
-                    'url': 'https://go.drugbank.com/',
-                    'type': 'database'
-                }
-            ],
-            'related_drugs': data.get('context_drugs', []),
-            'session_id': session_id
-        }
+        try:
+            # Use GraphRAG chatbot for intelligent responses
+            chatbot = get_chatbot()
+            result = chatbot.process_message(
+                message=message,
+                context_drugs=context_drugs,
+                session_id=session_id
+            )
+            
+            response_data = {
+                'response': result.response,
+                'sources': result.sources,
+                'related_drugs': result.related_drugs,
+                'session_id': session_id
+            }
+            
+        except Exception as e:
+            logger.error(f"GraphRAG chatbot error: {e}")
+            # Fallback to simple response
+            response_data = {
+                'response': self._fallback_response(message),
+                'sources': [{'title': 'DrugBank Database', 'url': 'https://go.drugbank.com/', 'type': 'database'}],
+                'related_drugs': context_drugs,
+                'session_id': session_id
+            }
         
         return Response(response_data)
     
-    def _generate_demo_response(self, message: str) -> str:
-        """Generate a demo response based on keywords."""
-        message_lower = message.lower()
-        
-        if 'warfarin' in message_lower and 'aspirin' in message_lower:
-            return (
-                "Warfarin and Aspirin have a **major interaction**. Both drugs affect blood clotting "
-                "through different mechanisms:\n\n"
-                "- **Warfarin** inhibits vitamin K-dependent clotting factors\n"
-                "- **Aspirin** inhibits platelet aggregation via COX-1 inhibition\n\n"
-                "Combined use significantly increases bleeding risk. If co-administration is necessary, "
-                "close INR monitoring and dose adjustment are required."
-            )
-        
-        if 'mechanism' in message_lower:
-            return (
-                "Drug-drug interactions occur through several mechanisms:\n\n"
-                "1. **Pharmacokinetic**: Absorption, distribution, metabolism (CYP450), excretion\n"
-                "2. **Pharmacodynamic**: Synergistic, additive, or antagonistic effects at receptors\n"
-                "3. **Transporter-mediated**: P-glycoprotein and other drug transporters\n\n"
-                "Our model analyzes molecular structure to predict interaction likelihood."
-            )
-        
-        if 'cyp' in message_lower or 'enzyme' in message_lower:
-            return (
-                "CYP450 enzymes are responsible for metabolizing ~75% of drugs:\n\n"
-                "- **CYP3A4**: Metabolizes the most drugs\n"
-                "- **CYP2D6**: Important for many psychiatric and cardiovascular drugs\n"
-                "- **CYP2C9**: Metabolizes warfarin and NSAIDs\n\n"
-                "Inhibitors can increase drug levels; inducers can decrease effectiveness."
-            )
-        
+    def _fallback_response(self, message: str) -> str:
+        """Generate fallback response if GraphRAG fails."""
         return (
             "I'm the Aegis Research Assistant. I can help you understand drug-drug interactions, "
             "mechanisms of action, and clinical recommendations.\n\n"
-            "Try asking about specific drugs or interaction mechanisms!"
+            "Try asking about specific drugs like Warfarin, Aspirin, or Metformin!"
         )
 
 
@@ -339,33 +408,55 @@ class DrugSearchView(APIView):
     GET /api/v1/drugs/search/?q=<query>
     
     Search for drugs by name for autocomplete.
+    Uses Neo4j Knowledge Graph for comprehensive drug database.
     """
     
     def get(self, request):
-        query = request.query_params.get('q', '').lower()
+        query = request.query_params.get('q', '').lower().strip()
         
         if len(query) < 2:
             return Response({'results': []})
         
-        # Search in sample data
         results = []
-        for key, drug in SAMPLE_DRUGS.items():
-            if query in drug['name'].lower():
-                results.append({
-                    'name': drug['name'],
-                    'drugbank_id': drug['drugbank_id'],
-                    'has_smiles': bool(drug.get('smiles'))
-                })
+        
+        # Search Knowledge Graph first
+        try:
+            kg = KnowledgeGraphService
+            if kg.is_connected():
+                kg_results = kg.search_drugs(query, limit=15)
+                for drug in kg_results:
+                    results.append({
+                        'name': drug.get('name', ''),
+                        'drugbank_id': drug.get('id', ''),
+                        'category': drug.get('category', ''),
+                        'has_smiles': bool(drug.get('smiles'))
+                    })
+        except Exception as e:
+            logger.warning(f"Knowledge graph search failed: {e}")
+        
+        # If no KG results, search in sample data
+        if not results:
+            for key, drug in SAMPLE_DRUGS.items():
+                if query in drug['name'].lower():
+                    results.append({
+                        'name': drug['name'],
+                        'drugbank_id': drug['drugbank_id'],
+                        'category': '',
+                        'has_smiles': bool(drug.get('smiles'))
+                    })
         
         # Also search database
         try:
             db_drugs = Drug.objects.filter(name__icontains=query)[:10]
             for drug in db_drugs:
-                results.append({
-                    'name': drug.name,
-                    'drugbank_id': drug.drugbank_id,
-                    'has_smiles': bool(drug.smiles)
-                })
+                # Avoid duplicates
+                if not any(r['drugbank_id'] == drug.drugbank_id for r in results):
+                    results.append({
+                        'name': drug.name,
+                        'drugbank_id': drug.drugbank_id,
+                        'category': drug.category or '',
+                        'has_smiles': bool(drug.smiles)
+                    })
         except Exception as e:
             logger.warning(f"Database search failed: {e}")
         
@@ -380,12 +471,20 @@ class HealthCheckView(APIView):
     """
     
     def get(self, request):
+        # Check Neo4j
+        neo4j_status = 'error'
+        try:
+            if KnowledgeGraphService.is_connected():
+                neo4j_status = 'ok'
+        except:
+            pass
+        
         health = {
             'status': 'healthy',
             'services': {
                 'database': 'ok',
                 'ai_model': 'ok',
-                'neo4j': 'not_configured'  # Will be updated when Neo4j is set up
+                'neo4j': neo4j_status
             },
             'version': 'aegis-v1.0.0'
         }

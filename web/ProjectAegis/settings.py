@@ -76,7 +76,7 @@ REST_FRAMEWORK = {
 NEO4J_CONFIG = {
     'uri': os.environ.get('NEO4J_URI', 'bolt://localhost:7687'),
     'user': os.environ.get('NEO4J_USER', 'neo4j'),
-    'password': os.environ.get('NEO4J_PASSWORD', 'aegis_secret_password'),
+    'password': os.environ.get('NEO4J_PASSWORD', 'password123'),
 }
 
 # AI Model Configuration

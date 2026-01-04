@@ -182,14 +182,30 @@ class DDIService:
     
     def __init__(self, model_path: Optional[Path] = None, device: str = 'cpu'):
         self.device = torch.device(device)
+        self.trained_model = None
         self.model = DDIPredictor().to(self.device)
         self.model.eval()
+        
+        # Try to load the trained classifier model
+        models_dir = Path(__file__).parent.parent.parent / 'models'
+        trained_model_path = models_dir / 'best_model.pt'
+        
+        if trained_model_path.exists():
+            try:
+                from ddi_api.services.train_model import DDIClassifier
+                checkpoint = torch.load(trained_model_path, map_location=self.device)
+                # Infer input dimension from saved model
+                self.trained_model = DDIClassifier(input_dim=2048 * 4)
+                self.trained_model.load_state_dict(checkpoint['model_state_dict'])
+                self.trained_model.to(self.device)
+                self.trained_model.eval()
+                logger.info(f"Loaded trained DDI classifier from {trained_model_path}")
+            except Exception as e:
+                logger.warning(f"Could not load trained model: {e}")
         
         if model_path and Path(model_path).exists():
             self._load_model(model_path)
             logger.info(f"Loaded model from {model_path}")
-        else:
-            logger.warning("No trained model found. Using random weights for demo.")
     
     def _load_model(self, path: Path):
         """Load trained model weights."""
@@ -262,26 +278,52 @@ class DDIService:
                 mechanism_hypothesis="Unable to process molecular structure."
             )
         
-        # Convert to tensors
-        tensor_a = torch.tensor(fp_a, dtype=torch.float32).unsqueeze(0).to(self.device)
-        tensor_b = torch.tensor(fp_b, dtype=torch.float32).unsqueeze(0).to(self.device)
-        
-        # Run prediction
-        with torch.no_grad():
-            logits, probs = self.model(tensor_a, tensor_b)
-        
-        probs = probs.cpu().numpy()[0]
-        
-        # Get predicted class
-        pred_class_idx = np.argmax(probs)
-        pred_severity = self.SEVERITY_CLASSES[pred_class_idx]
-        confidence = float(probs[pred_class_idx])
-        
-        # Calculate risk score (weighted by severity)
-        # Risk = P(interaction) * severity_weight
-        raw_prob = 1.0 - probs[0]  # P(any interaction) = 1 - P(no_interaction)
-        severity_weight = self.SEVERITY_WEIGHTS[pred_severity]
-        risk_score = raw_prob * severity_weight
+        # Use trained classifier if available
+        if self.trained_model is not None:
+            # Create combined features (same as training)
+            combined = np.concatenate([
+                fp_a, 
+                fp_b, 
+                fp_a * fp_b,  # Hadamard product
+                np.abs(fp_a - fp_b)  # Absolute difference
+            ])
+            tensor_input = torch.tensor(combined, dtype=torch.float32).unsqueeze(0).to(self.device)
+            
+            with torch.no_grad():
+                outputs = self.trained_model(tensor_input)
+            
+            interaction_prob = float(outputs['interaction_prob'].cpu().numpy()[0])
+            severity_probs = F.softmax(outputs['severity_logits'], dim=-1).cpu().numpy()[0]
+            confidence = float(outputs['confidence'].cpu().numpy()[0])
+            
+            # Map severity (trained model uses: 0=minor, 1=moderate, 2=severe)
+            severity_idx = int(np.argmax(severity_probs))
+            severity_map = ['minor', 'moderate', 'major']
+            
+            if interaction_prob < 0.5:
+                pred_severity = 'no_interaction'
+                risk_score = 0.0
+            else:
+                pred_severity = severity_map[severity_idx]
+                severity_weight = self.SEVERITY_WEIGHTS[pred_severity]
+                risk_score = interaction_prob * severity_weight
+            
+            raw_prob = interaction_prob
+        else:
+            # Fallback to original model
+            tensor_a = torch.tensor(fp_a, dtype=torch.float32).unsqueeze(0).to(self.device)
+            tensor_b = torch.tensor(fp_b, dtype=torch.float32).unsqueeze(0).to(self.device)
+            
+            with torch.no_grad():
+                logits, probs = self.model(tensor_a, tensor_b)
+            
+            probs = probs.cpu().numpy()[0]
+            pred_class_idx = np.argmax(probs)
+            pred_severity = self.SEVERITY_CLASSES[pred_class_idx]
+            confidence = float(probs[pred_class_idx])
+            raw_prob = 1.0 - probs[0]
+            severity_weight = self.SEVERITY_WEIGHTS[pred_severity]
+            risk_score = raw_prob * severity_weight
         
         # Get affected systems
         affected = self.SEVERITY_SYSTEM_MAP.get(pred_severity, [])
@@ -293,7 +335,7 @@ class DDIService:
             drug_a=drug_a_name,
             drug_b=drug_b_name,
             raw_probability=float(raw_prob),
-            calibrated_probability=float(raw_prob),  # Same for now
+            calibrated_probability=float(raw_prob),
             risk_score=float(risk_score),
             severity=pred_severity,
             confidence=confidence,

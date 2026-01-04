@@ -1,0 +1,8 @@
+{
+  "trained_at": "2026-01-04T17:42:27.830702",
+  "num_drugs": 51,
+  "num_pairs": 99,
+  "epochs": 50,
+  "best_auc": 0.9270833333333334,
+  "feature_dim": 2048
+}

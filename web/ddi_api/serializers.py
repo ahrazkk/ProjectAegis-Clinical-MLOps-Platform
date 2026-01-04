@@ -46,7 +46,7 @@ class ChatRequestSerializer(serializers.Serializer):
         required=False,
         default=list
     )
-    session_id = serializers.CharField(required=False, allow_blank=True)
+    session_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 # ============== Response Serializers ==============
