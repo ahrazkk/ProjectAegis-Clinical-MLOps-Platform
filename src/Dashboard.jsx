@@ -29,26 +29,108 @@ import {
     Users,
     FileText,
     Bell,
-    X
+    X,
+    Heart,
+    User,
+    Loader2
 } from 'lucide-react';
+import { predictDDI, analyzePolypharmacy, sendChatMessage, searchDrugs, checkHealth } from './services/api';
 
-// --- Mock Data ---
+// --- API Configuration ---
+const USE_REAL_API = true; // Set to false to use mock data
+
+// --- Mock Data (Fallback) ---
 const DRUG_DATABASE = [
-    { id: 1, name: 'Warfarin', category: 'Anticoagulant', risk: 'High', mw: '308.33', logp: '2.7' },
-    { id: 2, name: 'Aspirin', category: 'NSAID', risk: 'Low', mw: '180.16', logp: '1.2' },
-    { id: 3, name: 'Lisinopril', category: 'ACE Inhibitor', risk: 'Moderate', mw: '405.49', logp: '-1.2' },
-    { id: 4, name: 'Simvastatin', category: 'Statin', risk: 'Moderate', mw: '418.57', logp: '4.7' },
+    { id: 1, name: 'Warfarin', category: 'Anticoagulant', risk: 'High', mw: '308.33', logp: '2.7', smiles: 'CC(=O)CC(C1=CC=CC=C1)C2=C(C3=CC=CC=C3OC2=O)O' },
+    { id: 2, name: 'Aspirin', category: 'NSAID', risk: 'Low', mw: '180.16', logp: '1.2', smiles: 'CC(=O)OC1=CC=CC=C1C(=O)O' },
+    { id: 3, name: 'Lisinopril', category: 'ACE Inhibitor', risk: 'Moderate', mw: '405.49', logp: '-1.2', smiles: 'NCCCC[C@H](N[C@@H](CCc1ccccc1)C(=O)O)C(=O)N1CCC[C@H]1C(=O)O' },
+    { id: 4, name: 'Simvastatin', category: 'Statin', risk: 'Moderate', mw: '418.57', logp: '4.7', smiles: 'CCC(C)(C)C(=O)O[C@H]1C[C@@H](C)C=C2C=C[C@H](C)[C@H](CC[C@@H]3C[C@@H](O)CC(=O)O3)[C@@H]12' },
+    { id: 5, name: 'Metformin', category: 'Antidiabetic', risk: 'Low', mw: '129.16', logp: '-1.4', smiles: 'CN(C)C(=N)NC(=N)N' },
+    { id: 6, name: 'Ibuprofen', category: 'NSAID', risk: 'Low', mw: '206.28', logp: '3.5', smiles: 'CC(C)CC1=CC=C(C=C1)C(C)C(=O)O' },
+    { id: 7, name: 'Omeprazole', category: 'PPI', risk: 'Low', mw: '345.42', logp: '2.2', smiles: 'COC1=CC2=NC(CS(=O)C3=NC4=C(N3)C=CC=C4C)=NC2=CC1OC' },
+    { id: 8, name: 'Atorvastatin', category: 'Statin', risk: 'Moderate', mw: '558.64', logp: '4.1', smiles: 'CC(C)c1c(C(=O)Nc2ccccc2)c(-c2ccc(F)cc2)c(-c2ccccc2)n1CC[C@H](O)C[C@H](O)CC(=O)O' },
 ];
 
-const INTERACTIONS_DB = {
+// Fallback mock for when API is not available
+const MOCK_INTERACTIONS_DB = {
     'Warfarin-Aspirin': {
-        severity: 'Critical',
-        confidence: 98.4,
-        mechanism: 'Pharmacodynamic Synergism',
-        description: 'Concurrent use significantly increases bleeding risk due to additive anticoagulant effects and platelet inhibition.',
-        recommendation: 'Avoid combination. If necessary, monitor INR daily.',
+        severity: 'major',
+        risk_score: 0.92,
+        risk_level: 'critical',
+        confidence: 0.984,
+        mechanism_hypothesis: 'Pharmacodynamic Synergism - Concurrent use significantly increases bleeding risk due to additive anticoagulant effects and platelet inhibition.',
+        affected_systems: [
+            { system: 'blood', severity: 0.9, symptoms: ['Increased bleeding risk', 'Prolonged INR'] },
+            { system: 'gi', severity: 0.6, symptoms: ['GI bleeding', 'Ulceration'] }
+        ],
         citations: ['N Engl J Med 2024; 389:123-135', 'Clin Pharmacol Ther. 2023; 114:88-92']
     }
+};
+
+// --- Body Map Component ---
+const BodyMap = ({ affectedSystems = {} }) => {
+    const getOrganColor = (organ) => {
+        const severity = affectedSystems[organ] || 0;
+        if (severity > 0.7) return 'fill-red-500 animate-pulse';
+        if (severity > 0.4) return 'fill-orange-500';
+        if (severity > 0) return 'fill-yellow-500';
+        return 'fill-slate-700';
+    };
+
+    return (
+        <div className="relative w-full h-full flex items-center justify-center">
+            <svg viewBox="0 0 200 400" className="w-32 h-64">
+                {/* Head */}
+                <circle cx="100" cy="35" r="25" className="fill-slate-700 stroke-slate-600" strokeWidth="1" />
+                
+                {/* Body */}
+                <ellipse cx="100" cy="130" rx="45" ry="60" className="fill-slate-700 stroke-slate-600" strokeWidth="1" />
+                
+                {/* Heart */}
+                <circle cx="90" cy="110" r="12" className={`${getOrganColor('heart')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* Lungs */}
+                <ellipse cx="70" cy="120" rx="15" ry="25" className={`${getOrganColor('lungs')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                <ellipse cx="130" cy="120" rx="15" ry="25" className={`${getOrganColor('lungs')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* Liver */}
+                <ellipse cx="120" cy="150" rx="20" ry="15" className={`${getOrganColor('liver')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* Kidney */}
+                <ellipse cx="80" cy="165" rx="10" ry="15" className={`${getOrganColor('kidney')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                <ellipse cx="120" cy="165" rx="10" ry="15" className={`${getOrganColor('kidney')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* GI */}
+                <ellipse cx="100" cy="185" rx="25" ry="15" className={`${getOrganColor('gi')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* Brain indicator */}
+                <circle cx="100" cy="30" r="10" className={`${getOrganColor('brain')} stroke-slate-600 transition-colors`} strokeWidth="1" />
+                
+                {/* Legs */}
+                <rect x="80" y="200" width="15" height="80" rx="5" className="fill-slate-700 stroke-slate-600" strokeWidth="1" />
+                <rect x="105" y="200" width="15" height="80" rx="5" className="fill-slate-700 stroke-slate-600" strokeWidth="1" />
+                
+                {/* Arms */}
+                <rect x="40" y="100" width="12" height="60" rx="5" className="fill-slate-700 stroke-slate-600" strokeWidth="1" transform="rotate(-15 40 100)" />
+                <rect x="148" y="100" width="12" height="60" rx="5" className="fill-slate-700 stroke-slate-600" strokeWidth="1" transform="rotate(15 160 100)" />
+                
+                {/* Blood indicator (overlay) */}
+                {affectedSystems['blood'] > 0 && (
+                    <circle cx="100" cy="130" r="50" className="fill-red-500/20 animate-pulse" />
+                )}
+            </svg>
+            
+            {/* Legend */}
+            <div className="absolute bottom-0 left-0 right-0 flex justify-center gap-4 text-[10px]">
+                {Object.entries(affectedSystems).filter(([_, v]) => v > 0).map(([organ, severity]) => (
+                    <div key={organ} className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${severity > 0.7 ? 'bg-red-500' : severity > 0.4 ? 'bg-orange-500' : 'bg-yellow-500'}`} />
+                        <span className="text-slate-400 capitalize">{organ}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
 };
 
 // --- Components ---
@@ -285,11 +367,33 @@ export default function Dashboard() {
     const [selectedDrugs, setSelectedDrugs] = useState([DRUG_DATABASE[0], DRUG_DATABASE[1]]);
     const [searchQuery, setSearchQuery] = useState('');
     const [isAnalyzing, setIsAnalyzing] = useState(false);
-    const [result, setResult] = useState(INTERACTIONS_DB['Warfarin-Aspirin']);
-    const [activeTab, setActiveTab] = useState('structure'); // structure, graph, properties
+    const [result, setResult] = useState(null);
+    const [polypharmacyResult, setPolypharmacyResult] = useState(null);
+    const [activeTab, setActiveTab] = useState('structure'); // structure, graph, properties, bodymap
     const [sidebarItem, setSidebarItem] = useState('dashboard');
     const [messages, setMessages] = useState([]);
     const [prompt, setPrompt] = useState('');
+    const [apiStatus, setApiStatus] = useState('checking'); // checking, online, offline
+    const [chatSessionId, setChatSessionId] = useState(null);
+    const [error, setError] = useState(null);
+
+    // Check API status on mount
+    useEffect(() => {
+        const checkApiStatus = async () => {
+            if (!USE_REAL_API) {
+                setApiStatus('offline');
+                return;
+            }
+            try {
+                await checkHealth();
+                setApiStatus('online');
+            } catch (err) {
+                console.warn('API not available, using mock data:', err);
+                setApiStatus('offline');
+            }
+        };
+        checkApiStatus();
+    }, []);
 
     // Search Filter
     const filtered = DRUG_DATABASE.filter(d =>
@@ -301,33 +405,144 @@ export default function Dashboard() {
         setSelectedDrugs([...selectedDrugs, drug]);
         setSearchQuery('');
         setResult(null);
+        setPolypharmacyResult(null);
+        setError(null);
     };
 
     const removeDrug = (id) => {
         setSelectedDrugs(selectedDrugs.filter(d => d.id !== id));
         setResult(null);
+        setPolypharmacyResult(null);
+        setError(null);
     };
 
-    const runModel = () => {
+    // Run DDI analysis using real API or mock data
+    const runModel = async () => {
         setIsAnalyzing(true);
-        setTimeout(() => {
-            const isCritical = selectedDrugs.some(d => d.name === 'Warfarin') && selectedDrugs.some(d => d.name === 'Aspirin');
-            setResult(isCritical ? INTERACTIONS_DB['Warfarin-Aspirin'] : 'safe');
+        setError(null);
+        
+        try {
+            if (apiStatus === 'online' && USE_REAL_API) {
+                // Use real API
+                if (selectedDrugs.length === 2) {
+                    // Two-drug prediction
+                    const response = await predictDDI(
+                        { name: selectedDrugs[0].name, smiles: selectedDrugs[0].smiles },
+                        { name: selectedDrugs[1].name, smiles: selectedDrugs[1].smiles }
+                    );
+                    setResult(response);
+                    setPolypharmacyResult(null);
+                } else {
+                    // Polypharmacy (N-way) prediction
+                    const drugs = selectedDrugs.map(d => ({ name: d.name, smiles: d.smiles }));
+                    const response = await analyzePolypharmacy(drugs);
+                    setPolypharmacyResult(response);
+                    // Also set a summary result
+                    if (response.interactions.length > 0) {
+                        const topInteraction = response.interactions.sort((a, b) => b.risk_score - a.risk_score)[0];
+                        setResult({
+                            drug_a: topInteraction.source,
+                            drug_b: topInteraction.target,
+                            risk_score: response.max_risk_score,
+                            risk_level: response.overall_risk_level,
+                            severity: topInteraction.severity,
+                            confidence: 0.85,
+                            mechanism_hypothesis: `${response.total_interactions} interactions detected. ${response.hub_drug} is the hub drug with ${response.hub_interaction_count} interactions.`,
+                            affected_systems: Object.entries(response.body_map || {}).map(([system, severity]) => ({
+                                system,
+                                severity,
+                                symptoms: []
+                            }))
+                        });
+                    } else {
+                        setResult({
+                            severity: 'no_interaction',
+                            risk_score: 0,
+                            risk_level: 'low',
+                            mechanism_hypothesis: 'No significant interactions detected between these drugs.'
+                        });
+                    }
+                }
+            } else {
+                // Use mock data fallback
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                const drugNames = selectedDrugs.map(d => d.name).sort();
+                const key = drugNames.join('-');
+                if (MOCK_INTERACTIONS_DB[key]) {
+                    setResult(MOCK_INTERACTIONS_DB[key]);
+                } else {
+                    // Check for Warfarin-Aspirin in any order
+                    const hasWarfarin = selectedDrugs.some(d => d.name === 'Warfarin');
+                    const hasAspirin = selectedDrugs.some(d => d.name === 'Aspirin');
+                    if (hasWarfarin && hasAspirin) {
+                        setResult(MOCK_INTERACTIONS_DB['Warfarin-Aspirin']);
+                    } else {
+                        setResult({
+                            severity: 'no_interaction',
+                            risk_score: 0.1,
+                            risk_level: 'low',
+                            confidence: 0.75,
+                            mechanism_hypothesis: 'No significant interaction expected between these drugs.',
+                            affected_systems: []
+                        });
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Prediction error:', err);
+            setError('Failed to analyze drug interactions. Please try again.');
+            // Fallback to mock
+            setResult(MOCK_INTERACTIONS_DB['Warfarin-Aspirin']);
+        } finally {
             setIsAnalyzing(false);
-        }, 1500);
+        }
     };
 
-    const sendPrompt = (e) => {
+    // Send chat message using real API or mock
+    const sendPrompt = async (e) => {
         e.preventDefault();
         if (!prompt.trim()) return;
-        setMessages(prev => [...prev, { role: 'user', text: prompt }]);
+        
+        const userMessage = prompt;
+        setMessages(prev => [...prev, { role: 'user', text: userMessage }]);
         setPrompt('');
-        setTimeout(() => {
+        
+        try {
+            if (apiStatus === 'online' && USE_REAL_API) {
+                // Use real API
+                const contextDrugs = selectedDrugs.map(d => d.name);
+                const response = await sendChatMessage(userMessage, contextDrugs, chatSessionId);
+                setChatSessionId(response.session_id);
+                setMessages(prev => [...prev, {
+                    role: 'ai',
+                    text: response.response,
+                    sources: response.sources
+                }]);
+            } else {
+                // Mock response
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                setMessages(prev => [...prev, {
+                    role: 'ai',
+                    text: "The interaction is mediated by the displacement of Warfarin from albumin binding sites by Aspirin, combined with pharmacodynamic antiplatelet effects. This can lead to significantly elevated INR values and increased bleeding risk."
+                }]);
+            }
+        } catch (err) {
+            console.error('Chat error:', err);
             setMessages(prev => [...prev, {
                 role: 'ai',
-                text: "The interaction is mediated by the displacement of Warfarin from albumin binding sites by Aspirin, combined with pharmacodynamic antiplatelet effects."
+                text: "I apologize, but I'm currently unable to process your request. Please try again later."
             }]);
-        }, 1000);
+        }
+    };
+
+    // Helper to get body map data from result
+    const getBodyMapData = () => {
+        if (!result || !result.affected_systems) return {};
+        const bodyMap = {};
+        result.affected_systems.forEach(sys => {
+            bodyMap[sys.system] = sys.severity || 0.5;
+        });
+        return bodyMap;
     };
 
     return (
@@ -385,12 +600,18 @@ export default function Dashboard() {
                 <header className="h-20 px-8 flex items-center justify-between z-10 border-b border-white/5">
                     <div>
                         <h1 className="text-2xl font-bold text-white">Drug Interaction Analysis</h1>
-                        <p className="text-xs text-slate-500 font-medium">Session ID: #8821-X9 • Dr. A. Kibria</p>
+                        <p className="text-xs text-slate-500 font-medium">Session ID: #8821-X9 • Project Aegis v1.0</p>
                     </div>
                     <div className="flex items-center gap-4">
-                        <div className="h-10 px-4 bg-[#131B2C] rounded-full border border-white/10 flex items-center gap-2 shadow-sm text-sm font-medium text-emerald-400">
-                            <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]" />
-                            System Operational
+                        {/* API Status Indicator */}
+                        <div className={`h-10 px-4 bg-[#131B2C] rounded-full border border-white/10 flex items-center gap-2 shadow-sm text-sm font-medium ${
+                            apiStatus === 'online' ? 'text-emerald-400' : apiStatus === 'checking' ? 'text-yellow-400' : 'text-orange-400'
+                        }`}>
+                            <span className={`w-2 h-2 rounded-full ${
+                                apiStatus === 'online' ? 'bg-emerald-500 animate-pulse shadow-[0_0_10px_rgba(16,185,129,0.5)]' :
+                                apiStatus === 'checking' ? 'bg-yellow-500 animate-pulse' : 'bg-orange-500'
+                            }`} />
+                            {apiStatus === 'online' ? 'API Connected' : apiStatus === 'checking' ? 'Connecting...' : 'Using Mock Data'}
                         </div>
                         <button className="w-10 h-10 bg-[#131B2C] rounded-full border border-white/10 flex items-center justify-center text-slate-400 hover:text-blue-400 shadow-sm transition-colors">
                             <Bell className="w-5 h-5" />
@@ -461,10 +682,11 @@ export default function Dashboard() {
                     <div className="col-span-12 lg:col-span-6 flex flex-col gap-6 h-full">
                         <GlassCard className="flex-1 flex flex-col relative overflow-hidden p-0" noPadding={true}>
                             {/* Tab Switcher */}
-                            <div className="absolute top-6 left-6 z-10 flex gap-2">
+                            <div className="absolute top-6 left-6 z-10 flex gap-2 flex-wrap">
                                 {[
                                     { id: 'structure', label: '3D Structure', icon: Hexagon },
                                     { id: 'graph', label: 'Knowledge Graph', icon: Network },
+                                    { id: 'bodymap', label: 'Body Map', icon: User },
                                     { id: 'properties', label: 'Properties', icon: FlaskConical },
                                 ].map(tab => (
                                     <button
@@ -485,18 +707,49 @@ export default function Dashboard() {
                                     <MolecularViewer active={true} riskLevel={result?.severity || 'None'} />
                                 )}
 
+                                {activeTab === 'bodymap' && (
+                                    <div className="w-full h-full pt-20 pb-10">
+                                        <div className="text-center mb-4">
+                                            <h3 className="text-sm font-bold text-slate-300">Affected Organ Systems</h3>
+                                            <p className="text-[10px] text-slate-500">Highlighted areas indicate potential interaction effects</p>
+                                        </div>
+                                        <BodyMap affectedSystems={getBodyMapData()} />
+                                    </div>
+                                )}
+
                                 {activeTab === 'graph' && (
                                     <div className="w-full h-full flex items-center justify-center relative">
-                                        {/* Simulated Knowledge Graph */}
+                                        {/* Polypharmacy Network Graph */}
                                         <div className="absolute inset-0 flex items-center justify-center">
                                             <div className="relative w-96 h-96">
-                                                {/* Central Interactions */}
-                                                <div className="absolute top-1/2 left-1/4 -translate-y-1/2 flex flex-col items-center gap-2 animate-float-slow">
-                                                    <div className="w-16 h-16 bg-[#1A2333] rounded-2xl shadow-xl flex items-center justify-center border border-blue-500/30 z-10 font-bold text-blue-400">WAR</div>
-                                                </div>
-                                                <div className="absolute top-1/2 right-1/4 -translate-y-1/2 flex flex-col items-center gap-2 animate-float-slow" style={{ animationDelay: '1s' }}>
-                                                    <div className="w-16 h-16 bg-[#1A2333] rounded-2xl shadow-xl flex items-center justify-center border border-blue-500/30 z-10 font-bold text-blue-400">ASP</div>
-                                                </div>
+                                                {/* Drug Nodes - Dynamic based on selected drugs */}
+                                                {selectedDrugs.map((drug, idx) => {
+                                                    const angle = (idx / selectedDrugs.length) * Math.PI * 2 - Math.PI / 2;
+                                                    const radius = 100;
+                                                    const x = 50 + (radius * Math.cos(angle) / 2);
+                                                    const y = 50 + (radius * Math.sin(angle) / 2);
+                                                    return (
+                                                        <div 
+                                                            key={drug.id}
+                                                            className="absolute flex flex-col items-center gap-1 animate-float-slow"
+                                                            style={{ 
+                                                                left: `${x}%`, 
+                                                                top: `${y}%`, 
+                                                                transform: 'translate(-50%, -50%)',
+                                                                animationDelay: `${idx * 0.5}s` 
+                                                            }}
+                                                        >
+                                                            <div className={`w-14 h-14 bg-[#1A2333] rounded-2xl shadow-xl flex items-center justify-center border z-10 font-bold text-sm ${
+                                                                polypharmacyResult?.hub_drug === drug.name 
+                                                                    ? 'border-red-500/50 text-red-400' 
+                                                                    : 'border-blue-500/30 text-blue-400'
+                                                            }`}>
+                                                                {drug.name.substring(0, 3).toUpperCase()}
+                                                            </div>
+                                                            <span className="text-[10px] text-slate-500">{drug.name}</span>
+                                                        </div>
+                                                    );
+                                                })}
 
                                                 {/* Target Nodes */}
                                                 <div className="absolute top-10 left-1/2 -translate-x-1/2 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-mono text-emerald-400 shadow-sm">
@@ -562,59 +815,126 @@ export default function Dashboard() {
                                 </div>
                             </div>
 
-                            {result && result !== 'safe' ? (
+                            {/* Error Display */}
+                            {error && (
+                                <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400">
+                                    {error}
+                                </div>
+                            )}
+
+                            {result && result.severity !== 'no_interaction' ? (
                                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-6">
-                                    <div className="p-5 bg-red-500/10 border border-red-500/20 rounded-2xl shadow-sm relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-16 h-16 bg-red-500/20 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2" />
+                                    {/* Risk Alert Card */}
+                                    <div className={`p-5 rounded-2xl shadow-sm relative overflow-hidden ${
+                                        result.risk_level === 'critical' || result.severity === 'major'
+                                            ? 'bg-red-500/10 border border-red-500/20' 
+                                            : result.risk_level === 'high' || result.severity === 'moderate'
+                                            ? 'bg-orange-500/10 border border-orange-500/20'
+                                            : 'bg-yellow-500/10 border border-yellow-500/20'
+                                    }`}>
+                                        <div className={`absolute top-0 right-0 w-16 h-16 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2 ${
+                                            result.risk_level === 'critical' ? 'bg-red-500/20' : 'bg-orange-500/20'
+                                        }`} />
                                         <div className="flex gap-3 relative z-10">
-                                            <div className="p-2 bg-red-500/20 rounded-lg shadow-sm h-fit">
-                                                <AlertCircle className="w-5 h-5 text-red-400" />
+                                            <div className={`p-2 rounded-lg shadow-sm h-fit ${
+                                                result.risk_level === 'critical' ? 'bg-red-500/20' : 'bg-orange-500/20'
+                                            }`}>
+                                                <AlertCircle className={`w-5 h-5 ${
+                                                    result.risk_level === 'critical' ? 'text-red-400' : 'text-orange-400'
+                                                }`} />
                                             </div>
                                             <div>
-                                                <div className="font-bold text-red-100 leading-tight">Critical Interaction</div>
-                                                <div className="text-xs text-red-300 mt-1 opacity-80 font-medium">Warfarin + Aspirin</div>
+                                                <div className={`font-bold leading-tight ${
+                                                    result.risk_level === 'critical' ? 'text-red-100' : 'text-orange-100'
+                                                }`}>
+                                                    {result.risk_level === 'critical' ? 'Critical' : result.severity === 'major' ? 'Major' : 'Moderate'} Interaction
+                                                </div>
+                                                <div className={`text-xs mt-1 opacity-80 font-medium ${
+                                                    result.risk_level === 'critical' ? 'text-red-300' : 'text-orange-300'
+                                                }`}>
+                                                    {result.drug_a || selectedDrugs[0]?.name} + {result.drug_b || selectedDrugs[1]?.name}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
 
+                                    {/* Risk Score Display */}
                                     <div>
-                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Confidence Score</div>
+                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">Risk Score</div>
                                         <div className="flex items-end gap-3">
-                                            <span className="text-4xl font-light text-white tracking-tighter">98.4<span className="text-lg text-slate-500 ml-1">%</span></span>
+                                            <span className="text-4xl font-light text-white tracking-tighter">
+                                                {((result.risk_score || result.confidence || 0.5) * 100).toFixed(1)}
+                                                <span className="text-lg text-slate-500 ml-1">%</span>
+                                            </span>
                                             <div className="flex-1 h-2 bg-slate-800 rounded-full mb-3 overflow-hidden">
-                                                <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 w-[98%] shadow-[0_0_10px_rgba(59,130,246,0.5)]" />
+                                                <div 
+                                                    className={`h-full shadow-[0_0_10px_rgba(59,130,246,0.5)] ${
+                                                        result.risk_level === 'critical' ? 'bg-gradient-to-r from-red-500 to-red-600' :
+                                                        result.risk_level === 'high' ? 'bg-gradient-to-r from-orange-500 to-red-500' :
+                                                        'bg-gradient-to-r from-blue-500 to-indigo-600'
+                                                    }`}
+                                                    style={{ width: `${(result.risk_score || result.confidence || 0.5) * 100}%` }}
+                                                />
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="space-y-3">
+                                        {/* Mechanism */}
                                         <div className="p-4 bg-white/5 border border-white/10 rounded-2xl shadow-sm">
                                             <div className="text-[10px] font-bold text-blue-400 uppercase mb-2 flex items-center gap-2">
-                                                <Activity className="w-3 h-3" /> Mechanism
+                                                <Activity className="w-3 h-3" /> Mechanism Hypothesis
                                             </div>
                                             <p className="text-sm text-slate-300 leading-relaxed font-medium">
-                                                {result.mechanism}
+                                                {result.mechanism_hypothesis || result.mechanism || 'Analyzing interaction mechanism...'}
                                             </p>
                                         </div>
 
-                                        <div className="p-4 bg-white/5 border border-white/10 rounded-2xl shadow-sm">
-                                            <div className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
-                                                <FileText className="w-3 h-3" /> Key Citations
+                                        {/* Affected Systems */}
+                                        {result.affected_systems && result.affected_systems.length > 0 && (
+                                            <div className="p-4 bg-white/5 border border-white/10 rounded-2xl shadow-sm">
+                                                <div className="text-[10px] font-bold text-red-400 uppercase mb-2 flex items-center gap-2">
+                                                    <Heart className="w-3 h-3" /> Affected Systems
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {result.affected_systems.map((sys, i) => (
+                                                        <span key={i} className="px-2 py-1 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-400 capitalize">
+                                                            {sys.system || sys}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
-                                            <ul className="space-y-2">
-                                                {result.citations.map((c, i) => (
-                                                    <li key={i} className="text-[11px] text-blue-400 hover:text-blue-300 hover:underline cursor-pointer flex items-start gap-2">
-                                                        <span className="mt-1 w-1 h-1 rounded-full bg-blue-500" /> {c}
-                                                    </li>
-                                                ))}
-                                            </ul>
-                                        </div>
+                                        )}
+
+                                        {/* Citations */}
+                                        {result.citations && (
+                                            <div className="p-4 bg-white/5 border border-white/10 rounded-2xl shadow-sm">
+                                                <div className="text-[10px] font-bold text-slate-500 uppercase mb-2 flex items-center gap-2">
+                                                    <FileText className="w-3 h-3" /> Key Citations
+                                                </div>
+                                                <ul className="space-y-2">
+                                                    {result.citations.map((c, i) => (
+                                                        <li key={i} className="text-[11px] text-blue-400 hover:text-blue-300 hover:underline cursor-pointer flex items-start gap-2">
+                                                            <span className="mt-1 w-1 h-1 rounded-full bg-blue-500" /> {c}
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : result && result.severity === 'no_interaction' ? (
+                                <div className="flex-1 flex flex-col items-center justify-center">
+                                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl text-center">
+                                        <Shield className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                                        <p className="text-sm font-medium text-emerald-300">No Significant Interaction</p>
+                                        <p className="text-xs text-slate-500 mt-1">{result.mechanism_hypothesis}</p>
                                     </div>
                                 </div>
                             ) : (
                                 <div className="flex-1 flex flex-col items-center justify-center opacity-40">
                                     <Database className="w-12 h-12 text-slate-600 mb-4" />
-                                    <p className="text-sm text-slate-500 text-center">Awaiting inputs...</p>
+                                    <p className="text-sm text-slate-500 text-center">Select drugs and run analysis</p>
                                 </div>
                             )}
 
