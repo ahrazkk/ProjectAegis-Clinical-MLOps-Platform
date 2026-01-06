@@ -428,8 +428,8 @@ class DrugSearchView(APIView):
                     results.append({
                         'name': drug.get('name', ''),
                         'drugbank_id': drug.get('id', ''),
+                        'smiles': drug.get('smiles', ''),  # Include SMILES for 3D visualization
                         'category': drug.get('category', ''),
-                        'has_smiles': bool(drug.get('smiles'))
                     })
         except Exception as e:
             logger.warning(f"Knowledge graph search failed: {e}")
@@ -441,8 +441,8 @@ class DrugSearchView(APIView):
                     results.append({
                         'name': drug['name'],
                         'drugbank_id': drug['drugbank_id'],
+                        'smiles': drug.get('smiles', ''),  # Include SMILES for 3D visualization
                         'category': '',
-                        'has_smiles': bool(drug.get('smiles'))
                     })
         
         # Also search database
@@ -454,8 +454,8 @@ class DrugSearchView(APIView):
                     results.append({
                         'name': drug.name,
                         'drugbank_id': drug.drugbank_id,
-                        'category': drug.category or '',
-                        'has_smiles': bool(drug.smiles)
+                        'smiles': drug.smiles or '',  # Include SMILES for 3D visualization
+                        'category': drug.drug_class or '',
                     })
         except Exception as e:
             logger.warning(f"Database search failed: {e}")

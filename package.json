@@ -18,6 +18,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.11.0",
+    "smiles-drawer": "^2.1.7",
     "three": "^0.181.2",
     "three-stdlib": "^2.36.1"
   },

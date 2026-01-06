@@ -31,10 +31,13 @@ import {
   Microscope,
   Pill,
   Target,
-  Layers
+  Layers,
+  Box,
+  Hexagon
 } from 'lucide-react';
 import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth } from '../services/api';
 import MoleculeViewer from '../components/MoleculeViewer';
+import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
 import KnowledgeGraphView from '../components/KnowledgeGraphView';
 
@@ -67,7 +70,7 @@ export default function Dashboard() {
   const [polypharmacyResult, setPolypharmacyResult] = useState(null);
   
   // UI State
-  const [activeTab, setActiveTab] = useState('molecules');
+  const [activeTab, setActiveTab] = useState('molecules2d');
   const [showSearch, setShowSearch] = useState(false);
   
   // Chat State
@@ -454,7 +457,8 @@ export default function Dashboard() {
           {/* Visualization Tabs */}
           <div className="p-4 border-b border-white/5 flex items-center gap-2">
             {[
-              { id: 'molecules', label: '3D Molecules', icon: Microscope },
+              { id: 'molecules2d', label: '2D Structure', icon: Hexagon },
+              { id: 'molecules', label: '3D Molecules', icon: Box },
               { id: 'graph', label: 'Knowledge Graph', icon: Network },
               { id: 'body', label: 'Body Map', icon: Heart },
             ].map(tab => (
@@ -475,6 +479,12 @@ export default function Dashboard() {
 
           {/* Visualization Area */}
           <div className="flex-1 relative overflow-hidden bg-gradient-to-br from-[#0d0d14] to-[#0a0a10]">
+            {activeTab === 'molecules2d' && (
+              <MoleculeViewer2D 
+                drugs={selectedDrugs} 
+                result={result}
+              />
+            )}
             {activeTab === 'molecules' && (
               <MoleculeViewer 
                 drugs={selectedDrugs} 
