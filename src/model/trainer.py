@@ -8,13 +8,12 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from transformers import get_linear_schedule_with_warmup
-from typing import Dict, Optional, Tuple, Callable, Any
+from typing import Dict, Optional, Tuple, Any
 import numpy as np
 from tqdm import tqdm
 import logging
 from pathlib import Path
 from dataclasses import dataclass
-import json
 from datetime import datetime
 
 from .ddi_model import DDIModel
@@ -40,9 +39,9 @@ class TrainingConfig:
     head_dropout_rate: float = 0.1         # Range: [0.1, 0.3], LINEAR_SCALE
     aux_loss_weight: float = 0.5           # Range: [0.2, 0.8], LINEAR_SCALE
 
-    # Fixed training parameters
-    num_epochs: int = 10
-    max_grad_norm: float = 1.0
+    # Fixed training parameters (baseline values from MCR III)
+    num_epochs: int = 10                   # Default: 10 epochs as baseline training schedule
+    max_grad_norm: float = 1.0             # Default: 1.0 for standard gradient clipping to stabilize training
     use_binary: bool = True
     num_relation_classes: int = 1          # 1 for binary, k for multi-class
     num_ner_classes: int = 3               # O, B-DRUG, I-DRUG
@@ -149,6 +148,13 @@ class DDITrainer:
 
         Reference: MCR III Section 2 - AdamW L2 regularization
         """
+        # Validate model architecture
+        if not hasattr(self.model, 'encoder'):
+            raise AttributeError(
+                "Model must have an 'encoder' attribute for optimizer setup. "
+                "Ensure the model architecture follows the expected DDIModel structure."
+            )
+        
         # Separate encoder and head parameters for different learning rates
         no_decay = ['bias', 'LayerNorm.weight']
 
@@ -270,7 +276,9 @@ class DDITrainer:
 
             # Forward pass
             if self.optimizer is None:
-                raise RuntimeError("Optimizer not initialized. Call train() instead of train_epoch().")
+                raise RuntimeError(
+                    "Optimizer not initialized. This method should not be called directly - use train() which handles optimizer setup."
+                )
 
             self.optimizer.zero_grad()
             relation_logits, ner_logits = self.model(
@@ -464,7 +472,7 @@ class DDITrainer:
         }
 
     def _save_checkpoint(self, filename: str, metrics: Dict):
-        """Save model checkpoint"""
+        """Save model checkpoint with error handling"""
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
             'temperature': self.temperature_scaling.temperature.item(),
@@ -478,7 +486,15 @@ class DDITrainer:
         if self.scheduler is not None:
             checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
-        torch.save(checkpoint, self.output_dir / filename)
+        try:
+            torch.save(checkpoint, self.output_dir / filename)
+            logger.info(f"Checkpoint saved successfully: {filename}")
+        except IOError as e:
+            logger.error(f"Failed to save checkpoint {filename}: {e}")
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected error saving checkpoint {filename}: {e}")
+            raise
 
     def load_checkpoint(self, filepath: str):
         """Load model from checkpoint"""
@@ -522,7 +538,10 @@ class DDITrainer:
         logits = torch.cat(all_logits, dim=0)
         labels = torch.cat(all_labels, dim=0)
 
-        # Calibrate temperature
-        if not self.config.use_binary:
+        # Calibrate temperature for both binary and multi-class
+        if self.config.use_binary:
+            self.temperature_scaling.calibrate(logits, labels, use_binary=True)
+            logger.info(f"Calibrated temperature (binary): {self.temperature_scaling.temperature.item():.3f}")
+        else:
             self.temperature_scaling.calibrate(logits, labels.long())
-            logger.info(f"Calibrated temperature: {self.temperature_scaling.temperature.item():.3f}")
+            logger.info(f"Calibrated temperature (multi-class): {self.temperature_scaling.temperature.item():.3f}")

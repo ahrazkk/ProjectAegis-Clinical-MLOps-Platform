@@ -6,7 +6,6 @@ Handles text tokenization with [DRUG1], [/DRUG1], [DRUG2], [/DRUG2] markers
 import torch
 from transformers import AutoTokenizer
 from typing import Dict, List, Tuple, Optional
-import re
 
 
 class DDITokenizer:
@@ -59,6 +58,20 @@ class DDITokenizer:
         self.drug2_start_id = self.tokenizer.convert_tokens_to_ids('[DRUG2]')
         self.drug2_end_id = self.tokenizer.convert_tokens_to_ids('[/DRUG2]')
 
+    def get_marker_ids(self) -> set:
+        """
+        Get all drug marker token IDs as a set for easy checking
+        
+        Returns:
+            Set of marker token IDs
+        """
+        return {
+            self.drug1_start_id,
+            self.drug1_end_id,
+            self.drug2_start_id,
+            self.drug2_end_id
+        }
+
     def get_vocab_size(self) -> int:
         """Get vocabulary size including special tokens"""
         return len(self.tokenizer)
@@ -87,21 +100,33 @@ class DDITokenizer:
         marked_text = text
         for span, drug_num in spans:
             start, end = span
+            before = marked_text[:start]
+            entity = marked_text[start:end]
+            after = marked_text[end:]
+
+            prev_char = before[-1] if before else ''
+            next_char = after[0] if after else ''
+
+            # Add a space before the start marker only if needed
+            add_space_before = bool(before and not prev_char.isspace() and prev_char not in '([{')
+            # Add a space after the end marker only if the next char is not whitespace or punctuation
+            add_space_after = bool(after and not next_char.isspace() and next_char not in '.,;:!?)]}')
+
             if drug_num == '1':
                 marked_text = (
-                    marked_text[:start] +
+                    (before + (' ' if add_space_before else '')) +
                     self.SPECIAL_TOKENS['drug1_start'] + ' ' +
-                    marked_text[start:end] + ' ' +
+                    entity + ' ' +
                     self.SPECIAL_TOKENS['drug1_end'] +
-                    marked_text[end:]
+                    ((' ' if add_space_after else '') + after)
                 )
             else:
                 marked_text = (
-                    marked_text[:start] +
+                    (before + (' ' if add_space_before else '')) +
                     self.SPECIAL_TOKENS['drug2_start'] + ' ' +
-                    marked_text[start:end] + ' ' +
+                    entity + ' ' +
                     self.SPECIAL_TOKENS['drug2_end'] +
-                    marked_text[end:]
+                    ((' ' if add_space_after else '') + after)
                 )
 
         return marked_text
@@ -168,14 +193,45 @@ class DDITokenizer:
         Returns:
             Batched tokenization outputs
         """
-        batch_outputs = [self.tokenize(text, return_tensors) for text in texts]
+        # Use the underlying tokenizer's native batch processing for efficiency
+        encoding = self.tokenizer(
+            texts,
+            return_tensors=return_tensors,
+            padding=True,
+            truncation=True
+        )
+
+        input_ids = encoding["input_ids"]
+        attention_mask = encoding["attention_mask"]
+
+        # Compute drug masks and NER labels per sequence
+        drug1_masks = []
+        drug2_masks = []
+        ner_labels = []
+
+        for seq_ids in input_ids:
+            drug1_masks.append(
+                self._create_drug_mask(
+                    seq_ids,
+                    self.drug1_start_id,
+                    self.drug1_end_id
+                )
+            )
+            drug2_masks.append(
+                self._create_drug_mask(
+                    seq_ids,
+                    self.drug2_start_id,
+                    self.drug2_end_id
+                )
+            )
+            ner_labels.append(self._create_ner_labels(seq_ids))
 
         return {
-            'input_ids': torch.stack([o['input_ids'] for o in batch_outputs]),
-            'attention_mask': torch.stack([o['attention_mask'] for o in batch_outputs]),
-            'drug1_mask': torch.stack([o['drug1_mask'] for o in batch_outputs]),
-            'drug2_mask': torch.stack([o['drug2_mask'] for o in batch_outputs]),
-            'ner_labels': torch.stack([o['ner_labels'] for o in batch_outputs])
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "drug1_mask": torch.stack(drug1_masks, dim=0),
+            "drug2_mask": torch.stack(drug2_masks, dim=0),
+            "ner_labels": torch.stack(ner_labels, dim=0),
         }
 
     def _create_drug_mask(
@@ -234,29 +290,42 @@ class DDITokenizer:
         # Initialize all as O (outside)
         ner_labels = torch.zeros_like(input_ids, dtype=torch.long)
 
-        # Combined drug mask (excluding marker tokens themselves)
-        marker_ids = {
-            self.drug1_start_id, self.drug1_end_id,
-            self.drug2_start_id, self.drug2_end_id
-        }
+        # Get marker IDs using shared method
+        marker_ids = self.get_marker_ids()
 
         # Process drug1 region
         drug1_positions = (drug1_mask > 0).nonzero(as_tuple=True)[0]
         for i, pos in enumerate(drug1_positions):
             if input_ids[pos].item() not in marker_ids:
-                if i == 0 or input_ids[drug1_positions[i-1]].item() in marker_ids:
+                if i == 0:
+                    # First token for this drug in the sequence: begin entity
                     ner_labels[pos] = self.NER_LABELS['B-DRUG']
                 else:
-                    ner_labels[pos] = self.NER_LABELS['I-DRUG']
+                    prev_pos = drug1_positions[i - 1]
+                    prev_token_id = input_ids[prev_pos].item()
+                    # If current position is immediately after previous non-marker token,
+                    # treat it as inside the same entity; otherwise, begin a new entity.
+                    if pos == prev_pos + 1 and prev_token_id not in marker_ids:
+                        ner_labels[pos] = self.NER_LABELS['I-DRUG']
+                    else:
+                        ner_labels[pos] = self.NER_LABELS['B-DRUG']
 
         # Process drug2 region
         drug2_positions = (drug2_mask > 0).nonzero(as_tuple=True)[0]
         for i, pos in enumerate(drug2_positions):
             if input_ids[pos].item() not in marker_ids:
-                if i == 0 or input_ids[drug2_positions[i-1]].item() in marker_ids:
+                if i == 0:
+                    # First token for this drug in the sequence: begin entity
                     ner_labels[pos] = self.NER_LABELS['B-DRUG']
                 else:
-                    ner_labels[pos] = self.NER_LABELS['I-DRUG']
+                    prev_pos = drug2_positions[i - 1]
+                    prev_token_id = input_ids[prev_pos].item()
+                    # If current position is immediately after previous non-marker token,
+                    # treat it as inside the same entity; otherwise, begin a new entity.
+                    if pos == prev_pos + 1 and prev_token_id not in marker_ids:
+                        ner_labels[pos] = self.NER_LABELS['I-DRUG']
+                    else:
+                        ner_labels[pos] = self.NER_LABELS['B-DRUG']
 
         return ner_labels
 

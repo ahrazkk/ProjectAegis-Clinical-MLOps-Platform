@@ -4,7 +4,7 @@ Defines the search space and optimization settings for hyperparameter tuning
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 from enum import Enum
 import json
 
@@ -170,14 +170,14 @@ class VizierStudyConfig:
     def from_json(cls, filepath: str) -> 'VizierStudyConfig':
         """Load study configuration from JSON file"""
         with open(filepath, 'r') as f:
-            config = json.load(f)
+            json.load(f)
         # Parse and return config (simplified for now)
         return cls()
 
 
-def parse_vizier_trial(trial_params: Dict) -> Dict:
+def vizier_trial_to_training_config(trial_params: Dict) -> Dict:
     """
-    Parse Vizier trial parameters to training config format
+    Convert Vizier trial parameters to training config format
 
     Args:
         trial_params: Parameters from Vizier trial

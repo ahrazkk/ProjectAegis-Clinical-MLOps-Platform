@@ -12,17 +12,15 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
     f1_score,
-    confusion_matrix,
-    classification_report
+    confusion_matrix
 )
 from sklearn.model_selection import StratifiedKFold
-from typing import Dict, List, Tuple, Optional, Any
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 import logging
 from collections import Counter
 import json
-from pathlib import Path
 
 from torch.utils.data import DataLoader, Subset
 
@@ -337,7 +335,21 @@ class ErrorAnalyzer:
             predicted_label: Model prediction
 
         Returns:
-            Classified error type
+            ErrorType: One of the following, based on simple heuristics:
+                - ErrorType.NEGATION_MISINTERPRETATION: The text contains
+                  explicit negation patterns related to interactions (for
+                  example, phrases like "no interaction", "does not", "without",
+                  or similar negating expressions).
+                - ErrorType.IMPLICIT_INTERACTION: The text uses hedging or
+                  implicit language about interactions (for example, "may",
+                  "might", "could", "possibly", "potential", "caution",
+                  "monitor", "consider").
+                - ErrorType.FALSE_POSITIVE: The ground truth label is 0
+                  (no interaction) but the model predicted a positive label
+                  (> 0).
+                - ErrorType.FALSE_NEGATIVE: The ground truth label is positive
+                  (> 0) but the model predicted 0 (no interaction).
+                - ErrorType.UNKNOWN: None of the above conditions are met.
         """
         text_lower = text.lower()
 

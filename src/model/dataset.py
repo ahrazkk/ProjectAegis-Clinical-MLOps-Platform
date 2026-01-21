@@ -8,9 +8,12 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Tuple, Optional, Any
 import json
 import pandas as pd
-from pathlib import Path
+import logging
 
 from .tokenization import DDITokenizer
+
+
+logger = logging.getLogger(__name__)
 
 
 class DDIDataset(Dataset):
@@ -69,11 +72,21 @@ class DDIDataset(Dataset):
     def _preprocess_all(self) -> List[Dict[str, torch.Tensor]]:
         """Pre-process all samples for faster training"""
         processed = []
+        failed_count = 0
 
         for sample in self.data:
             processed_sample = self._preprocess_sample(sample)
             if processed_sample is not None:
                 processed.append(processed_sample)
+            else:
+                failed_count += 1
+
+        if failed_count > 0:
+            logger.warning(
+                f"Dropped {failed_count} samples during preprocessing "
+                f"({failed_count}/{len(self.data)} = {100*failed_count/len(self.data):.1f}%). "
+                f"Successfully processed {len(processed)} samples."
+            )
 
         return processed
 
@@ -119,7 +132,7 @@ class DDIDataset(Dataset):
             }
             return result
         except Exception as e:
-            print(f"Error processing sample: {e}")
+            logger.warning(f"Error processing sample: {e}")
             return None
 
     def __len__(self) -> int:

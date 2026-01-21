@@ -52,22 +52,32 @@ class TemperatureScaling(nn.Module):
         logits: torch.Tensor,
         labels: torch.Tensor,
         lr: float = 0.01,
-        max_iter: int = 50
+        max_iter: int = 50,
+        use_binary: bool = False
     ):
         """
         Fit temperature parameter on validation set
         
         Args:
-            logits: Validation set logits [n_samples, num_classes]
+            logits: Validation set logits [n_samples, num_classes] or [n_samples, 1] for binary
             labels: True labels [n_samples]
             lr: Learning rate for optimization
             max_iter: Maximum optimization iterations
+            use_binary: If True, use binary cross entropy with sigmoid; otherwise use softmax
         """
         optimizer = torch.optim.LBFGS([self.temperature], lr=lr, max_iter=max_iter)
         
         def eval_loss():
             optimizer.zero_grad()
-            loss = nn.functional.cross_entropy(logits / self.temperature, labels)
+            if use_binary:
+                # For binary classification, use BCE with logits
+                loss = nn.functional.binary_cross_entropy_with_logits(
+                    logits / self.temperature, 
+                    labels.float()
+                )
+            else:
+                # For multi-class, use cross entropy
+                loss = nn.functional.cross_entropy(logits / self.temperature, labels)
             loss.backward()
             return loss
         
@@ -92,6 +102,12 @@ class RiskScorer:
     }
     
     # Risk categorization thresholds
+    # These thresholds are based on standard clinical risk assessment practice:
+    # - low (0.0-0.3): Minimal interaction risk, routine monitoring sufficient
+    # - moderate (0.3-0.7): Significant interaction possible, enhanced monitoring recommended
+    # - high (0.7-1.0): Major interaction likely, intervention may be required
+    # Note: These values should be validated against clinical guidelines and adjusted based on
+    # empirical validation in the target clinical setting
     RISK_THRESHOLDS = {
         'low': (0.0, 0.3),
         'moderate': (0.3, 0.7),
@@ -124,7 +140,9 @@ class RiskScorer:
         Formula: R = Σ(P_calibrated_i × W_i)
         
         Args:
-            probabilities: Calibrated class probabilities [batch_size, num_classes]
+            probabilities: Calibrated class probabilities 
+                          [batch_size, num_classes] for multi-class
+                          [batch_size, 1] or [batch_size] for binary
         
         Returns:
             risk_scores: Scalar risk scores [batch_size]
@@ -137,16 +155,21 @@ class RiskScorer:
         else:
             probabilities_np = probabilities
         
-        # Create weight vector
-        num_classes = probabilities_np.shape[-1]
-        weights = np.zeros(num_classes)
-        
-        for class_idx, severity in self.class_to_severity.items():
-            if severity in self.severity_weights:
-                weights[class_idx] = self.severity_weights[severity]
-        
-        # Calculate weighted sum: R = Σ(P_i × W_i)
-        risk_scores = np.dot(probabilities_np, weights)
+        # Handle binary classification case
+        if probabilities_np.ndim == 1 or probabilities_np.shape[-1] == 1:
+            # For binary: risk score is the probability itself (squeezed to 1D)
+            risk_scores = probabilities_np.squeeze()
+        else:
+            # For multi-class: create weight vector and compute weighted sum
+            num_classes = probabilities_np.shape[-1]
+            weights = np.zeros(num_classes)
+            
+            for class_idx, severity in self.class_to_severity.items():
+                if severity in self.severity_weights:
+                    weights[class_idx] = self.severity_weights[severity]
+            
+            # Calculate weighted sum: R = Σ(P_i × W_i)
+            risk_scores = np.dot(probabilities_np, weights)
         
         if is_torch:
             risk_scores = torch.tensor(risk_scores, device=device)
