@@ -391,6 +391,7 @@ class DDITrainer:
             
             # Clear GPU memory periodically to prevent OOM
             del relation_logits, ner_logits, loss, preds, probs
+            # Clear cache every 100 batches to balance memory management overhead with effectiveness
             if num_batches % 100 == 0:
                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
 

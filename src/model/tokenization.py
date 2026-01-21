@@ -32,6 +32,10 @@ class DDITokenizer:
         'B-DRUG': 1,  # Beginning of drug entity
         'I-DRUG': 2   # Inside drug entity
     }
+    
+    # Punctuation sets for smart spacing around markers
+    OPENING_PUNCTUATION = '([{'
+    CLOSING_PUNCTUATION = '.,;:!?)]}'
 
     def __init__(
         self,
@@ -108,9 +112,9 @@ class DDITokenizer:
             next_char = after[0] if after else ''
 
             # Add a space before the start marker only if needed
-            add_space_before = bool(before and not prev_char.isspace() and prev_char not in '([{')
+            add_space_before = bool(before and not prev_char.isspace() and prev_char not in self.OPENING_PUNCTUATION)
             # Add a space after the end marker only if the next char is not whitespace or punctuation
-            add_space_after = bool(after and not next_char.isspace() and next_char not in '.,;:!?)]}')
+            add_space_after = bool(after and not next_char.isspace() and next_char not in self.CLOSING_PUNCTUATION)
 
             if drug_num == '1':
                 marked_text = (
