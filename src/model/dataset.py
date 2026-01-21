@@ -51,7 +51,8 @@ class DDIDataset(Dataset):
         self,
         data: List[Dict[str, Any]],
         tokenizer: DDITokenizer,
-        use_binary_labels: bool = True
+        use_binary_labels: bool = True,
+        lazy_loading: bool = False
     ):
         """
         Initialize DDI Dataset
@@ -61,13 +62,24 @@ class DDIDataset(Dataset):
             tokenizer: DDITokenizer instance
             use_binary_labels: If True, use binary interaction labels;
                              if False, use multi-class interaction types
+            lazy_loading: If True, process samples on-demand during iteration (slower per-batch
+                         but faster initialization and lower memory); if False, pre-process all 
+                         samples during initialization (default, faster training)
         """
         self.data = data
         self.tokenizer = tokenizer
         self.use_binary_labels = use_binary_labels
+        self.lazy_loading = lazy_loading
 
-        # Pre-process all samples
-        self.processed_samples = self._preprocess_all()
+        if lazy_loading:
+            # Lazy loading: keep track of valid indices only
+            logger.info("Using lazy loading mode - samples will be processed on-demand")
+            self.processed_samples = None
+            self.valid_indices = list(range(len(data)))
+        else:
+            # Eager loading: pre-process all samples
+            self.processed_samples = self._preprocess_all()
+            self.valid_indices = None
 
     def _preprocess_all(self) -> List[Dict[str, torch.Tensor]]:
         """Pre-process all samples for faster training"""
@@ -136,9 +148,21 @@ class DDIDataset(Dataset):
             return None
 
     def __len__(self) -> int:
+        if self.lazy_loading:
+            return len(self.valid_indices)
         return len(self.processed_samples)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        if self.lazy_loading:
+            # Process sample on-demand
+            data_idx = self.valid_indices[idx]
+            sample = self.data[data_idx]
+            processed = self._preprocess_sample(sample)
+            if processed is None:
+                # Fallback: return a dummy sample if processing fails
+                # This shouldn't happen if valid_indices is correctly maintained
+                raise RuntimeError(f"Failed to process sample at index {data_idx} during lazy loading")
+            return processed
         return self.processed_samples[idx]
 
     @staticmethod

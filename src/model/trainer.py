@@ -350,6 +350,9 @@ class DDITrainer:
         all_labels = []
         all_logits = []
         num_batches = 0
+        
+        # Memory management: process predictions in chunks to avoid OOM on large validation sets
+        max_accumulated_samples = 10000  # Process up to 10k samples before aggregating
 
         for batch in tqdm(val_loader, desc="Evaluating"):
             input_ids = batch['input_ids'].to(self.device)
@@ -388,6 +391,13 @@ class DDITrainer:
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(relation_labels.cpu().numpy())
             all_logits.extend(relation_logits.cpu().numpy())
+            
+            # Memory management: if accumulated too many samples, convert to arrays periodically
+            if len(all_preds) > max_accumulated_samples:
+                # Convert to numpy arrays to free Python list memory
+                all_preds = np.array(all_preds).tolist()
+                all_labels = np.array(all_labels).tolist()
+                all_logits = np.array(all_logits).tolist()
 
         # Calculate metrics
         from .evaluation import calculate_metrics
