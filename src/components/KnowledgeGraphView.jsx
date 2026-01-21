@@ -15,6 +15,39 @@ const nodeTypes = {
 const commonTargets = ['CYP3A4', 'CYP2D6', 'CYP2C9', 'P-gp', 'OATP1B1'];
 const commonEnzymes = ['CYP3A4', 'CYP2D6', 'CYP2C9', 'CYP2C19', 'CYP1A2'];
 
+// Helper to extract entities from text
+function extractEntities(text) {
+  if (!text) return [];
+
+  const entities = new Set();
+
+  // Common biological entities to look for
+  const patterns = [
+    /CYP\d+[A-Z]\d+/gi, // CYP3A4, CYP2D6
+    /VKORC1/gi,
+    /COX-[12]/gi,
+    /P-gp/gi,
+    /OATP\w+/gi,
+    /Platelet/gi,
+    /Serotonin/gi,
+    /Dopamine/gi,
+    /ACE/gi
+  ];
+
+  patterns.forEach(pattern => {
+    const matches = text.match(pattern);
+    if (matches) {
+      matches.forEach(m => entities.add(m));
+    }
+  });
+
+  return Array.from(entities).map((name, i) => ({
+    id: `entity-${i}`,
+    label: name,
+    type: name.toUpperCase().startsWith('CYP') ? 'enzyme' : 'target'
+  }));
+}
+
 function generateGraphData(drugs, result, polypharmacyResult) {
   const nodes = [];
   const edges = [];
@@ -24,10 +57,18 @@ function generateGraphData(drugs, result, polypharmacyResult) {
   // Add drug nodes in a circle
   const centerX = 400;
   const centerY = 300;
-  const drugRadius = 150;
+  // Dynamic radius based on count
+  const drugRadius = drugs.length === 2 ? 200 : 150;
 
   drugs.forEach((drug, i) => {
-    const angle = (i / drugs.length) * Math.PI * 2 - Math.PI / 2;
+    // For 2 drugs, place them Left and Right
+    let angle;
+    if (drugs.length === 2) {
+      angle = i === 0 ? Math.PI : 0; // Left (180deg) and Right (0deg)
+    } else {
+      angle = (i / drugs.length) * Math.PI * 2 - Math.PI / 2;
+    }
+
     nodes.push({
       id: drug.drugbank_id || drug.name,
       label: drug.name,
@@ -38,48 +79,36 @@ function generateGraphData(drugs, result, polypharmacyResult) {
     });
   });
 
-  // Add shared targets/enzymes if we have a result
+  // Dynamic Entity Extraction
   if (result && drugs.length >= 2) {
-    // Add a shared enzyme node
-    const enzyme = result.mechanism_hypothesis?.includes('CYP') 
-      ? result.mechanism_hypothesis.match(/CYP\w+/)?.[0] || 'CYP3A4'
-      : 'CYP3A4';
-    
-    nodes.push({
-      id: 'enzyme-1',
-      label: enzyme,
-      type: 'enzyme',
-      x: centerX,
-      y: centerY - 80
-    });
+    const mechanismText = result.mechanism_hypothesis || '';
+    const extractedEntities = extractEntities(mechanismText);
 
-    // Add target node
-    nodes.push({
-      id: 'target-1',
-      label: 'VKORC1',
-      type: 'target',
-      x: centerX,
-      y: centerY + 80
-    });
+    // Position extracted entities in the center
+    const totalEntities = extractedEntities.length;
+    extractedEntities.forEach((entity, i) => {
+      // Stack vertically in center
+      const yOffset = totalEntities > 1 ? (i - (totalEntities - 1) / 2) * 80 : 0;
 
-    // Connect drugs to shared nodes
-    drugs.forEach((drug) => {
-      edges.push({
-        source: drug.drugbank_id || drug.name,
-        target: 'enzyme-1',
-        type: 'inhibits',
-        strength: 0.7
+      nodes.push({
+        ...entity,
+        x: centerX,
+        y: centerY + yOffset
       });
-      edges.push({
-        source: drug.drugbank_id || drug.name,
-        target: 'target-1',
-        type: 'binds',
-        strength: 0.5
+
+      // Connect drugs to this entity
+      drugs.forEach(drug => {
+        edges.push({
+          source: drug.drugbank_id || drug.name,
+          target: entity.id,
+          type: 'mechanism',
+          strength: 0.6
+        });
       });
     });
 
-    // Add interaction edge between drugs
-    if (drugs.length === 2 && result.severity !== 'no_interaction') {
+    // Add direct interaction edge if no entities found OR explicit high risk
+    if (extractedEntities.length === 0 || result.risk_score > 0.7) {
       edges.push({
         source: drugs[0].drugbank_id || drugs[0].name,
         target: drugs[1].drugbank_id || drugs[1].name,
@@ -95,7 +124,7 @@ function generateGraphData(drugs, result, polypharmacyResult) {
     polypharmacyResult.interactions.forEach((interaction, i) => {
       const sourceNode = nodes.find(n => n.label === interaction.source);
       const targetNode = nodes.find(n => n.label === interaction.target);
-      
+
       if (sourceNode && targetNode) {
         edges.push({
           source: sourceNode.id,
@@ -233,7 +262,7 @@ function GraphEdge({ edge, nodes }) {
   if (!sourceNode || !targetNode) return null;
 
   const isInteraction = edge.type === 'interaction';
-  
+
   const getEdgeColor = () => {
     if (!isInteraction) return '#475569';
     switch (edge.severity) {
@@ -267,7 +296,7 @@ function GraphEdge({ edge, nodes }) {
         opacity={isInteraction ? 0.8 : 0.4}
         markerEnd={isInteraction ? 'none' : 'url(#arrowhead)'}
       />
-      
+
       {/* Animated pulse for interactions */}
       {isInteraction && (
         <motion.circle
@@ -306,7 +335,7 @@ function NodeInfoPanel({ node, onClose }) {
             <span className="text-xs text-slate-500 capitalize">{node.type}</span>
           </div>
         </div>
-        <button 
+        <button
           onClick={onClose}
           className="p-1 hover:bg-white/10 rounded-lg transition-colors"
         >
@@ -388,7 +417,7 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
   return (
     <div className="w-full h-full relative overflow-hidden">
       {/* Background grid */}
-      <div 
+      <div
         className="absolute inset-0 opacity-[0.03]"
         style={{
           backgroundImage: 'radial-gradient(circle, #3B82F6 1px, transparent 1px)',
@@ -436,9 +465,9 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
       {/* Node info panel */}
       <AnimatePresence>
         {selectedNode && (
-          <NodeInfoPanel 
-            node={selectedNode} 
-            onClose={() => setSelectedNode(null)} 
+          <NodeInfoPanel
+            node={selectedNode}
+            onClose={() => setSelectedNode(null)}
           />
         )}
       </AnimatePresence>
@@ -448,7 +477,7 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
         <div className="flex items-center gap-3 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-xl border border-white/10">
           {Object.entries(nodeTypes).slice(0, 4).map(([type, config]) => (
             <div key={type} className="flex items-center gap-2">
-              <div 
+              <div
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: config.color }}
               />

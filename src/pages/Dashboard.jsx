@@ -40,6 +40,7 @@ import MoleculeViewer from '../components/MoleculeViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
 import KnowledgeGraphView from '../components/KnowledgeGraphView';
+import RiskGauge from '../components/RiskGauge';
 
 // Debounce hook
 function useDebounce(value, delay) {
@@ -53,26 +54,26 @@ function useDebounce(value, delay) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  
+
   // API State
   const [apiStatus, setApiStatus] = useState('checking');
   const [error, setError] = useState(null);
-  
+
   // Drug Selection State
   const [selectedDrugs, setSelectedDrugs] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
-  
+
   // Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [polypharmacyResult, setPolypharmacyResult] = useState(null);
-  
+
   // UI State
   const [activeTab, setActiveTab] = useState('molecules2d');
   const [showSearch, setShowSearch] = useState(false);
-  
+
   // Chat State
   const [messages, setMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
@@ -150,7 +151,7 @@ export default function Dashboard() {
 
   const runAnalysis = async () => {
     if (selectedDrugs.length < 2 || apiStatus !== 'online') return;
-    
+
     setIsAnalyzing(true);
     setError(null);
 
@@ -168,7 +169,7 @@ export default function Dashboard() {
         const drugs = selectedDrugs.map(d => ({ name: d.name, smiles: d.smiles }));
         const response = await analyzePolypharmacy(drugs);
         setPolypharmacyResult(response);
-        
+
         // Set summary result
         if (response.interactions && response.interactions.length > 0) {
           const topInteraction = response.interactions.sort((a, b) => b.risk_score - a.risk_score)[0];
@@ -254,41 +255,39 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
+    <div className="min-h-screen bg-[var(--bg-primary)] text-white relative">
       {/* Top Navigation */}
-      <header className="h-16 border-b border-white/5 bg-[#0a0a0f]/80 backdrop-blur-xl sticky top-0 z-50">
+      <header className="h-16 border-b border-white/5 glass-panel sticky top-0 z-50">
         <div className="h-full px-6 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => navigate('/')}
               className="p-2 rounded-lg hover:bg-white/5 transition-colors"
             >
               <ChevronLeft className="w-5 h-5 text-slate-400" />
             </button>
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-cyan-400 flex items-center justify-center">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[var(--accent-cyan)] to-[var(--accent-blue)] flex items-center justify-center shadow-lg shadow-blue-500/10">
                 <GitBranch className="w-4 h-4 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-semibold">Drug Interaction Analysis</h1>
-                <p className="text-xs text-slate-500">Project Aegis v2.0</p>
+                <h1 className="text-lg font-semibold tracking-tight">Drug Interaction Analysis</h1>
+                <p className="text-xs text-slate-500 font-medium">Project Aegis v2.0</p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {/* API Status */}
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-              apiStatus === 'online' 
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
-                : apiStatus === 'checking'
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${apiStatus === 'online'
+              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+              : apiStatus === 'checking'
                 ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
                 : 'bg-red-500/10 text-red-400 border border-red-500/20'
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${
-                apiStatus === 'online' ? 'bg-emerald-400 animate-pulse' :
+              }`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${apiStatus === 'online' ? 'bg-emerald-400 animate-pulse' :
                 apiStatus === 'checking' ? 'bg-yellow-400 animate-pulse' : 'bg-red-400'
-              }`} />
+                }`} />
               {apiStatus === 'online' ? 'Connected' : apiStatus === 'checking' ? 'Connecting...' : 'Offline'}
             </div>
 
@@ -305,7 +304,7 @@ export default function Dashboard() {
 
       <div className="flex h-[calc(100vh-4rem)]">
         {/* Left Panel - Drug Selection */}
-        <aside className="w-80 border-r border-white/5 flex flex-col bg-[#0d0d14]">
+        <aside className="w-80 border-r border-white/5 flex flex-col glass-panel">
           <div className="p-4 border-b border-white/5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold text-slate-300">Drug Regimen</h2>
@@ -321,7 +320,7 @@ export default function Dashboard() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setShowSearch(true)}
                 placeholder="Search drugs..."
-                className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-600 focus:outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all"
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-2.5 pl-10 pr-4 text-sm placeholder:text-slate-600 focus:outline-none focus:border-[var(--accent-cyan)]/50 focus:ring-2 focus:ring-[var(--accent-cyan)]/20 transition-all"
                 disabled={apiStatus !== 'online'}
               />
               {isSearching && (
@@ -391,20 +390,19 @@ export default function Dashboard() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="group p-3 bg-white/5 rounded-xl border border-white/5 hover:border-white/10 transition-all"
+                  className="group p-3 bg-white/5 rounded-xl transition-all hover:bg-white/10"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold ${
-                        i === 0 ? 'bg-blue-500/20 text-blue-400' :
-                        i === 1 ? 'bg-purple-500/20 text-purple-400' :
-                        'bg-cyan-500/20 text-cyan-400'
-                      }`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shadow-lg ${i === 0 ? 'bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/30' :
+                        i === 1 ? 'bg-purple-500/10 text-purple-400 ring-1 ring-purple-500/30' :
+                          'bg-cyan-500/10 text-cyan-400 ring-1 ring-cyan-500/30'
+                        }`}>
                         {drug.name.substring(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <div className="text-sm font-medium">{drug.name}</div>
-                        <div className="text-xs text-slate-500">{drug.category || drug.drugbank_id || 'Drug'}</div>
+                        <div className="text-sm font-medium text-slate-200">{drug.name}</div>
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">{drug.category || 'Drug'}</div>
                       </div>
                     </div>
                     <button
@@ -424,13 +422,12 @@ export default function Dashboard() {
             <button
               onClick={runAnalysis}
               disabled={selectedDrugs.length < 2 || isAnalyzing || apiStatus !== 'online'}
-              className={`w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
-                selectedDrugs.length < 2 || apiStatus !== 'online'
-                  ? 'bg-white/5 text-slate-500 cursor-not-allowed'
-                  : isAnalyzing
-                  ? 'bg-blue-600/50 text-white cursor-wait'
-                  : 'bg-gradient-to-r from-blue-600 to-cyan-600 text-white hover:shadow-lg hover:shadow-blue-500/25 active:scale-[0.98]'
-              }`}
+              className={`w-full py-3.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${selectedDrugs.length < 2 || apiStatus !== 'online'
+                ? 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/5'
+                : isAnalyzing
+                  ? 'bg-blue-600/20 text-blue-300 cursor-wait border border-blue-500/20 animate-pulse'
+                  : 'btn-primary-glow'
+                }`}
             >
               {isAnalyzing ? (
                 <>
@@ -465,11 +462,10 @@ export default function Dashboard() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-white/10 text-white'
-                    : 'text-slate-500 hover:text-white hover:bg-white/5'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id
+                  ? 'bg-white/10 text-white'
+                  : 'text-slate-500 hover:text-white hover:bg-white/5'
+                  }`}
               >
                 <tab.icon className="w-4 h-4" />
                 {tab.label}
@@ -479,46 +475,47 @@ export default function Dashboard() {
 
           {/* Visualization Area */}
           <div className="flex-1 relative overflow-hidden bg-gradient-to-br from-[#0d0d14] to-[#0a0a10]">
-            {activeTab === 'molecules2d' && (
-              <MoleculeViewer2D 
-                drugs={selectedDrugs} 
-                result={result}
-              />
-            )}
-            {activeTab === 'molecules' && (
-              <MoleculeViewer 
-                drugs={selectedDrugs} 
-                result={result}
-              />
-            )}
-            {activeTab === 'graph' && (
-              <KnowledgeGraphView 
-                drugs={selectedDrugs}
-                result={result}
-                polypharmacyResult={polypharmacyResult}
-              />
-            )}
-            {activeTab === 'body' && (
-              <BodyMapVisualization 
-                affectedSystems={getBodyMapData()}
-                result={result}
-              />
+            {selectedDrugs.length === 0 ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center animate-fade-in">
+                <div className="w-20 h-20 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-6 shadow-xl shadow-blue-500/5 ring-1 ring-blue-500/20">
+                  <Microscope className="w-10 h-10 text-blue-400" />
+                </div>
+                <h2 className="text-xl font-semibold text-white mb-2">Ready for Analysis</h2>
+                <p className="text-slate-500 max-w-sm text-center text-sm leading-relaxed">
+                  Select drugs from the sidebar to visualize their structures and analyze potential interactions using AI.
+                </p>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'molecules2d' && (
+                  <MoleculeViewer2D
+                    drugs={selectedDrugs}
+                    result={result}
+                  />
+                )}
+                {activeTab === 'molecules' && (
+                  <MoleculeViewer
+                    drugs={selectedDrugs}
+                    result={result}
+                  />
+                )}
+                {activeTab === 'graph' && (
+                  <KnowledgeGraphView
+                    drugs={selectedDrugs}
+                    result={result}
+                    polypharmacyResult={polypharmacyResult}
+                  />
+                )}
+                {activeTab === 'body' && (
+                  <BodyMapVisualization
+                    affectedSystems={getBodyMapData()}
+                    result={result}
+                  />
+                )}
+              </>
             )}
 
-            {/* Empty State */}
-            {selectedDrugs.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-                    <Layers className="w-10 h-10 text-slate-600" />
-                  </div>
-                  <h3 className="text-lg font-medium text-slate-400 mb-2">No Drugs Selected</h3>
-                  <p className="text-sm text-slate-600 max-w-sm">
-                    Search and select drugs from the left panel to visualize molecular structures and interactions
-                  </p>
-                </div>
-              </div>
-            )}
+
           </div>
         </main>
 
@@ -558,8 +555,8 @@ export default function Dashboard() {
                       )}
                       <div>
                         <p className="font-semibold capitalize">
-                          {result.severity === 'no_interaction' 
-                            ? 'No Significant Interaction' 
+                          {result.severity === 'no_interaction'
+                            ? 'No Significant Interaction'
                             : `${result.risk_level || result.severity} Risk`}
                         </p>
                         <p className="text-xs opacity-70 mt-1">
@@ -571,20 +568,8 @@ export default function Dashboard() {
 
                   {/* Risk Score */}
                   {result.risk_score !== undefined && (
-                    <div className="p-4 bg-white/5 rounded-xl border border-white/5">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-xs text-slate-500 uppercase tracking-wider">Risk Score</span>
-                        <span className="text-2xl font-bold">
-                          {(result.risk_score * 100).toFixed(0)}%
-                        </span>
-                      </div>
-                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                        <motion.div
-                          initial={{ width: 0 }}
-                          animate={{ width: `${result.risk_score * 100}%` }}
-                          className={`h-full bg-gradient-to-r ${getRiskColor(result.risk_level)}`}
-                        />
-                      </div>
+                    <div className="mb-6">
+                      <RiskGauge score={result.risk_score} riskLevel={result.risk_level || result.severity} />
                     </div>
                   )}
 
@@ -653,7 +638,7 @@ export default function Dashboard() {
             <div className="p-3 border-b border-white/5 flex items-center justify-between">
               <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Research Assistant</h3>
               {messages.length > 0 && (
-                <button 
+                <button
                   onClick={() => setMessages([])}
                   className="text-xs text-slate-500 hover:text-white transition-colors"
                 >
@@ -676,13 +661,12 @@ export default function Dashboard() {
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] p-3 rounded-xl text-xs leading-relaxed ${
-                        msg.role === 'user'
-                          ? 'bg-blue-600 text-white rounded-br-none'
-                          : msg.isError
+                      className={`max-w-[85%] p-3 rounded-xl text-xs leading-relaxed ${msg.role === 'user'
+                        ? 'bg-blue-600 text-white rounded-br-none'
+                        : msg.isError
                           ? 'bg-red-500/10 text-red-400 border border-red-500/20 rounded-bl-none'
                           : 'bg-white/5 text-slate-300 border border-white/5 rounded-bl-none'
-                      }`}
+                        }`}
                     >
                       {msg.content}
                       {msg.sources && msg.sources.length > 0 && (

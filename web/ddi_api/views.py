@@ -33,6 +33,7 @@ from .serializers import (
 )
 from .services.ddi_predictor import get_ddi_service, DDIPrediction
 from .services.knowledge_graph import KnowledgeGraphService
+from .services.pubmedbert_predictor import get_pubmedbert_predictor
 
 logger = logging.getLogger(__name__)
 
@@ -236,30 +237,71 @@ class DDIPredictionView(APIView):
                 'source': 'knowledge_graph'
             }
         else:
-            # Use AI model for prediction
-            service = get_ddi_service()
-            prediction = service.predict(
-                drug_a.get('smiles', ''),
-                drug_b.get('smiles', ''),
-                drug_a['name'],
-                drug_b['name']
-            )
+            # Use PubMedBERT model for text-based DDI prediction
+            # This model was trained on ~19,000 DDI Corpus sentences
+            pubmedbert = get_pubmedbert_predictor()
             
-            response_data = {
-                'drug_a': prediction.drug_a,
-                'drug_b': prediction.drug_b,
-                'risk_score': prediction.risk_score,
-                'risk_level': get_risk_level(prediction.risk_score),
-                'severity': prediction.severity,
-                'confidence': prediction.confidence,
-                'mechanism_hypothesis': prediction.mechanism_hypothesis,
-                'affected_systems': [
-                    {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                    for sys in prediction.affected_systems
-                ],
-                'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': 'ai_model'
-            }
+            if pubmedbert.is_loaded:
+                # Use PubMedBERT for prediction (primary method)
+                prediction = pubmedbert.predict(drug_a['name'], drug_b['name'])
+                
+                # Map interaction type to affected systems
+                affected_systems_map = {
+                    'mechanism': ['liver', 'metabolic'],
+                    'effect': ['cardiovascular', 'hematologic'],
+                    'advise': ['general'],
+                    'int': ['general'],
+                    'no_interaction': []
+                }
+                affected = affected_systems_map.get(prediction.interaction_type, [])
+                
+                response_data = {
+                    'drug_a': prediction.drug_a,
+                    'drug_b': prediction.drug_b,
+                    'risk_score': prediction.risk_score,
+                    'risk_level': get_risk_level(prediction.risk_score),
+                    'severity': prediction.severity,
+                    'confidence': prediction.confidence,
+                    'mechanism_hypothesis': pubmedbert.get_mechanism_description(
+                        prediction.interaction_type, 
+                        prediction.drug_a, 
+                        prediction.drug_b
+                    ),
+                    'affected_systems': [
+                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                        for sys in affected
+                    ],
+                    'inference_time_ms': (time.time() - start_time) * 1000,
+                    'source': 'pubmedbert',
+                    'interaction_type': prediction.interaction_type,
+                    'all_probabilities': prediction.all_probabilities
+                }
+            else:
+                # Fallback to molecular structure-based model
+                logger.warning("PubMedBERT not loaded, falling back to GNN model")
+                service = get_ddi_service()
+                prediction = service.predict(
+                    drug_a.get('smiles', ''),
+                    drug_b.get('smiles', ''),
+                    drug_a['name'],
+                    drug_b['name']
+                )
+                
+                response_data = {
+                    'drug_a': prediction.drug_a,
+                    'drug_b': prediction.drug_b,
+                    'risk_score': prediction.risk_score,
+                    'risk_level': get_risk_level(prediction.risk_score),
+                    'severity': prediction.severity,
+                    'confidence': prediction.confidence,
+                    'mechanism_hypothesis': prediction.mechanism_hypothesis,
+                    'affected_systems': [
+                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                        for sys in prediction.affected_systems
+                    ],
+                    'inference_time_ms': (time.time() - start_time) * 1000,
+                    'source': 'ai_model'
+                }
         
         inference_time = response_data['inference_time_ms']
         

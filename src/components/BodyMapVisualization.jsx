@@ -62,9 +62,9 @@ function OrganPath({ system, severity, isHovered, onHover }) {
   if (!data || data.isOverlay) return null;
 
   const getColor = (sev) => {
-    if (sev > 0.7) return { fill: '#EF4444', glow: 'rgba(239, 68, 68, 0.6)' };
-    if (sev > 0.4) return { fill: '#F97316', glow: 'rgba(249, 115, 22, 0.5)' };
-    if (sev > 0) return { fill: '#EAB308', glow: 'rgba(234, 179, 8, 0.4)' };
+    if (sev > 0.7) return { fill: '#EF4444', glow: 'rgba(239, 68, 68, 0.8)' };
+    if (sev > 0.4) return { fill: '#F97316', glow: 'rgba(249, 115, 22, 0.6)' };
+    if (sev > 0) return { fill: '#EAB308', glow: 'rgba(234, 179, 8, 0.5)' };
     return { fill: '#334155', glow: 'none' };
   };
 
@@ -76,11 +76,11 @@ function OrganPath({ system, severity, isHovered, onHover }) {
       key={key}
       d={path}
       fill={colors.fill}
-      stroke={isHovered ? '#ffffff' : 'rgba(255,255,255,0.2)'}
+      stroke={isHovered ? '#ffffff' : isAffected ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.1)'}
       strokeWidth={isHovered ? 2 : 1}
       initial={{ opacity: 0.6 }}
       animate={{
-        opacity: isAffected ? [0.6, 0.9, 0.6] : 0.6,
+        opacity: isAffected ? [0.6, 1, 0.6] : 0.4,
         filter: isAffected ? `drop-shadow(0 0 ${severity * 15}px ${colors.glow})` : 'none'
       }}
       transition={{
@@ -106,36 +106,45 @@ function OrganPath({ system, severity, isHovered, onHover }) {
 }
 
 function BodyOutline() {
+  const commonProps = {
+    fill: "none",
+    stroke: "#475569",
+    strokeWidth: "0.5",
+    vectorEffect: "non-scaling-stroke",
+    strokeDasharray: "4 2"
+  };
+
   return (
     <>
+      <defs>
+        <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+          <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="0.5" />
+        </pattern>
+      </defs>
+
       {/* Head outline */}
-      <ellipse cx="100" cy="55" rx="35" ry="40" fill="#1E293B" stroke="#334155" strokeWidth="1" />
-      
+      <ellipse cx="100" cy="55" rx="35" ry="40" {...commonProps} />
+
       {/* Neck */}
-      <rect x="90" y="90" width="20" height="20" fill="#1E293B" stroke="#334155" strokeWidth="1" />
-      
+      <rect x="90" y="90" width="20" height="20" {...commonProps} />
+
       {/* Torso */}
       <path
         d="M 60,110 L 60,270 Q 60,290 75,300 L 90,300 L 90,380 L 75,380 Q 60,380 60,395 L 60,480 Q 60,490 70,490 L 85,490 Q 95,490 95,480 L 95,380 L 105,380 L 105,480 Q 105,490 115,490 L 130,490 Q 140,490 140,480 L 140,395 Q 140,380 125,380 L 110,380 L 110,300 L 125,300 Q 140,290 140,270 L 140,110 Z"
-        fill="#1E293B"
-        stroke="#334155"
-        strokeWidth="1"
+        {...commonProps}
+        fill="url(#grid)"
       />
-      
+
       {/* Left arm */}
       <path
         d="M 60,115 L 35,130 Q 20,140 15,160 L 10,220 Q 8,235 15,240 L 25,235 Q 30,230 28,215 L 35,160 Q 40,145 55,135 L 60,130 Z"
-        fill="#1E293B"
-        stroke="#334155"
-        strokeWidth="1"
+        {...commonProps}
       />
-      
+
       {/* Right arm */}
       <path
         d="M 140,115 L 165,130 Q 180,140 185,160 L 190,220 Q 192,235 185,240 L 175,235 Q 170,230 172,215 L 165,160 Q 160,145 145,135 L 140,130 Z"
-        fill="#1E293B"
-        stroke="#334155"
-        strokeWidth="1"
+        {...commonProps}
       />
     </>
   );
@@ -171,9 +180,9 @@ function InfoPanel({ system, data, severity }) {
           <AlertTriangle className="w-5 h-5 text-orange-400" />
         )}
       </div>
-      
+
       <p className="text-sm text-slate-400 mb-4">{data.description}</p>
-      
+
       {severity > 0 && (
         <div>
           <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-2">Potential Symptoms</h4>
@@ -200,12 +209,12 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
 
   // Blood overlay for hematological effects
   const bloodSeverity = affectedSystems.blood || 0;
-  
+
   return (
     <div className="w-full h-full flex items-center justify-center relative overflow-hidden">
       {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-br from-slate-900/50 via-transparent to-blue-900/20" />
-      
+
       {/* Main visualization */}
       <div className="relative">
         <svg
