@@ -35,6 +35,7 @@ import {
   Box,
   Hexagon
 } from 'lucide-react';
+import { useSystemLogs } from '../hooks/useSystemLogs';
 import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth } from '../services/api';
 import MoleculeViewer from '../components/MoleculeViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
@@ -54,6 +55,7 @@ function useDebounce(value, delay) {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { addLog } = useSystemLogs();
 
   // API State
   const [apiStatus, setApiStatus] = useState('checking');
@@ -86,12 +88,15 @@ export default function Dashboard() {
   // Check API health on mount
   useEffect(() => {
     const checkApi = async () => {
+      addLog('Initiating system health check...', 'info', 'SYSTEM');
       try {
         await checkHealth();
         setApiStatus('online');
+        addLog('Backend services online', 'success', 'API');
       } catch (err) {
         console.error('API check failed:', err);
         setApiStatus('offline');
+        addLog('Failed to connect to backend services', 'error', 'API');
       }
     };
     checkApi();
@@ -111,6 +116,7 @@ export default function Dashboard() {
       }
 
       setIsSearching(true);
+      addLog(`Searching database for "${debouncedSearch}"...`, 'info', 'DATABASE');
       try {
         const response = await searchDrugs(debouncedSearch);
         // Filter out already selected drugs
@@ -118,9 +124,11 @@ export default function Dashboard() {
           drug => !selectedDrugs.some(s => s.drugbank_id === drug.drugbank_id || s.name === drug.name)
         );
         setSearchResults(filtered);
+        addLog(`Found ${filtered.length} matches`, 'success', 'DATABASE');
       } catch (err) {
         console.error('Search failed:', err);
         setSearchResults([]);
+        addLog(`Search query failed: ${err.message}`, 'error', 'DATABASE');
       } finally {
         setIsSearching(false);
       }
@@ -154,21 +162,30 @@ export default function Dashboard() {
 
     setIsAnalyzing(true);
     setError(null);
+    addLog(`Starting DDI analysis for ${selectedDrugs.map(d => d.name).join(' + ')}`, 'info', 'SYSTEM');
 
     try {
       if (selectedDrugs.length === 2) {
         // Two-drug prediction
+        addLog('Querying PubMedBERT model...', 'info', 'AI');
+        const start = performance.now();
         const response = await predictDDI(
           { name: selectedDrugs[0].name, smiles: selectedDrugs[0].smiles },
           { name: selectedDrugs[1].name, smiles: selectedDrugs[1].smiles }
         );
+        const latency = (performance.now() - start).toFixed(2);
+        addLog(`Prediction received in ${latency}ms`, 'success', 'AI');
+        addLog(`Risk Level: ${response.risk_level} (${response.risk_score.toFixed(2)})`, 'warning', 'AI');
+
         setResult(response);
         setPolypharmacyResult(null);
       } else {
         // Polypharmacy analysis
+        addLog('Initiating Graph Neural Network (GNN) for polypharmacy...', 'info', 'AI');
         const drugs = selectedDrugs.map(d => ({ name: d.name, smiles: d.smiles }));
         const response = await analyzePolypharmacy(drugs);
         setPolypharmacyResult(response);
+        addLog(`Processed ${response.total_interactions} interaction pathways`, 'success', 'AI');
 
         // Set summary result
         if (response.interactions && response.interactions.length > 0) {
@@ -192,6 +209,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Analysis failed:', err);
       setError('Failed to analyze interactions. Please check your connection and try again.');
+      addLog(`Analysis process failed: ${err.message}`, 'error', 'SYSTEM');
     } finally {
       setIsAnalyzing(false);
     }
@@ -205,6 +223,7 @@ export default function Dashboard() {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setChatInput('');
     setIsChatLoading(true);
+    addLog('Processing natural language query...', 'info', 'AI');
 
     try {
       const contextDrugs = selectedDrugs.map(d => d.name);
@@ -215,6 +234,7 @@ export default function Dashboard() {
         content: response.response,
         sources: response.sources
       }]);
+      addLog('Response generated via GraphRAG', 'success', 'AI');
     } catch (err) {
       console.error('Chat failed:', err);
       setMessages(prev => [...prev, {
@@ -222,6 +242,7 @@ export default function Dashboard() {
         content: 'I apologize, but I encountered an error processing your request. Please try again.',
         isError: true
       }]);
+      addLog('Chat processing failed', 'error', 'AI');
     } finally {
       setIsChatLoading(false);
     }

@@ -1,0 +1,290 @@
+[
+    {
+        "name": "Warfarin",
+        "drugbank_id": "DB00682",
+        "category": "Anticoagulant",
+        "smiles": "CC(=O)CC(C1=CC=CC=C1)C2=C(C3=CC=CC=C3OC2=O)O"
+    },
+    {
+        "name": "Aspirin",
+        "drugbank_id": "DB00945",
+        "category": "Analgesic",
+        "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O"
+    },
+    {
+        "name": "Ibuprofen",
+        "drugbank_id": "DB01050",
+        "category": "NSAID",
+        "smiles": "CC(C)CC1=CC=C(C(C)C(=O)O)C=C1"
+    },
+    {
+        "name": "Metformin",
+        "drugbank_id": "DB00331",
+        "category": "Antidiabetic",
+        "smiles": "CN(C)C(=N)NC(=N)N"
+    },
+    {
+        "name": "Simvastatin",
+        "drugbank_id": "DB00641",
+        "category": "Statin",
+        "smiles": "CCC(C)(C)C(=O)OC1CC(C)C=C2C=CC(C)C(CCC3CC(O)CC(=O)O3)C12"
+    },
+    {
+        "name": "Amiodarone",
+        "drugbank_id": "DB01118",
+        "category": "Antiarrhythmic",
+        "smiles": "CCCCC1=C(C2=CC=C(OCCN(CC)CC)C=C2)C3=CC(I)=C(OCCC)C(I)=C3O1"
+    },
+    {
+        "name": "Digoxin",
+        "drugbank_id": "DB00390",
+        "category": "Cardiac Glycoside",
+        "smiles": "CC1OC(CC(O)C1O)OC2C(O)CC(OC3C(O)CC(OC4CCC5(C)C(CCC6C5CCC7(C)C(C8=CC(=O)OC8)CCC67)C4)OC3C)OC2C"
+    },
+    {
+        "name": "Clarithromycin",
+        "drugbank_id": "DB01211",
+        "category": "Antibiotic",
+        "smiles": "CCC1OC(=O)C(C)C(OC2CC(C)(OC)C(O)C(C)O2)C(C)C(OC3OC(C)CC(N(C)C)C3O)C(C)(O)CC(C)C(=O)C(C)C(O)C1(C)O"
+    },
+    {
+        "name": "Fluoxetine",
+        "drugbank_id": "DB00472",
+        "category": "SSRI",
+        "smiles": "CNCCC(OC1=CC=C(C(F)(F)F)C=C1)C2=CC=CC=C2"
+    },
+    {
+        "name": "Carbamazepine",
+        "drugbank_id": "DB00564",
+        "category": "Anticonvulsant",
+        "smiles": "NC(=O)N1C2=CC=CC=C2C=CC3=CC=CC=C13"
+    },
+    {
+        "name": "Paracetamol",
+        "drugbank_id": "DB00316",
+        "category": "Analgesic",
+        "smiles": "CC(=O)NC1=CC=C(O)C=C1"
+    },
+    {
+        "name": "Atorvastatin",
+        "drugbank_id": "DB01076",
+        "category": "Statin",
+        "smiles": "CC(C)C1=C(C(=O)NC2=CC=CC=C2)C(C3=CC=CC=C3)=C(C=C1CC(O)CC(O)CC(=O)O)C4=CC=C(F)C=C4"
+    },
+    {
+        "name": "Lisinopril",
+        "drugbank_id": "DB00722",
+        "category": "ACE Inhibitor",
+        "smiles": "NCCCCC(N)C(=O)N1CCCC1C(=O)NCC(CCC2=CC=CC=C2)C(=O)O"
+    },
+    {
+        "name": "Levothyroxine",
+        "drugbank_id": "DB00451",
+        "category": "Hormone",
+        "smiles": "NC(CC1=CC(I)=C(OC2=CC(I)=C(O)C(I)=C2)C(I)=C1)C(=O)O"
+    },
+    {
+        "name": "Amlodipine",
+        "drugbank_id": "DB00381",
+        "category": "Calcium Channel Blocker",
+        "smiles": "CCOC(=O)C1=C(COCCN)NC(C)=C(C1C2=CC=CC=C2Cl)C(=O)OC"
+    },
+    {
+        "name": "Metoprolol",
+        "drugbank_id": "DB00264",
+        "category": "Beta Blocker",
+        "smiles": "CC(C)NCC(O)COC1=CC=C(CCOC)C=C1"
+    },
+    {
+        "name": "Omeprazole",
+        "drugbank_id": "DB00338",
+        "category": "PPI",
+        "smiles": "COC1=CC2=C(C=C1)N=C(N2)S(=O)CC3=C(C)C(OC)=C(C)C=N3"
+    },
+    {
+        "name": "Losartan",
+        "drugbank_id": "DB00678",
+        "category": "ARB",
+        "smiles": "CCCC1=NC(Cl)=C(CO)N1CC2=CC=C(C=C2)C3=CC=CC=C3N4N=NN=C4"
+    },
+    {
+        "name": "Gabapentin",
+        "drugbank_id": "DB00996",
+        "category": "Anticonvulsant",
+        "smiles": "NCC1(CC(=O)O)CCCCC1"
+    },
+    {
+        "name": "Sertraline",
+        "drugbank_id": "DB01104",
+        "category": "SSRI",
+        "smiles": "CNC1CCC(C2=CC=C(Cl)C(Cl)=C2)C3=CC=CC=C13"
+    },
+    {
+        "name": "Citalopram",
+        "drugbank_id": "DB00215",
+        "category": "SSRI",
+        "smiles": "CN(C)CCCC1(OCC2=C1C=C(C#N)C=C2)C3=CC=C(F)C=C3"
+    },
+    {
+        "name": "Insulin Glargine",
+        "drugbank_id": "DB00047",
+        "category": "Insulin",
+        "smiles": ""
+    },
+    {
+        "name": "Furosemide",
+        "drugbank_id": "DB00695",
+        "category": "Diuretic",
+        "smiles": "NS(=O)(=O)C1=CC(Cl)=C(NCC2=CC=CO2)C=C1C(=O)O"
+    },
+    {
+        "name": "Hydrochlorothiazide",
+        "drugbank_id": "DB00999",
+        "category": "Diuretic",
+        "smiles": "NS(=O)(=O)C1=CC2=C(NCNS2(=O)=O)C=C1Cl"
+    },
+    {
+        "name": "Pantoprazole",
+        "drugbank_id": "DB00213",
+        "category": "PPI",
+        "smiles": "COC1=CC2=C(C=C1)N=C(N2)S(=O)CC3=C(OC)C(OC)=C(OC)N=C3"
+    },
+    {
+        "name": "Escitalopram",
+        "drugbank_id": "DB01175",
+        "category": "SSRI",
+        "smiles": "CN(C)CCCC1(OCC2=C1C=C(C#N)C=C2)C3=CC=C(F)C=C3"
+    },
+    {
+        "name": "Alprazolam",
+        "drugbank_id": "DB00404",
+        "category": "Benzodiazepine",
+        "smiles": "CC1=NN=C2N1C3=C(C=C(Cl)C=C3)C(C4=CC=CC=C4)=N2"
+    },
+    {
+        "name": "Prednisone",
+        "drugbank_id": "DB00635",
+        "category": "Corticosteroid",
+        "smiles": "CC12CCC(=O)C=C1CCC3C2C(O)CC4(C)C(C(=O)CO)CCC34O"
+    },
+    {
+        "name": "Bupropion",
+        "drugbank_id": "DB01156",
+        "category": "Antidepressant",
+        "smiles": "CC(NC(C)(C)C)C(=O)C1=CC(Cl)=CC=C1"
+    },
+    {
+        "name": "Pravastatin",
+        "drugbank_id": "DB00175",
+        "category": "Statin",
+        "smiles": "CCC(C)(C)C(=O)OC1CC(O)C=C2C1C(O)CC3=C2C=C(O)CC3"
+    },
+    {
+        "name": "Rosuvastatin",
+        "drugbank_id": "DB01098",
+        "category": "Statin",
+        "smiles": "CC(C)C1=C(N(C)S(=O)(=O)C)N(C(C=C1)C=CC(O)CC(O)CC(=O)O)C2=CC=C(F)C=C2"
+    },
+    {
+        "name": "Tramadol",
+        "drugbank_id": "DB00193",
+        "category": "Opioid",
+        "smiles": "CN(C)CC(O)(C1=CC=CC(OC)=C1)C2CCCCC2"
+    },
+    {
+        "name": "Clopidogrel",
+        "drugbank_id": "DB00758",
+        "category": "Antiplatelet",
+        "smiles": "COC(=O)C(C1=CC=CC=C1Cl)N2CCC3=C(C2)C=CS3"
+    },
+    {
+        "name": "Montelukast",
+        "drugbank_id": "DB00471",
+        "category": "Leukotriene Receptor Antagonist",
+        "smiles": "CC(C)(O)C1=CC=CC=C1CCC(C2=CC=CC=C2)SCC3=C(Cl)C=CC(=C3)C=CC4=NC=CC=C4"
+    },
+    {
+        "name": "Trazodone",
+        "drugbank_id": "DB00656",
+        "category": "Antidepressant",
+        "smiles": "ClC1=CC=CC(N2CCN(CCC3=C4C=CC=N4N=C3O)CC2)=C1"
+    },
+    {
+        "name": "Duloxetine",
+        "drugbank_id": "DB00476",
+        "category": "SNRI",
+        "smiles": "CNCCC(OC1=CC=CC2=C1C=CC=C2)C3=CC=C(S3)C4=CC=CC=C4"
+    },
+    {
+        "name": "Venlafaxine",
+        "drugbank_id": "DB00285",
+        "category": "SNRI",
+        "smiles": "CN(C)CC(C1=CC=C(OC)C=C1)C2(O)CCCCC2"
+    },
+    {
+        "name": "Diazepam",
+        "drugbank_id": "DB00829",
+        "category": "Benzodiazepine",
+        "smiles": "CN1C(=O)CN=C(C2=CC=CC=C2)C3=C1C=CC(Cl)=C3"
+    },
+    {
+        "name": "Clonazepam",
+        "drugbank_id": "DB01068",
+        "category": "Benzodiazepine",
+        "smiles": "[O-][N+](=O)C1=CC=C2NC(=O)CN=C(C3=CC=CC=C3Cl)C2=C1"
+    },
+    {
+        "name": "Naproxen",
+        "drugbank_id": "DB00788",
+        "category": "NSAID",
+        "smiles": "COC1=CC2=CC(C(C)C(=O)O)=CC=C2C=C1"
+    },
+    {
+        "name": "Celecoxib",
+        "drugbank_id": "DB00482",
+        "category": "NSAID",
+        "smiles": "CC1=CC=C(C=C1)C2=CC(=NN2C3=CC=C(C=C3)S(N)(=O)=O)C(F)(F)F"
+    },
+    {
+        "name": "Meloxicam",
+        "drugbank_id": "DB00814",
+        "category": "NSAID",
+        "smiles": "CN1C(C(=O)NC2=NC=CS2)=C(O)C3=C(S1(=O)=O)C=CC=C3"
+    },
+    {
+        "name": "Diclofenac",
+        "drugbank_id": "DB00586",
+        "category": "NSAID",
+        "smiles": "OC(=O)CC1=CC=CC=C1NC2=C(Cl)C=CC=C2Cl"
+    },
+    {
+        "name": "Ranitidine",
+        "drugbank_id": "DB00863",
+        "category": "H2 Antagonist",
+        "smiles": "CNCCSC1=CC=C(CN(C)C)O1.C(=O)(O)O"
+    },
+    {
+        "name": "Ciprofloxacin",
+        "drugbank_id": "DB00537",
+        "category": "Antibiotic",
+        "smiles": "OC(=O)C1=CN(C2CC2)C3=CC(N4CCNCC4)=C(F)C=C3C1=O"
+    },
+    {
+        "name": "Azithromycin",
+        "drugbank_id": "DB00207",
+        "category": "Antibiotic",
+        "smiles": "CC1OC(=O)C(C)C(OC2CC(C)(OC)C(O)C(C)O2)C(C)C(OC3OC(C)CC(N(C)C)C3O)C(C)(O)CC(C)C(=O)C(C)C(O)C1(C)CC"
+    },
+    {
+        "name": "Amoxicillin",
+        "drugbank_id": "DB01060",
+        "category": "Antibiotic",
+        "smiles": "CC1(C)SC2C(NC(=O)C(N)C3=CC=C(O)C=C3)C(=O)N2C1C(=O)O"
+    },
+    {
+        "name": "Doxycycline",
+        "drugbank_id": "DB00254",
+        "category": "Antibiotic",
+        "smiles": "CN(C)C1C(O)=C(C(N)=O)C(=O)C2(O)C(O)=C3C(=O)C4(O)C(C)CC1C34O"
+    }
+]

@@ -262,16 +262,19 @@ class PubMedBERTPredictor:
             all_probabilities=avg_probs
         )
     
-    def get_mechanism_description(self, interaction_type: str, drug1: str, drug2: str) -> str:
+    def get_mechanism_description(self, interaction_type: str, drug1: str, drug2: str, confidence: float = 0.0) -> str:
         """Generate a human-readable mechanism description based on prediction."""
+        conf_pct = int(confidence * 100)
+        prefix = f"AI Analysis ({conf_pct}% Confidence):"
+        
         descriptions = {
-            'no_interaction': f"No significant pharmacological interaction is expected between {drug1} and {drug2}.",
-            'mechanism': f"{drug1} and {drug2} interact through shared metabolic pathways (e.g., CYP450 enzymes) or protein binding competition.",
-            'effect': f"Taking {drug1} with {drug2} may result in altered therapeutic effects or increased adverse reactions.",
-            'advise': f"Clinical monitoring is recommended when combining {drug1} with {drug2}. Dose adjustment may be necessary.",
-            'int': f"A pharmacological interaction exists between {drug1} and {drug2}. Consult clinical guidelines for management.",
+            'no_interaction': f"{prefix} No significant pharmacological interaction is predicted between {drug1} and {drug2}.",
+            'mechanism': f"{prefix} {drug1} and {drug2} interact through shared metabolic pathways (e.g., CYP450 enzymes) or protein binding competition.",
+            'effect': f"{prefix} Taking {drug1} with {drug2} may result in altered therapeutic effects or increased adverse reactions.",
+            'advise': f"{prefix} Clinical monitoring is recommended when combining {drug1} with {drug2}. Dose adjustment may be necessary.",
+            'int': f"{prefix} A pharmacological interaction is predicted between {drug1} and {drug2}. Consult clinical guidelines.",
         }
-        return descriptions.get(interaction_type, f"Potential interaction between {drug1} and {drug2}.")
+        return descriptions.get(interaction_type, f"{prefix} Potential interaction detected between {drug1} and {drug2}.")
 
 
 # Singleton instance

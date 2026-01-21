@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./web
+    container_name: aegis-backend
+    command: gunicorn ProjectAegis.wsgi:application --bind 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./web/.env
+    environment:
+      - DJANGO_SETTINGS_MODULE=ProjectAegis.settings
+
+  frontend:
+    build:
+      context: .
+    container_name: aegis-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+  redis:
+    image: redis:alpine
+    container_name: aegis-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  neo4j:
+    image: neo4j:5.11
+    container_name: aegis-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password123
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+
+volumes:
+  redis_data:
+  neo4j_data:
+  neo4j_logs:

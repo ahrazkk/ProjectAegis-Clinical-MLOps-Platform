@@ -72,9 +72,21 @@ REST_FRAMEWORK = {
     ],
 }
 
+# Redis Cache Configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get('REDIS_URL', "redis://redis:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
 # Neo4j Configuration (Knowledge Graph)
+# In Docker, hostname is 'neo4j', locally it's 'localhost'
 NEO4J_CONFIG = {
-    'uri': os.environ.get('NEO4J_URI', 'bolt://localhost:7687'),
+    'uri': os.environ.get('NEO4J_URI', 'bolt://neo4j:7687'),
     'user': os.environ.get('NEO4J_USER', 'neo4j'),
     'password': os.environ.get('NEO4J_PASSWORD', 'password123'),
 }
