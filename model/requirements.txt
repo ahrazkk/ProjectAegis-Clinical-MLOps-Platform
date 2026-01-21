@@ -1,0 +1,40 @@
+# PyTorch Requirements for DDI Relation Extraction Model
+# Based on AI Model Specification
+
+# Core PyTorch and Transformers
+torch>=2.0.0
+transformers>=4.30.0
+tokenizers>=0.13.3
+
+# HuggingFace hub for model downloads
+huggingface-hub>=0.16.0
+
+# Training and optimization
+accelerate>=0.20.0
+datasets>=2.12.0
+
+# Evaluation metrics
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# Utilities
+numpy>=1.24.0
+pandas>=2.0.0
+tqdm>=4.65.0
+
+# Visualization (for PR curves)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Configuration and logging
+pyyaml>=6.0
+tensorboard>=2.13.0
+
+# Optional: Bayesian Optimization for hyperparameter tuning (Section 2)
+# Uncomment if using Vertex AI Vizier locally
+# bayesian-optimization>=1.4.0
+# optuna>=3.2.0
+
+# Optional: For DDIExtraction 2013 corpus parsing
+# lxml>=4.9.0
+# beautifulsoup4>=4.12.0
