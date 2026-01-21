@@ -17,7 +17,7 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import StratifiedKFold
 from torch.utils.data import DataLoader, Subset
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any
 import matplotlib.pyplot as plt
 from pathlib import Path
 import logging
@@ -108,7 +108,7 @@ class DDIEvaluator:
         labels: np.ndarray,
         probabilities: np.ndarray,
         class_names: Optional[List[str]] = None,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Compute comprehensive evaluation metrics.
         
@@ -151,7 +151,7 @@ class DDIEvaluator:
         self,
         eval_loader: DataLoader,
         class_names: Optional[List[str]] = None,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Evaluate model on a dataset.
         
@@ -214,7 +214,7 @@ class DDIEvaluator:
         k: int = 10,
         trainer_factory: callable = None,
         class_names: Optional[List[str]] = None,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Stratified K-Fold Cross-Validation (Section 4 requirement).
         
@@ -288,7 +288,7 @@ class DDIEvaluator:
         eval_loader: DataLoader,
         error_type_classifier: Optional[callable] = None,
         class_names: Optional[List[str]] = None,
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Error Analysis (Section 4 requirement).
         

@@ -5,7 +5,7 @@ Implements Section 3 of the AI Model Specification
 
 import torch
 import torch.nn.functional as F
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional, Any, Union
 from enum import Enum
 
 
@@ -128,7 +128,7 @@ class RiskScorer:
         self,
         relation_probs: torch.Tensor,
         interaction_types: Optional[List[InteractionType]] = None,
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Union[float, str, Dict[str, float]]]]:
         """
         Compute complete risk profile for batch of predictions.
         
@@ -233,7 +233,7 @@ class MultiDrugRiskScorer:
         self,
         drug_list: List[str],
         pairwise_probs: Dict[Tuple[str, str], torch.Tensor],
-    ) -> Dict[Tuple[str, str], Dict[str, any]]:
+    ) -> Dict[Tuple[str, str], Dict[str, Union[float, str, Dict[str, float]]]]:
         """
         Compute risk scores for all pairwise interactions in a drug list.
         
@@ -258,8 +258,8 @@ class MultiDrugRiskScorer:
     
     def compute_aggregate_risk(
         self,
-        pairwise_risks: Dict[Tuple[str, str], Dict[str, any]],
-    ) -> Dict[str, any]:
+        pairwise_risks: Dict[Tuple[str, str], Dict[str, Union[float, str, Dict[str, float]]]],
+    ) -> Dict[str, Union[float, str, Tuple[str, str], int, None]]:
         """
         Compute aggregate risk score for polypharmacy regimen.
         

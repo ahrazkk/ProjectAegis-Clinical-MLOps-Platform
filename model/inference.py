@@ -4,6 +4,7 @@ Simple interface for making predictions on new text
 """
 
 import torch
+import logging
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import json
@@ -11,6 +12,8 @@ import json
 from .ddi_model import DDIRelationModel, ModelWithTemperature
 from .data_preprocessor import DDIDataPreprocessor
 from .risk_scorer import RiskScorer, InteractionType, RiskLevel
+
+logger = logging.getLogger(__name__)
 
 
 class DDIPredictor:
@@ -191,6 +194,7 @@ class DDIPredictor:
         checkpoint_path: str,
         device: str = "cuda" if torch.cuda.is_available() else "cpu",
         use_calibration: bool = True,
+        allow_untrained: bool = False,
     ):
         """
         Load predictor from a saved checkpoint.
@@ -199,10 +203,46 @@ class DDIPredictor:
             checkpoint_path: Path to model checkpoint (.pt file)
             device: Device to load model on
             use_calibration: Whether to use temperature scaling
+            allow_untrained: If True, allows loading without trained weights
+                           (for testing only - will issue warning)
             
         Returns:
             DDIPredictor instance
+            
+        Raises:
+            FileNotFoundError: If checkpoint file doesn't exist
         """
+        checkpoint_file = Path(checkpoint_path)
+        
+        # Check if checkpoint exists
+        if not checkpoint_file.exists():
+            if allow_untrained:
+                logger.warning(
+                    "⚠️  WARNING: Checkpoint file not found. "
+                    "Creating predictor with UNTRAINED model. "
+                    "Predictions will be unreliable! "
+                    "This should only be used for testing purposes."
+                )
+                # Create untrained model
+                model = DDIRelationModel(num_relation_classes=5, num_ner_classes=5)
+                preprocessor = DDIDataPreprocessor()
+                model.encoder.resize_token_embeddings(len(preprocessor.tokenizer))
+                risk_scorer = RiskScorer(use_calibrated_probs=use_calibration)
+                
+                return cls(
+                    model=model,
+                    preprocessor=preprocessor,
+                    risk_scorer=risk_scorer,
+                    use_calibration=use_calibration,
+                    temperature=1.5,
+                    device=device,
+                )
+            else:
+                raise FileNotFoundError(
+                    f"Checkpoint file not found: {checkpoint_path}. "
+                    f"If you want to test with an untrained model, set allow_untrained=True"
+                )
+        
         # Load checkpoint
         checkpoint = torch.load(checkpoint_path, map_location=device)
         
@@ -294,6 +334,7 @@ def predict_from_text(
     drug1: str,
     drug2: str,
     model_path: Optional[str] = None,
+    allow_untrained: bool = False,
 ) -> Dict:
     """
     Convenience function to predict DDI from text and drug names.
@@ -304,10 +345,14 @@ def predict_from_text(
         text: Input text containing drug mentions
         drug1: Name of first drug
         drug2: Name of second drug
-        model_path: Path to model checkpoint (if None, uses untrained model)
+        model_path: Path to model checkpoint (if None, uses untrained model with warning)
+        allow_untrained: Must be True to use untrained model (for testing only)
         
     Returns:
         Prediction result dictionary
+        
+    Raises:
+        ValueError: If drugs not found in text or if untrained model used without permission
     """
     # Find drug spans
     drug1_start = text.lower().find(drug1.lower())
@@ -323,6 +368,18 @@ def predict_from_text(
     if model_path is not None:
         predictor = DDIPredictor.from_pretrained(model_path)
     else:
+        if not allow_untrained:
+            raise ValueError(
+                "No model_path provided. To use an untrained model for testing, "
+                "set allow_untrained=True. Note: Predictions will be unreliable."
+            )
+        
+        logger.warning(
+            "⚠️  WARNING: Using UNTRAINED model. "
+            "Predictions will be unreliable! "
+            "For production use, provide a model_path to a trained checkpoint."
+        )
+        
         # Use untrained model (for testing)
         from .ddi_model import DDIRelationModel
         model = DDIRelationModel()

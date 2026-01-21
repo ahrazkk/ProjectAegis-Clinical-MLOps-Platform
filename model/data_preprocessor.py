@@ -291,22 +291,52 @@ def load_ddi_extraction_2013_corpus(
         split: "train", "dev", or "test"
         
     Returns:
-        List of examples in standard format
+        List of examples in standard format:
+        {
+            "text": str,
+            "drug1_span": (start, end),
+            "drug2_span": (start, end),
+            "relation_label": int,
+            "ner_labels": List[int],
+        }
+        
+    Raises:
+        NotImplementedError: This function requires XML parsing implementation
+        
+    Note:
+        Expected DDIExtraction 2013 XML structure:
+        
+        <sentence id="DDI-DrugBank.d0.s0" text="...">
+          <entity id="DDI-DrugBank.d0.s0.e0" charOffset="10-17" 
+                  type="drug" text="aspirin"/>
+          <entity id="DDI-DrugBank.d0.s0.e1" charOffset="25-32" 
+                  type="drug" text="warfarin"/>
+          <pair id="DDI-DrugBank.d0.s0.p0" e1="DDI-DrugBank.d0.s0.e0" 
+                e2="DDI-DrugBank.d0.s0.e1" ddi="true" type="effect"/>
+        </sentence>
+        
+        To implement:
+        1. Use xml.etree.ElementTree or lxml to parse XML files
+        2. Iterate through <sentence> elements
+        3. Extract entity spans from charOffset attribute
+        4. Map DDI types to relation labels: 
+           {None: 0, mechanism: 1, effect: 2, advise: 3, int: 4}
+        5. Generate NER labels using BIO tagging scheme
+        
+    Example implementation:
+        import xml.etree.ElementTree as ET
+        
+        tree = ET.parse(f"{corpus_path}/{split}/DrugBank/file.xml")
+        root = tree.getroot()
+        
+        for sentence in root.findall('.//sentence'):
+            text = sentence.get('text')
+            entities = sentence.findall('entity')
+            pairs = sentence.findall('pair')
+            # ... process entities and pairs
     """
-    # This is a placeholder - actual implementation would parse XML files
-    # from the DDIExtraction 2013 corpus
-    
-    examples = []
-    
-    # TODO: Implement XML parsing for DDIExtraction 2013 corpus
-    # Expected XML structure:
-    # <sentence>
-    #   <entity id="e1" type="drug" charOffset="10-17">aspirin</entity>
-    #   <entity id="e2" type="drug" charOffset="25-32">warfarin</entity>
-    #   <pair id="p1" e1="e1" e2="e2" ddi="true" type="effect"/>
-    # </sentence>
-    
-    print(f"Warning: load_ddi_extraction_2013_corpus not fully implemented")
-    print(f"Please implement XML parsing for {corpus_path}/{split}")
-    
-    return examples
+    raise NotImplementedError(
+        "DDIExtraction 2013 corpus parsing not implemented. "
+        "Please implement XML parsing as described in the docstring. "
+        "See model/data_preprocessor.py for implementation guidance."
+    )

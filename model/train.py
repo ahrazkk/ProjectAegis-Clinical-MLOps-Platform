@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 def load_data(data_path: Path, preprocessor: DDIDataPreprocessor):
     """
-    Load training data.
+    Load training data from DDIExtraction 2013 corpus.
     
     Args:
         data_path: Path to data directory or file
@@ -35,11 +35,26 @@ def load_data(data_path: Path, preprocessor: DDIDataPreprocessor):
         
     Returns:
         train_dataset, val_dataset, test_dataset
+        
+    Note:
+        This is a placeholder implementation. To use with DDIExtraction 2013 corpus:
+        
+        1. Download corpus from: https://github.com/isegura/DDICorpus
+        2. Expected structure:
+           data_path/
+           ├── Train/
+           │   └── DrugBank/*.xml
+           ├── Test/
+           │   └── DrugBank/*.xml
+        
+        3. Implement XML parsing using data_preprocessor.load_ddi_extraction_2013_corpus()
+        4. Parse <sentence>, <entity>, and <pair> tags
+        5. Extract text, entity spans, and relation labels
+        
+        For production use, replace this placeholder with actual corpus loading.
     """
-    # TODO: Implement actual data loading from DDIExtraction 2013 corpus
-    # This is a placeholder that creates dummy data
-    
-    logger.warning("Using dummy data - implement load_data() for actual corpus")
+    logger.warning("Using dummy data - implement load_data() for actual DDIExtraction 2013 corpus")
+    logger.warning("See function docstring for integration steps")
     
     # Create dummy examples
     examples = [
