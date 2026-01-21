@@ -86,7 +86,7 @@ def calculate_pr_auc(
     precision, recall, _ = precision_recall_curve(y_true, y_scores)
     pr_auc = auc(recall, precision)
 
-    return pr_auc
+    return float(pr_auc)
 
 
 def calculate_metrics(

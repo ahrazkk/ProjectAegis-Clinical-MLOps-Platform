@@ -318,7 +318,7 @@ def main():
         )
 
         error_analyzer.print_summary()
-        error_analyzer.save_report(Path(args.output_dir) / 'error_analysis.json')
+        error_analyzer.save_report(str(Path(args.output_dir) / 'error_analysis.json'))
 
         # Save training summary
         summary = {

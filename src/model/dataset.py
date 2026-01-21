@@ -108,15 +108,16 @@ class DDIDataset(Dataset):
             else:
                 relation_label = torch.tensor(sample.get('interaction_type', 0), dtype=torch.long)
 
-            return {
+            # Store severity as metadata (not in tensor dict)
+            result = {
                 'input_ids': tokenized['input_ids'],
                 'attention_mask': tokenized['attention_mask'],
                 'drug1_mask': tokenized['drug1_mask'],
                 'drug2_mask': tokenized['drug2_mask'],
                 'ner_labels': tokenized['ner_labels'],
                 'relation_label': relation_label,
-                'severity': self.SEVERITY_MAPPING.get(sample.get('interaction_type', 0), 'none')
             }
+            return result
         except Exception as e:
             print(f"Error processing sample: {e}")
             return None

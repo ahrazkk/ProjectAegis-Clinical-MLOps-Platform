@@ -200,17 +200,18 @@ class DDIPredictor:
             calibrated_probs = self.temperature_scaling(relation_logits)
 
             predicted_class = torch.argmax(raw_probs, dim=-1).item()
-            raw_prob = raw_probs[0, predicted_class].item()
+            raw_prob = raw_probs[0, int(predicted_class)].item()
             calibrated_prob = calibrated_probs[0, predicted_class].item()
 
             has_interaction = predicted_class > 0
-            interaction_type = self.INTERACTION_TYPES.get(predicted_class, 'unknown')
+            interaction_type = self.INTERACTION_TYPES.get(int(predicted_class), 'unknown')
 
             # Calculate risk score using severity weights
             risk_score = self.risk_scorer.calculate_risk_score(calibrated_probs.cpu().numpy())[0]
 
         # Categorize risk
-        risk_category = self.risk_scorer.categorize_risk(risk_score)
+        risk_category_result = self.risk_scorer.categorize_risk(risk_score)
+        risk_category = risk_category_result if isinstance(risk_category_result, str) else risk_category_result[0]
 
         # Confidence based on distance from decision boundary
         if self.use_binary:
@@ -223,11 +224,11 @@ class DDIPredictor:
             drug2=drug2_name,
             has_interaction=has_interaction,
             interaction_type=interaction_type,
-            raw_probability=raw_prob,
-            calibrated_probability=calibrated_prob,
-            risk_score=risk_score,
+            raw_probability=float(raw_prob),
+            calibrated_probability=float(calibrated_prob),
+            risk_score=float(risk_score),
             risk_category=risk_category,
-            confidence=confidence
+            confidence=float(confidence)
         )
 
     def predict_batch(

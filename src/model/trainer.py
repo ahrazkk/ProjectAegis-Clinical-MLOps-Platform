@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from transformers import get_linear_schedule_with_warmup
-from typing import Dict, Optional, Tuple, Callable
+from typing import Dict, Optional, Tuple, Callable, Any
 import numpy as np
 from tqdm import tqdm
 import logging
@@ -269,6 +269,9 @@ class DDITrainer:
             relation_labels = batch['relation_label'].to(self.device)
 
             # Forward pass
+            if self.optimizer is None:
+                raise RuntimeError("Optimizer not initialized. Call train() instead of train_epoch().")
+
             self.optimizer.zero_grad()
             relation_logits, ner_logits = self.model(
                 input_ids=input_ids,
@@ -295,7 +298,8 @@ class DDITrainer:
 
             # Optimizer step
             self.optimizer.step()
-            self.scheduler.step()
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             # Accumulate metrics
             total_loss += loss.item()
@@ -394,7 +398,7 @@ class DDITrainer:
         train_loader: DataLoader,
         val_loader: DataLoader,
         metric_for_best: str = 'pr_auc'
-    ) -> Dict[str, any]:
+    ) -> Dict[str, Any]:
         """
         Full training loop with early stopping
 
@@ -463,13 +467,16 @@ class DDITrainer:
         """Save model checkpoint"""
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
             'temperature': self.temperature_scaling.temperature.item(),
             'config': self.config.to_dict(),
             'metrics': metrics,
             'timestamp': datetime.now().isoformat()
         }
+
+        if self.optimizer is not None:
+            checkpoint['optimizer_state_dict'] = self.optimizer.state_dict()
+        if self.scheduler is not None:
+            checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
 
         torch.save(checkpoint, self.output_dir / filename)
 

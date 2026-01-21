@@ -40,15 +40,15 @@ class ParameterSpec:
 
     def to_vizier_spec(self) -> Dict:
         """Convert to Vertex AI Vizier parameter specification format"""
-        spec = {
+        spec: Dict[str, Any] = {
             "parameterId": self.name,
             "displayName": self.name
         }
 
         if self.param_type == ParameterType.DOUBLE:
             spec["doubleValueSpec"] = {
-                "minValue": self.min_value,
-                "maxValue": self.max_value
+                "minValue": float(self.min_value) if self.min_value is not None else 0.0,
+                "maxValue": float(self.max_value) if self.max_value is not None else 1.0
             }
             if self.scale_type == ScaleType.LOG_SCALE:
                 spec["scaleType"] = "UNIT_LOG_SCALE"
@@ -57,15 +57,19 @@ class ParameterSpec:
 
         elif self.param_type == ParameterType.INTEGER:
             spec["integerValueSpec"] = {
-                "minValue": int(self.min_value),
-                "maxValue": int(self.max_value)
+                "minValue": int(self.min_value) if self.min_value is not None else 0,
+                "maxValue": int(self.max_value) if self.max_value is not None else 100
             }
             spec["scaleType"] = "UNIT_LINEAR_SCALE"
 
         elif self.param_type == ParameterType.CATEGORICAL:
-            spec["categoricalValueSpec"] = {
-                "values": [str(v) for v in self.feasible_values]
-            }
+            if self.feasible_values is not None:
+                spec["categoricalValueSpec"] = {
+                    "values": [str(v) for v in self.feasible_values]
+                }
+            else:
+                raise ValueError(f"Categorical parameter '{self.name}' requires feasible_values")
+            spec["scaleType"] = "UNIT_LINEAR_SCALE"
 
         return spec
 
