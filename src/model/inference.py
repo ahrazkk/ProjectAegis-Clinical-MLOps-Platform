@@ -208,9 +208,8 @@ class DDIPredictor:
 
         # Calculate probabilities
         if self.use_binary:
-            # For binary classification, apply temperature scaling to logits then sigmoid
-            scaled_logits = relation_logits / self.temperature_scaling.temperature
-            calibrated_prob = torch.sigmoid(scaled_logits).item()
+            # For binary classification, use temperature scaling with sigmoid
+            calibrated_prob = self.temperature_scaling(relation_logits, use_sigmoid=True).item()
             raw_prob = torch.sigmoid(relation_logits).item()
 
             has_interaction = calibrated_prob > 0.5

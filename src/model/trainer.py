@@ -392,12 +392,10 @@ class DDITrainer:
             all_labels.extend(relation_labels.cpu().numpy())
             all_logits.extend(relation_logits.cpu().numpy())
             
-            # Memory management: if accumulated too many samples, convert to arrays periodically
-            if len(all_preds) > max_accumulated_samples:
-                # Convert to numpy arrays to free Python list memory
-                all_preds = np.array(all_preds).tolist()
-                all_labels = np.array(all_labels).tolist()
-                all_logits = np.array(all_logits).tolist()
+            # Clear GPU memory periodically to prevent OOM
+            del relation_logits, ner_logits, loss, preds, probs
+            if num_batches % 100 == 0:
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
         # Calculate metrics
         from .evaluation import calculate_metrics

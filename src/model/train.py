@@ -17,6 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 import torch
+from sklearn.model_selection import train_test_split
 
 from ddi_model import DDIModel
 from tokenization import DDITokenizer
@@ -259,8 +260,6 @@ def main():
             val_data = load_data(args.val_data_path)
         else:
             # Use stratified 80/20 split to ensure representative class distributions
-            from sklearn.model_selection import train_test_split
-            
             # Extract labels for stratification
             if args.use_binary:
                 labels = [sample.get('has_interaction', 0) for sample in train_data]

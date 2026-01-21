@@ -29,12 +29,14 @@ class TemperatureScaling(nn.Module):
         super(TemperatureScaling, self).__init__()
         self.temperature = nn.Parameter(torch.ones(1) * initial_temperature)
     
-    def forward(self, logits: torch.Tensor) -> torch.Tensor:
+    def forward(self, logits: torch.Tensor, use_sigmoid: bool = False) -> torch.Tensor:
         """
         Apply temperature scaling to logits
         
         Args:
-            logits: Raw model logits [batch_size, num_classes]
+            logits: Raw model logits [batch_size, num_classes] or [batch_size, 1] for binary
+            use_sigmoid: If True, apply sigmoid for binary classification; 
+                        if False, apply softmax for multi-class
         
         Returns:
             calibrated_probs: Temperature-scaled probabilities
@@ -42,8 +44,11 @@ class TemperatureScaling(nn.Module):
         # Scale logits by temperature
         scaled_logits = logits / self.temperature
         
-        # Apply softmax
-        calibrated_probs = torch.softmax(scaled_logits, dim=-1)
+        # Apply appropriate activation function
+        if use_sigmoid:
+            calibrated_probs = torch.sigmoid(scaled_logits)
+        else:
+            calibrated_probs = torch.softmax(scaled_logits, dim=-1)
         
         return calibrated_probs
     
@@ -106,8 +111,14 @@ class RiskScorer:
     # - low (0.0-0.3): Minimal interaction risk, routine monitoring sufficient
     # - moderate (0.3-0.7): Significant interaction possible, enhanced monitoring recommended
     # - high (0.7-1.0): Major interaction likely, intervention may be required
-    # Note: These values should be validated against clinical guidelines and adjusted based on
-    # empirical validation in the target clinical setting
+    #
+    # IMPORTANT: These threshold values are initial recommendations and should be validated
+    # against authoritative clinical guidelines such as:
+    # - FDA Drug-Drug Interaction Guidelines
+    # - Clinical Pharmacogenetics Implementation Consortium (CPIC) guidelines
+    # - Local institutional drug interaction policies
+    # Thresholds should be adjusted based on empirical validation in the target clinical
+    # setting and risk tolerance of the healthcare institution.
     RISK_THRESHOLDS = {
         'low': (0.0, 0.3),
         'moderate': (0.3, 0.7),
