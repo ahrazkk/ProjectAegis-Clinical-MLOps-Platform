@@ -350,9 +350,6 @@ class DDITrainer:
         all_labels = []
         all_logits = []
         num_batches = 0
-        
-        # Memory management: process predictions in chunks to avoid OOM on large validation sets
-        max_accumulated_samples = 10000  # Process up to 10k samples before aggregating
 
         for batch in tqdm(val_loader, desc="Evaluating"):
             input_ids = batch['input_ids'].to(self.device)

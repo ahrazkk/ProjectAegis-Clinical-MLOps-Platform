@@ -168,10 +168,16 @@ class VizierStudyConfig:
 
     @classmethod
     def from_json(cls, filepath: str) -> 'VizierStudyConfig':
-        """Load study configuration from JSON file"""
+        """
+        Load study configuration from JSON file
+        
+        Note: This is a simplified implementation. In production, you would parse
+        the JSON config and initialize VizierStudyConfig with the actual parameters.
+        """
         with open(filepath, 'r') as f:
-            json.load(f)
-        # Parse and return config (simplified for now)
+            config_data = json.load(f)
+        # Parse and return config (simplified for now - returns default config)
+        # TODO: Parse config_data to extract actual parameters
         return cls()
 
 
