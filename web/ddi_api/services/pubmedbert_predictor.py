@@ -403,73 +403,160 @@ class PubMedBERTPredictor:
         """
         Predict using ensemble of DDI Corpus-style templates.
         
-        Strategy: Use the EFFECT template as primary (most clinically relevant),
-        and use other templates to validate the prediction.
+        IMPORTANT: Template-based predictions are less reliable than real DDI sentences.
+        When no DDI Corpus data is found, we use conservative scoring to avoid
+        false positives.
         
-        The effect template asks "do these drugs cause adverse effects together?"
-        which is the most important clinical question for DDI.
+        Strategy:
+        1. Use NEUTRAL template first to get an unbiased baseline
+        2. Then use effect/mechanism templates to see if they agree
+        3. Only report interaction if there's STRONG consensus across templates
+        4. If no consensus → report "insufficient evidence" (no_interaction)
         """
-        # Primary prediction: Use effect-focused template
-        primary_template = self.CONTEXT_TEMPLATES['effect'][0]
-        formatted = primary_template.format(
+        # =====================================================================
+        # Step 1: Get baseline prediction with NEUTRAL template
+        # This asks the question without biasing the model toward any answer
+        # =====================================================================
+        neutral_template = self.CONTEXT_TEMPLATES['neutral'][0]
+        neutral_formatted = neutral_template.format(
             drug1=f"<e1>{drug1}</e1>", 
             drug2=f"<e2>{drug2}</e2>"
         )
-        primary_pred = self._predict_single(formatted, drug1, drug2)
+        neutral_pred = self._predict_single(neutral_formatted, drug1, drug2)
         
-        # Secondary validations with other templates
-        secondary_templates = [
-            self.CONTEXT_TEMPLATES['mechanism'][0],
-            self.CONTEXT_TEMPLATES['advise'][0],
+        # =====================================================================
+        # Step 2: Get predictions from other templates
+        # =====================================================================
+        test_templates = [
+            ('effect', self.CONTEXT_TEMPLATES['effect'][0]),
+            ('mechanism', self.CONTEXT_TEMPLATES['mechanism'][0]),
+            ('advise', self.CONTEXT_TEMPLATES['advise'][0]),
         ]
         
-        secondary_preds = []
-        for template in secondary_templates:
+        all_preds = [neutral_pred]
+        for template_type, template in test_templates:
             formatted = template.format(
                 drug1=f"<e1>{drug1}</e1>", 
                 drug2=f"<e2>{drug2}</e2>"
             )
             pred = self._predict_single(formatted, drug1, drug2)
-            secondary_preds.append(pred)
+            all_preds.append(pred)
         
-        # Count how many predictions show interaction (not no_interaction)
-        all_preds = [primary_pred] + secondary_preds
-        interaction_count = sum(
+        # =====================================================================
+        # Step 3: Calculate consensus - require STRONG agreement for interactions
+        # =====================================================================
+        # Count predictions by type
+        interaction_votes = sum(
             1 for p in all_preds 
             if p.interaction_type != 'no_interaction'
         )
-        consensus = interaction_count / len(all_preds)
+        no_interaction_votes = len(all_preds) - interaction_votes
         
-        # Use primary prediction result with consensus-adjusted confidence
-        if consensus >= 0.67:  # 2/3 or more agree there's an interaction
-            confidence_boost = 1.1
-        elif consensus >= 0.33:  # At least 1/3 agree
-            confidence_boost = 1.0
+        # Check if neutral template says no interaction
+        neutral_says_no = neutral_pred.interaction_type == 'no_interaction'
+        
+        # Average confidence for no_interaction class across all predictions
+        avg_no_interaction_prob = sum(
+            p.all_probabilities.get('no_interaction', 0) for p in all_preds
+        ) / len(all_preds)
+        
+        # =====================================================================
+        # Step 4: Conservative decision logic
+        # Template-based predictions should be VERY careful about false positives
+        # =====================================================================
+        
+        # If neutral template predicts no_interaction with decent confidence,
+        # or if no_interaction has high average probability, be conservative
+        if neutral_says_no and neutral_pred.confidence > 0.4:
+            # Neutral template says no interaction - trust it
+            logger.info(f"Template ensemble for {drug1}-{drug2}: Neutral says no_interaction ({neutral_pred.confidence:.2f})")
+            display_context = f"No verified interaction data found for {drug1} and {drug2} in clinical literature."
+            return DDITextPrediction(
+                drug_a=drug1,
+                drug_b=drug2,
+                interaction_type='no_interaction',
+                confidence=max(neutral_pred.confidence, avg_no_interaction_prob),
+                risk_score=0.0,
+                severity='none',
+                formatted_input=f"[Template Ensemble: neutral baseline, no verified interaction]",
+                all_probabilities=neutral_pred.all_probabilities,
+                context_sentence=display_context,
+                context_source='template (no DDI data)',
+                template_category='insufficient_evidence'
+            )
+        
+        # Require at least 3/4 templates to agree on interaction
+        consensus = interaction_votes / len(all_preds)
+        if consensus < 0.75:
+            # Not enough consensus - report as insufficient evidence
+            logger.info(f"Template ensemble for {drug1}-{drug2}: Low consensus ({consensus:.0%}), reporting no_interaction")
+            display_context = f"Insufficient clinical evidence to confirm interaction between {drug1} and {drug2}."
+            return DDITextPrediction(
+                drug_a=drug1,
+                drug_b=drug2,
+                interaction_type='no_interaction',
+                confidence=avg_no_interaction_prob + 0.1,  # Slight boost for conservative answer
+                risk_score=0.0,
+                severity='none',
+                formatted_input=f"[Template Ensemble: low consensus {consensus:.0%}]",
+                all_probabilities=neutral_pred.all_probabilities,
+                context_sentence=display_context,
+                context_source='template (insufficient evidence)',
+                template_category='insufficient_evidence'
+            )
+        
+        # =====================================================================
+        # Step 5: Strong consensus found - report interaction with REDUCED confidence
+        # Since this is template-based, we penalize the confidence
+        # =====================================================================
+        
+        # Use the most common interaction type among predictions
+        from collections import Counter
+        interaction_types = [p.interaction_type for p in all_preds if p.interaction_type != 'no_interaction']
+        if not interaction_types:
+            # Shouldn't happen given consensus check, but be safe
+            interaction_type = 'no_interaction'
         else:
-            # Majority say no interaction - trust them
-            confidence_boost = 0.7
+            interaction_type = Counter(interaction_types).most_common(1)[0][0]
         
-        final_confidence = min(0.99, primary_pred.confidence * confidence_boost)
+        # Find the prediction with this type for probabilities
+        type_preds = [p for p in all_preds if p.interaction_type == interaction_type]
+        best_pred = max(type_preds, key=lambda p: p.confidence) if type_preds else neutral_pred
         
-        severity, base_risk = self.LABEL_TO_SEVERITY.get(
-            primary_pred.interaction_type, ('unknown', 0.5)
-        )
+        # PENALTY: Template-based predictions get reduced confidence (max 0.6)
+        # This prevents false positives from showing as "severe" interactions
+        template_penalty = 0.6  # Max confidence for template-based predictions
+        final_confidence = min(template_penalty, best_pred.confidence * 0.7)
         
-        # Create human-readable context sentence (without entity markers for display)
-        display_context = primary_template.format(drug1=drug1, drug2=drug2)
+        severity, base_risk = self.LABEL_TO_SEVERITY.get(interaction_type, ('unknown', 0.5))
+        
+        # Further reduce risk for template-based predictions
+        # A "severe" template prediction becomes "moderate" in practice
+        risk_adjustment = 0.5  # Cut risk in half for template predictions
+        final_risk = base_risk * final_confidence * risk_adjustment
+        
+        # Downgrade severity for template predictions
+        if severity == 'severe':
+            severity = 'moderate'
+        elif severity == 'major':
+            severity = 'moderate'
+        
+        display_context = f"⚠️ Potential interaction detected via AI analysis (no clinical literature found). {drug1} and {drug2} may interact - verify with clinical sources."
+        
+        logger.info(f"Template ensemble for {drug1}-{drug2}: {interaction_type} with {consensus:.0%} consensus, confidence reduced to {final_confidence:.2f}")
         
         return DDITextPrediction(
             drug_a=drug1,
             drug_b=drug2,
-            interaction_type=primary_pred.interaction_type,
+            interaction_type=interaction_type,
             confidence=final_confidence,
-            risk_score=base_risk * final_confidence,
+            risk_score=final_risk,
             severity=severity,
-            formatted_input=f"[Ensemble: 3 templates, consensus: {consensus:.0%}, primary: {primary_pred.interaction_type}]",
-            all_probabilities=primary_pred.all_probabilities,
+            formatted_input=f"[Template Ensemble: {len(all_preds)} templates, {consensus:.0%} consensus, confidence penalized]",
+            all_probabilities=best_pred.all_probabilities,
             context_sentence=display_context,
-            context_source='template',
-            template_category='effect (ensemble)'
+            context_source='template (AI prediction)',
+            template_category=f'{interaction_type} (unverified)'
         )
     
     def predict_with_multiple_contexts(self, drug1: str, drug2: str, 

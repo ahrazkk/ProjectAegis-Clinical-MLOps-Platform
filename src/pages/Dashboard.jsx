@@ -36,7 +36,7 @@ import {
   Hexagon
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
-import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth } from '../services/api';
+import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo } from '../services/api';
 import MoleculeViewer from '../components/MoleculeViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
@@ -71,6 +71,11 @@ export default function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [polypharmacyResult, setPolypharmacyResult] = useState(null);
+
+  // Enhanced Data State
+  const [drugInfoCache, setDrugInfoCache] = useState({});
+  const [interactionEvidence, setInteractionEvidence] = useState(null);
+  const [isLoadingDrugInfo, setIsLoadingDrugInfo] = useState(false);
 
   // UI State
   const [activeTab, setActiveTab] = useState('molecules2d');
@@ -142,19 +147,36 @@ export default function Dashboard() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  const addDrug = (drug) => {
+  const addDrug = async (drug) => {
     setSelectedDrugs(prev => [...prev, drug]);
     setSearchQuery('');
     setSearchResults([]);
     setShowSearch(false);
     setResult(null);
     setPolypharmacyResult(null);
+    setInteractionEvidence(null);
+    
+    // Fetch drug info (side effects, etc.)
+    if (!drugInfoCache[drug.name.toLowerCase()]) {
+      try {
+        addLog(`Fetching drug info for ${drug.name}...`, 'info', 'DATABASE');
+        const info = await getDrugInfo(drug.name, false); // Skip FAERS for speed
+        setDrugInfoCache(prev => ({
+          ...prev,
+          [drug.name.toLowerCase()]: info
+        }));
+        addLog(`Loaded ${info.side_effects?.length || 0} side effects for ${drug.name}`, 'success', 'DATABASE');
+      } catch (err) {
+        console.warn('Could not fetch drug info:', err);
+      }
+    }
   };
 
   const removeDrug = (drugId) => {
     setSelectedDrugs(prev => prev.filter(d => d.drugbank_id !== drugId && d.name !== drugId));
     setResult(null);
     setPolypharmacyResult(null);
+    setInteractionEvidence(null);
   };
 
   const runAnalysis = async () => {
@@ -162,6 +184,7 @@ export default function Dashboard() {
 
     setIsAnalyzing(true);
     setError(null);
+    setInteractionEvidence(null);
     addLog(`Starting DDI analysis for ${selectedDrugs.map(d => d.name).join(' + ')}`, 'info', 'SYSTEM');
 
     try {
@@ -179,6 +202,21 @@ export default function Dashboard() {
 
         setResult(response);
         setPolypharmacyResult(null);
+        
+        // Fetch real-world evidence in background
+        addLog('Fetching real-world evidence from FDA FAERS...', 'info', 'DATABASE');
+        try {
+          const evidence = await getInteractionInfo(
+            selectedDrugs[0].name,
+            selectedDrugs[1].name,
+            true
+          );
+          setInteractionEvidence(evidence);
+          addLog(`Found ${evidence.faers_data?.total_reports || 0} FDA adverse event reports`, 'success', 'DATABASE');
+        } catch (err) {
+          console.warn('Could not fetch interaction evidence:', err);
+          addLog('Real-world evidence unavailable', 'warning', 'DATABASE');
+        }
       } else {
         // Polypharmacy analysis
         addLog('Initiating Graph Neural Network (GNN) for polypharmacy...', 'info', 'AI');
@@ -360,24 +398,45 @@ export default function Dashboard() {
                   exit={{ opacity: 0, y: -10 }}
                   className="absolute left-4 right-4 mt-2 bg-black border border-fui-gray-500/30 shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto"
                 >
-                  {searchResults.map((drug, i) => (
+                  {searchResults.map((drug, i) => {
+                    const hasSmiles = drug.has_smiles || (drug.smiles && drug.smiles.length > 5);
+                    return (
                     <button
                       key={drug.drugbank_id || i}
                       onClick={() => addDrug(drug)}
-                      className="w-full flex items-center justify-between p-3 hover:bg-fui-gray-500/10 transition-colors border-b border-fui-gray-500/20 last:border-0"
+                      className={`w-full flex items-center justify-between p-3 hover:bg-fui-gray-500/10 transition-colors border-b border-fui-gray-500/20 last:border-0 ${
+                        !hasSmiles ? 'opacity-70' : ''
+                      }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 border border-fui-gray-500/50 flex items-center justify-center">
-                          <Pill className="w-4 h-4 text-fui-gray-400" />
+                        <div className={`w-8 h-8 border flex items-center justify-center ${
+                          hasSmiles 
+                            ? 'border-fui-accent-green/50 bg-fui-accent-green/10' 
+                            : 'border-fui-accent-red/50 bg-fui-accent-red/10'
+                        }`}>
+                          <Pill className={`w-4 h-4 ${
+                            hasSmiles ? 'text-fui-accent-green' : 'text-fui-accent-red'
+                          }`} />
                         </div>
                         <div className="text-left">
-                          <div className="text-sm font-normal">{drug.name}</div>
-                          <div className="text-[10px] text-fui-gray-500 uppercase tracking-wider">{drug.drugbank_id || 'Unknown ID'}</div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-sm font-normal ${hasSmiles ? 'text-fui-gray-200' : 'text-fui-gray-400'}`}>
+                              {drug.name}
+                            </span>
+                            {!hasSmiles && (
+                              <span className="text-[8px] px-1.5 py-0.5 border border-fui-accent-orange/30 text-fui-accent-orange uppercase tracking-wider">
+                                No Structure
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-fui-gray-500 uppercase tracking-wider">
+                            {drug.drugbank_id || drug.category || 'Unknown'}
+                          </div>
                         </div>
                       </div>
-                      <Plus className="w-4 h-4 text-fui-accent-cyan" />
+                      <Plus className={`w-4 h-4 ${hasSmiles ? 'text-fui-accent-cyan' : 'text-fui-gray-500'}`} />
                     </button>
-                  ))}
+                  )})}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -407,26 +466,42 @@ export default function Dashboard() {
                 <p className="text-[10px] text-fui-gray-600">Search and add drugs to begin analysis</p>
               </div>
             ) : (
-              selectedDrugs.map((drug, i) => (
+              selectedDrugs.map((drug, i) => {
+                const drugInfo = drugInfoCache[drug.name.toLowerCase()];
+                const sideEffects = drugInfo?.side_effects?.slice(0, 5) || [];
+                const hasSmiles = drug.has_smiles || (drug.smiles && drug.smiles.length > 5);
+                
+                return (
                 <motion.div
                   key={drug.drugbank_id || drug.name}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className="group p-3 border border-fui-gray-500/20 transition-all hover:border-fui-gray-500/40 relative"
+                  className={`group p-3 border transition-all hover:border-fui-gray-500/40 relative ${
+                    !hasSmiles ? 'border-fui-accent-orange/30 bg-fui-accent-orange/5' : 'border-fui-gray-500/20'
+                  }`}
                 >
-                  <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-fui-gray-500"></div>
-                  <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-fui-gray-500"></div>
+                  <div className={`absolute -top-px -left-px w-2 h-2 border-t border-l ${!hasSmiles ? 'border-fui-accent-orange' : 'border-fui-gray-500'}`}></div>
+                  <div className={`absolute -bottom-px -right-px w-2 h-2 border-b border-r ${!hasSmiles ? 'border-fui-accent-orange' : 'border-fui-gray-500'}`}></div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 border flex items-center justify-center text-[10px] font-normal uppercase tracking-wider ${i === 0 ? 'border-fui-accent-cyan/50 text-fui-accent-cyan' :
+                      <div className={`w-8 h-8 border flex items-center justify-center text-[10px] font-normal uppercase tracking-wider ${
+                        !hasSmiles ? 'border-fui-accent-red/50 text-fui-accent-red bg-fui-accent-red/10' :
+                        i === 0 ? 'border-fui-accent-cyan/50 text-fui-accent-cyan' :
                         i === 1 ? 'border-fui-accent-blue/50 text-fui-accent-blue' :
                           'border-fui-gray-500/50 text-fui-gray-400'
                         }`}>
-                        {drug.name.substring(0, 2).toUpperCase()}
+                        {hasSmiles ? drug.name.substring(0, 2).toUpperCase() : '⚠'}
                       </div>
                       <div>
-                        <div className="text-sm font-normal text-fui-gray-200">{drug.name}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-normal text-fui-gray-200">{drug.name}</span>
+                          {!hasSmiles && (
+                            <span className="text-[7px] px-1 py-0.5 border border-fui-accent-red/30 text-fui-accent-red uppercase">
+                              No 3D
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-fui-gray-500 uppercase tracking-widest">{drug.category || 'Drug'}</div>
                       </div>
                     </div>
@@ -437,8 +512,53 @@ export default function Dashboard() {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
+                  
+                  {/* No Structure Warning */}
+                  {!hasSmiles && (
+                    <div className="mt-2 p-2 border border-fui-accent-orange/20 bg-fui-accent-orange/5">
+                      <p className="text-[9px] text-fui-accent-orange">
+                        ⚠ No molecular structure available. 3D visualization limited.
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* Side Effects Preview */}
+                  {sideEffects.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-fui-gray-500/10">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-3 h-3 text-fui-accent-orange" />
+                        <span className="text-[9px] text-fui-gray-500 uppercase tracking-wider">Known Side Effects</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {sideEffects.map((effect, j) => (
+                          <span
+                            key={j}
+                            className="px-1.5 py-0.5 text-[8px] border border-fui-accent-orange/20 text-fui-accent-orange/70 uppercase tracking-wide"
+                          >
+                            {effect}
+                          </span>
+                        ))}
+                        {drugInfo?.side_effects?.length > 5 && (
+                          <span className="px-1.5 py-0.5 text-[8px] text-fui-gray-500">
+                            +{drugInfo.side_effects.length - 5} more
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Data Source Indicator */}
+                  {drugInfo?.sources && (
+                    <div className="mt-2 flex gap-1">
+                      {drugInfo.sources.map((src, j) => (
+                        <span key={j} className="text-[7px] text-fui-gray-600 uppercase tracking-wider">
+                          {src}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </motion.div>
-              ))
+              )})
             )}
           </div>
 
@@ -706,6 +826,178 @@ export default function Dashboard() {
                       )}
                     </div>
                   )}
+
+                  {/* Real-World Evidence from FDA FAERS */}
+                  {interactionEvidence?.faers_data && (
+                    <div className="p-4 border border-fui-accent-blue/30 relative bg-fui-accent-blue/5">
+                      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-fui-accent-blue"></div>
+                      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-fui-accent-blue"></div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Activity className="w-3.5 h-3.5 text-fui-accent-blue" />
+                        <span className="text-[10px] text-fui-gray-400 uppercase tracking-widest">FDA Real-World Evidence</span>
+                        <span className="ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border border-fui-accent-blue/50 text-fui-accent-blue">
+                          OpenFDA FAERS
+                        </span>
+                      </div>
+                      
+                      {/* Total Reports */}
+                      <div className="flex items-center justify-between mb-3 pb-3 border-b border-fui-gray-500/10">
+                        <span className="text-[10px] text-fui-gray-500 uppercase tracking-wider">Total Adverse Event Reports</span>
+                        <span className="text-lg font-mono text-fui-accent-blue" style={{ textShadow: '0 0 10px rgba(59,130,246,0.3)' }}>
+                          {interactionEvidence.faers_data.total_reports?.toLocaleString() || '0'}
+                        </span>
+                      </div>
+                      
+                      {/* Top Reactions Bar Chart */}
+                      {interactionEvidence.faers_data.top_reactions?.length > 0 && (
+                        <div>
+                          <span className="text-[9px] text-fui-gray-500 uppercase tracking-wider">Top Reported Reactions</span>
+                          <div className="mt-2 space-y-1.5">
+                            {interactionEvidence.faers_data.top_reactions.slice(0, 5).map((reaction, i) => {
+                              const maxCount = interactionEvidence.faers_data.top_reactions[0]?.count || 1;
+                              const width = Math.max((reaction.count / maxCount) * 100, 5);
+                              return (
+                                <div key={i} className="flex items-center gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center justify-between mb-0.5">
+                                      <span className="text-[9px] text-fui-gray-300 uppercase tracking-wider truncate max-w-[140px]">
+                                        {reaction.reaction}
+                                      </span>
+                                      <span className="text-[9px] text-fui-accent-blue font-mono">
+                                        {reaction.count?.toLocaleString()}
+                                      </span>
+                                    </div>
+                                    <div className="h-1.5 bg-fui-gray-800 overflow-hidden">
+                                      <div 
+                                        className="h-full bg-gradient-to-r from-fui-accent-blue to-fui-accent-cyan transition-all duration-500"
+                                        style={{ width: `${width}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Serious Outcomes */}
+                      {interactionEvidence.faers_data.serious_outcomes && 
+                       Object.keys(interactionEvidence.faers_data.serious_outcomes).length > 0 && (
+                        <div className="mt-4 pt-3 border-t border-fui-gray-500/10">
+                          <span className="text-[9px] text-fui-gray-500 uppercase tracking-wider">Serious Outcomes</span>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {Object.entries(interactionEvidence.faers_data.serious_outcomes)
+                              .filter(([_, count]) => count > 0)
+                              .slice(0, 4)
+                              .map(([outcome, count], i) => (
+                                <div key={i} className="px-2 py-1 border border-fui-accent-red/30 bg-fui-accent-red/10">
+                                  <span className="text-[8px] text-fui-accent-red uppercase tracking-wider block">
+                                    {outcome.replace(/_/g, ' ')}
+                                  </span>
+                                  <span className="text-[10px] text-fui-accent-red font-mono">
+                                    {count.toLocaleString()}
+                                  </span>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Side Effects Comparison */}
+                  {selectedDrugs.length === 2 && (
+                    drugInfoCache[selectedDrugs[0].name.toLowerCase()]?.side_effects?.length > 0 ||
+                    drugInfoCache[selectedDrugs[1].name.toLowerCase()]?.side_effects?.length > 0
+                  ) && (
+                    <div className="p-4 border border-fui-accent-orange/30 relative">
+                      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-fui-accent-orange"></div>
+                      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-fui-accent-orange"></div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <AlertTriangle className="w-3.5 h-3.5 text-fui-accent-orange" />
+                        <span className="text-[10px] text-fui-gray-400 uppercase tracking-widest">Side Effects Comparison</span>
+                        <span className="ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border border-fui-accent-orange/30 text-fui-accent-orange">
+                          SIDER
+                        </span>
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-3">
+                        {selectedDrugs.slice(0, 2).map((drug, i) => {
+                          const info = drugInfoCache[drug.name.toLowerCase()];
+                          const effects = info?.side_effects?.slice(0, 6) || [];
+                          return (
+                            <div key={i}>
+                              <span className={`text-[9px] uppercase tracking-wider ${
+                                i === 0 ? 'text-fui-accent-cyan' : 'text-fui-accent-blue'
+                              }`}>
+                                {drug.name}
+                              </span>
+                              <div className="mt-1.5 space-y-1">
+                                {effects.length > 0 ? effects.map((effect, j) => (
+                                  <div key={j} className="text-[8px] text-fui-gray-400 py-0.5 px-1.5 border border-fui-gray-500/20">
+                                    {effect}
+                                  </div>
+                                )) : (
+                                  <span className="text-[8px] text-fui-gray-600">No data</span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      
+                      {/* Find common side effects */}
+                      {(() => {
+                        const effects1 = drugInfoCache[selectedDrugs[0]?.name?.toLowerCase()]?.side_effects || [];
+                        const effects2 = drugInfoCache[selectedDrugs[1]?.name?.toLowerCase()]?.side_effects || [];
+                        const common = effects1.filter(e => effects2.map(x => x.toLowerCase()).includes(e.toLowerCase()));
+                        if (common.length === 0) return null;
+                        return (
+                          <div className="mt-3 pt-3 border-t border-fui-gray-500/10">
+                            <span className="text-[9px] text-fui-accent-red uppercase tracking-wider">
+                              ⚠️ Shared Side Effects ({common.length})
+                            </span>
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {common.slice(0, 5).map((effect, i) => (
+                                <span key={i} className="text-[8px] text-fui-accent-red px-1.5 py-0.5 border border-fui-accent-red/30 bg-fui-accent-red/10">
+                                  {effect}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Data Sources Summary */}
+                  <div className="p-3 border border-fui-gray-500/10 bg-fui-gray-900/50">
+                    <span className="text-[9px] text-fui-gray-500 uppercase tracking-wider">Data Sources</span>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {result.source && (
+                        <span className="px-2 py-0.5 text-[7px] border border-fui-accent-cyan/30 text-fui-accent-cyan uppercase tracking-wider">
+                          {result.source === 'knowledge_graph' ? 'Neo4j KG' : result.source === 'pubmedbert' ? 'PubMedBERT' : result.source}
+                        </span>
+                      )}
+                      {result.context_source?.includes('ddi_corpus') && (
+                        <span className="px-2 py-0.5 text-[7px] border border-fui-accent-green/30 text-fui-accent-green uppercase tracking-wider">
+                          DDI Corpus 2013
+                        </span>
+                      )}
+                      {interactionEvidence?.faers_data && (
+                        <span className="px-2 py-0.5 text-[7px] border border-fui-accent-blue/30 text-fui-accent-blue uppercase tracking-wider">
+                          OpenFDA FAERS
+                        </span>
+                      )}
+                      {(drugInfoCache[selectedDrugs[0]?.name?.toLowerCase()]?.side_effects?.length > 0 ||
+                        drugInfoCache[selectedDrugs[1]?.name?.toLowerCase()]?.side_effects?.length > 0) && (
+                        <span className="px-2 py-0.5 text-[7px] border border-fui-accent-orange/30 text-fui-accent-orange uppercase tracking-wider">
+                          SIDER
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-12 text-center">

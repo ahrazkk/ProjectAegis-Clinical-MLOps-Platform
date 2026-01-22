@@ -410,6 +410,9 @@ class DrugSearchView(APIView):
     
     Search for drugs by name for autocomplete.
     Uses Neo4j Knowledge Graph for comprehensive drug database.
+    
+    Results are sorted: drugs WITH SMILES appear first, then drugs without.
+    Each result includes has_smiles flag for UI color-coding.
     """
     
     def get(self, request):
@@ -419,19 +422,25 @@ class DrugSearchView(APIView):
             return Response({'results': []})
         
         results = []
+        seen_names = set()  # Track unique drug names (lowercase)
         
         # Search Knowledge Graph first
         try:
             kg = KnowledgeGraphService
             if kg.is_connected():
-                kg_results = kg.search_drugs(query, limit=15)
+                kg_results = kg.search_drugs(query, limit=30)  # Get more to filter
                 for drug in kg_results:
-                    results.append({
-                        'name': drug.get('name', ''),
-                        'drugbank_id': drug.get('id', ''),
-                        'smiles': drug.get('smiles', ''),  # Include SMILES for 3D visualization
-                        'category': drug.get('category', ''),
-                    })
+                    name_lower = drug.get('name', '').lower()
+                    if name_lower and name_lower not in seen_names:
+                        smiles = drug.get('smiles', '') or ''
+                        results.append({
+                            'name': drug.get('name', ''),
+                            'drugbank_id': drug.get('id', ''),
+                            'smiles': smiles,
+                            'category': drug.get('category', ''),
+                            'has_smiles': bool(smiles and len(smiles) > 5),  # Valid SMILES
+                        })
+                        seen_names.add(name_lower)
         except Exception as e:
             logger.warning(f"Knowledge graph search failed: {e}")
         
@@ -439,32 +448,47 @@ class DrugSearchView(APIView):
         if not results:
             try:
                 drug_service = get_drug_service()
-                service_results = drug_service.search_drugs(query, limit=10)
+                service_results = drug_service.search_drugs(query, limit=20)
                 
                 for drug in service_results:
-                    results.append({
-                        'name': drug['name'],
-                        'drugbank_id': drug.get('drugbank_id', ''),
-                        'smiles': drug.get('smiles', ''),
-                        'category': drug.get('category', ''),
-                    })
+                    name_lower = drug['name'].lower()
+                    if name_lower not in seen_names:
+                        smiles = drug.get('smiles', '') or ''
+                        results.append({
+                            'name': drug['name'],
+                            'drugbank_id': drug.get('drugbank_id', ''),
+                            'smiles': smiles,
+                            'category': drug.get('category', ''),
+                            'has_smiles': bool(smiles and len(smiles) > 5),
+                        })
+                        seen_names.add(name_lower)
             except Exception as e:
                 logger.warning(f"DrugService search failed: {e}")
         
         # Also search database
         try:
-            db_drugs = Drug.objects.filter(name__icontains=query)[:10]
+            db_drugs = Drug.objects.filter(name__icontains=query)[:20]
             for drug in db_drugs:
+                name_lower = drug.name.lower()
                 # Avoid duplicates
-                if not any(r['drugbank_id'] == drug.drugbank_id for r in results):
+                if name_lower not in seen_names:
+                    smiles = drug.smiles or ''
                     results.append({
                         'name': drug.name,
                         'drugbank_id': drug.drugbank_id,
-                        'smiles': drug.smiles or '',  # Include SMILES for 3D visualization
+                        'smiles': smiles,
                         'category': drug.drug_class or '',
+                        'has_smiles': bool(smiles and len(smiles) > 5),
                     })
+                    seen_names.add(name_lower)
         except Exception as e:
             logger.warning(f"Database search failed: {e}")
+        
+        # SORT: Drugs with SMILES first, then alphabetically
+        results.sort(key=lambda x: (
+            0 if x['has_smiles'] else 1,  # SMILES first
+            x['name'].lower()  # Then alphabetically
+        ))
         
         return Response({'results': results[:20]})
 
