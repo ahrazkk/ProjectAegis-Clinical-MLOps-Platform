@@ -612,6 +612,18 @@ export default function Dashboard() {
                       <div className="flex items-center gap-2 mb-3">
                         <Brain className="w-3.5 h-3.5 text-fui-accent-cyan" />
                         <span className="text-[10px] text-fui-gray-500 uppercase tracking-widest">Mechanism</span>
+                        {/* Data Source Badge */}
+                        <span className={`ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border ${
+                          result.source === 'knowledge_graph'
+                            ? 'border-fui-accent-cyan/50 text-fui-accent-cyan bg-fui-accent-cyan/10'
+                            : result.source === 'pubmedbert'
+                            ? 'border-fui-accent-yellow/50 text-fui-accent-yellow bg-fui-accent-yellow/10'
+                            : 'border-fui-gray-500/30 text-fui-gray-500'
+                        }`}>
+                          {result.source === 'knowledge_graph' ? '⚡ Knowledge Graph' :
+                           result.source === 'pubmedbert' ? '🧠 PubMedBERT AI' : 
+                           result.source || 'AI Model'}
+                        </span>
                       </div>
                       <p className="text-xs text-fui-gray-300 leading-relaxed">
                         {result.mechanism_hypothesis}
@@ -655,6 +667,43 @@ export default function Dashboard() {
                           {(result.confidence * 100).toFixed(1)}%
                         </span>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Context Sentence - Shows what the model analyzed */}
+                  {result.context_sentence && (
+                    <div className="p-4 border border-fui-gray-500/20 relative">
+                      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-fui-gray-500"></div>
+                      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-fui-gray-500"></div>
+                      <div className="flex items-center gap-2 mb-3">
+                        <FileText className="w-3.5 h-3.5 text-fui-accent-yellow" />
+                        <span className="text-[10px] text-fui-gray-500 uppercase tracking-widest">Analysis Context</span>
+                        <span className={`ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border ${
+                          result.context_source?.includes('ddi_corpus')
+                            ? 'border-fui-accent-green/50 text-fui-accent-green bg-fui-accent-green/10'
+                            : result.context_source === 'template' 
+                            ? 'border-fui-accent-yellow/30 text-fui-accent-yellow/80' 
+                            : result.context_source === 'rag'
+                            ? 'border-fui-accent-green/30 text-fui-accent-green/80'
+                            : result.context_source === 'user_provided'
+                            ? 'border-fui-accent-cyan/30 text-fui-accent-cyan/80'
+                            : 'border-fui-gray-500/30 text-fui-gray-500'
+                        }`}>
+                          {result.context_source?.includes('ddi_corpus') ? '✓ Clinical Literature' :
+                           result.context_source === 'template' ? 'Template' : 
+                           result.context_source === 'rag' ? 'PubMed' : 
+                           result.context_source === 'user_provided' ? 'Custom' : 
+                           result.context_source || 'Unknown'}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-fui-gray-300 leading-relaxed italic">
+                        "{result.context_sentence}"
+                      </p>
+                      {result.template_category && (
+                        <p className="text-[9px] text-fui-gray-500 mt-2 uppercase tracking-wider">
+                          Category: {result.template_category}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

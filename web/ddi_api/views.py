@@ -229,7 +229,11 @@ class DDIPredictionView(APIView):
                     'inference_time_ms': (time.time() - start_time) * 1000,
                     'source': 'pubmedbert',
                     'interaction_type': prediction.interaction_type,
-                    'all_probabilities': prediction.all_probabilities
+                    'all_probabilities': prediction.all_probabilities,
+                    # Context sentence information for transparency
+                    'context_sentence': prediction.context_sentence,
+                    'context_source': prediction.context_source,
+                    'template_category': prediction.template_category
                 }
             else:
                 # Fallback to molecular structure-based model

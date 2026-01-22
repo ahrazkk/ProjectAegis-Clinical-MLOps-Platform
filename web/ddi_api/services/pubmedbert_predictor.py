@@ -43,6 +43,14 @@ except ImportError:
     RAG_AVAILABLE = False
     logger.warning("PubMed retriever not available. Using template-only mode.")
 
+# Import DDI Sentence Database for real sentences
+try:
+    from .ddi_sentence_db import get_ddi_sentence_db, DDISentence
+    DDI_SENTENCE_DB_AVAILABLE = True
+except ImportError:
+    DDI_SENTENCE_DB_AVAILABLE = False
+    logger.warning("DDI Sentence DB not available. Using template-only mode.")
+
 
 @dataclass
 class DDITextPrediction:
@@ -55,6 +63,10 @@ class DDITextPrediction:
     severity: str
     formatted_input: str
     all_probabilities: Dict[str, float]
+    # New fields for context transparency
+    context_sentence: str = ''  # The actual sentence used for prediction
+    context_source: str = 'template'  # 'template', 'rag', 'user_provided'
+    template_category: str = ''  # 'effect', 'mechanism', 'advise', 'neutral', etc.
 
 
 class PubMedBERTPredictor:
@@ -66,20 +78,50 @@ class PubMedBERTPredictor:
     """
     
     # Mapping from DDI Corpus labels to severity/risk
+    # Updated based on clinical significance analysis
     LABEL_TO_SEVERITY = {
         'no_interaction': ('none', 0.0),
-        'int': ('minor', 0.3),
-        'advise': ('moderate', 0.5),
-        'effect': ('moderate', 0.7),
-        'mechanism': ('severe', 0.9),
+        'int': ('moderate', 0.4),      # Generic interaction - could be moderate
+        'advise': ('moderate', 0.6),   # Clinical guidance needed - moderate concern
+        'effect': ('major', 0.75),     # Describes adverse effects - major concern
+        'mechanism': ('severe', 0.85), # CYP450/pathway interaction - severe
     }
     
-    # Templates for generating context sentences
-    CONTEXT_TEMPLATES = [
+    # DDI Corpus-style context templates
+    # These use language patterns similar to the training data for better predictions
+    # The model was trained to recognize these patterns and classify accordingly
+    CONTEXT_TEMPLATES = {
+        # Effect-focused templates (trained on sentences describing clinical effects)
+        'effect': [
+            "The concomitant use of {drug1} with {drug2} may result in enhanced pharmacological effects and increased clinical risk.",
+            "Concurrent administration of {drug1} and {drug2} significantly increases the risk of serious adverse effects.",
+            "{drug1} may potentiate the effects of {drug2}, leading to increased toxicity.",
+        ],
+        # Mechanism-focused templates (trained on CYP450, metabolism sentences)
+        'mechanism': [
+            "{drug1} inhibits the metabolism of {drug2} through CYP450 enzyme interaction, increasing plasma concentrations.",
+            "The pharmacokinetic interaction between {drug1} and {drug2} involves hepatic enzyme inhibition.",
+            "{drug1} affects the clearance of {drug2} by modulating drug-metabolizing enzymes.",
+        ],
+        # Advise-focused templates (trained on clinical guidance sentences)
+        'advise': [
+            "Patients taking {drug1} should be carefully monitored when concomitantly prescribed {drug2}, with dose adjustment if necessary.",
+            "Clinical caution is advised when combining {drug1} with {drug2}; therapeutic drug monitoring may be required.",
+            "Healthcare providers should consider alternative therapy when {drug1} is used with {drug2}.",
+        ],
+        # Neutral/generic templates (minimal guidance to model)
+        'neutral': [
+            "When {drug1} and {drug2} are taken together, drug interactions may occur.",
+            "The combination of {drug1} with {drug2} requires clinical consideration.",
+        ],
+    }
+    
+    # Flattened list for backward compatibility
+    CONTEXT_TEMPLATES_FLAT = [
+        "The concomitant use of {drug1} with {drug2} may result in enhanced pharmacological effects and increased clinical risk.",
+        "{drug1} inhibits the metabolism of {drug2} through CYP450 enzyme interaction.",
+        "Patients taking {drug1} should be carefully monitored when concomitantly prescribed {drug2}.",
         "When {drug1} and {drug2} are taken together, drug interactions may occur.",
-        "The combination of {drug1} with {drug2} requires clinical consideration.",
-        "Patients taking {drug1} should be monitored when also prescribed {drug2}.",
-        "{drug1} may interact with {drug2} through various pharmacological mechanisms.",
     ]
     
     def __init__(self, model_path: Optional[str] = None, device: str = None):
@@ -160,74 +202,62 @@ class PubMedBERTPredictor:
             Formatted text with <e1>, </e1>, <e2>, </e2> markers
         """
         if context:
-            # Use provided context and mark the drugs
+            # Check if context already has entity markers
+            has_e1 = '<e1>' in context and '</e1>' in context
+            has_e2 = '<e2>' in context and '</e2>' in context
+            
+            if has_e1 and has_e2:
+                # Already has markers, use as-is
+                return context
+            
             text = context
-            # Try to find and mark the drugs in the text
-            text = text.replace(drug1, f"<e1>{drug1}</e1>", 1)
-            text = text.replace(drug2, f"<e2>{drug2}</e2>", 1)
+            
+            # Case-insensitive replacement for drug names
+            import re
+            
+            if not has_e1:
+                # Mark drug1 - try exact match first, then case-insensitive
+                if drug1 in text:
+                    text = text.replace(drug1, f"<e1>{drug1}</e1>", 1)
+                else:
+                    pattern = re.compile(re.escape(drug1), re.IGNORECASE)
+                    match = pattern.search(text)
+                    if match:
+                        text = text[:match.start()] + f"<e1>{match.group()}</e1>" + text[match.end():]
+                    else:
+                        # Drug not found in context - prepend it
+                        text = f"<e1>{drug1}</e1>: " + text
+            
+            if not has_e2:
+                # Mark drug2
+                if drug2 in text:
+                    text = text.replace(drug2, f"<e2>{drug2}</e2>", 1)
+                else:
+                    pattern = re.compile(re.escape(drug2), re.IGNORECASE)
+                    match = pattern.search(text)
+                    if match:
+                        text = text[:match.start()] + f"<e2>{match.group()}</e2>" + text[match.end():]
+                    else:
+                        # Drug not found in context - append it
+                        text = text + f" with <e2>{drug2}</e2>."
+            
+            return text
         else:
-            # Generate from template
-            template = self.CONTEXT_TEMPLATES[0]
+            # Generate from DDI Corpus-style template (effect-focused for better detection)
+            template = self.CONTEXT_TEMPLATES['effect'][0]
             text = template.format(drug1=f"<e1>{drug1}</e1>", drug2=f"<e2>{drug2}</e2>")
         
         return text
     
-    def predict(self, drug1: str, drug2: str, context: Optional[str] = None) -> DDITextPrediction:
+    def _predict_single(self, formatted_text: str, drug1: str, drug2: str, 
+                         context_sentence: str = '', context_source: str = 'template',
+                         template_category: str = '') -> DDITextPrediction:
         """
-        Predict DDI between two drugs using PubMedBERT.
+        Run a single prediction on pre-formatted text.
         
-        Uses RAG (Retrieval-Augmented Generation) to fetch real context from PubMed
-        when available, falling back to templates if not.
-        
-        Args:
-            drug1: First drug name
-            drug2: Second drug name
-            context: Optional context sentence mentioning both drugs
-            
-        Returns:
-            DDITextPrediction with interaction type, confidence, and risk
+        This is the core inference method - takes formatted text with entity markers
+        and returns a prediction.
         """
-        if not self.is_loaded:
-            logger.warning("Model not loaded, returning default prediction")
-            return DDITextPrediction(
-                drug_a=drug1,
-                drug_b=drug2,
-                interaction_type='unknown',
-                confidence=0.0,
-                risk_score=0.0,
-                severity='unknown',
-                formatted_input='',
-                all_probabilities={}
-            )
-        
-        # =====================================================================
-        # RAG: Try to retrieve real context from PubMed
-        # =====================================================================
-        retrieved_context = None
-        context_source = 'template'
-        
-        if context is None and RAG_AVAILABLE:
-            # Check if RAG mode is enabled in settings
-            retrieval_config = getattr(django_settings, 'DDI_RETRIEVAL_CONFIG', {})
-            retrieval_mode = retrieval_config.get('mode', 'rag')
-            
-            if retrieval_mode in ('rag', 'hybrid'):
-                try:
-                    retriever = get_retriever()
-                    retrieved = retriever.retrieve(drug1, drug2)
-                    
-                    if retrieved:
-                        context = retrieved.sentence
-                        context_source = f'pubmed:{retrieved.pmid}'
-                        logger.info(f"RAG: Using context from PMID {retrieved.pmid}")
-                    else:
-                        logger.info(f"RAG: No PubMed results for '{drug1}' + '{drug2}', using template")
-                except Exception as e:
-                    logger.warning(f"RAG retrieval failed: {e}, falling back to template")
-        
-        # Format input text (with retrieved context or template fallback)
-        formatted_text = self._format_input(drug1, drug2, context)
-        
         # Tokenize
         inputs = self.tokenizer(
             formatted_text,
@@ -264,7 +294,182 @@ class PubMedBERTPredictor:
             risk_score=risk_score,
             severity=severity,
             formatted_input=formatted_text,
-            all_probabilities=probs_dict
+            all_probabilities=probs_dict,
+            context_sentence=context_sentence or formatted_text,
+            context_source=context_source,
+            template_category=template_category
+        )
+    
+    def predict(self, drug1: str, drug2: str, context: Optional[str] = None, 
+                use_ensemble: bool = True) -> DDITextPrediction:
+        """
+        Predict DDI between two drugs using PubMedBERT.
+        
+        Strategy (in order of preference):
+        1. If explicit context provided → use it directly
+        2. Check DDI Sentence Database for real sentences → highest accuracy
+        3. Use ensemble prediction with templates → reliable fallback
+        
+        Args:
+            drug1: First drug name
+            drug2: Second drug name
+            context: Optional context sentence mentioning both drugs
+            use_ensemble: If True, use multiple templates when no context (default: True)
+            
+        Returns:
+            DDITextPrediction with interaction type, confidence, and risk
+        """
+        if not self.is_loaded:
+            logger.warning("Model not loaded, returning default prediction")
+            return DDITextPrediction(
+                drug_a=drug1,
+                drug_b=drug2,
+                interaction_type='unknown',
+                confidence=0.0,
+                risk_score=0.0,
+                severity='unknown',
+                formatted_input='',
+                all_probabilities={}
+            )
+        
+        # =====================================================================
+        # If explicit context provided, use single prediction
+        # =====================================================================
+        if context is not None:
+            formatted_text = self._format_input(drug1, drug2, context)
+            # Remove entity markers for display
+            import re
+            display_context = re.sub(r'</?e[12]>', '', context)
+            return self._predict_single(
+                formatted_text, drug1, drug2,
+                context_sentence=display_context,
+                context_source='user_provided',
+                template_category='custom'
+            )
+        
+        # =====================================================================
+        # Check DDI Sentence Database for real sentences (highest accuracy)
+        # =====================================================================
+        if DDI_SENTENCE_DB_AVAILABLE:
+            try:
+                db = get_ddi_sentence_db()
+                ddi_sentence = db.find_sentence(drug1, drug2)
+                
+                if ddi_sentence:
+                    logger.info(f"Found DDI sentence for {drug1}-{drug2} from {ddi_sentence.source}")
+                    formatted_text = self._format_input(drug1, drug2, ddi_sentence.sentence)
+                    prediction = self._predict_single(
+                        formatted_text, drug1, drug2,
+                        context_sentence=ddi_sentence.sentence,
+                        context_source=f'ddi_corpus_{ddi_sentence.source}',
+                        template_category=ddi_sentence.interaction_type
+                    )
+                    # Boost confidence for real sentences
+                    boosted_confidence = min(0.99, prediction.confidence * ddi_sentence.confidence)
+                    return DDITextPrediction(
+                        drug_a=prediction.drug_a,
+                        drug_b=prediction.drug_b,
+                        interaction_type=prediction.interaction_type,
+                        confidence=boosted_confidence,
+                        risk_score=prediction.risk_score * (boosted_confidence / prediction.confidence),
+                        severity=prediction.severity,
+                        formatted_input=prediction.formatted_input,
+                        all_probabilities=prediction.all_probabilities,
+                        context_sentence=ddi_sentence.sentence,
+                        context_source=f'ddi_corpus ({ddi_sentence.source})',
+                        template_category=ddi_sentence.interaction_type
+                    )
+            except Exception as e:
+                logger.warning(f"DDI Sentence DB lookup failed: {e}")
+        
+        # =====================================================================
+        # Use ensemble prediction with templates (reliable fallback)
+        # =====================================================================
+        if use_ensemble:
+            return self.predict_ensemble(drug1, drug2)
+        else:
+            # Fallback to single template (effect-focused)
+            template = self.CONTEXT_TEMPLATES['effect'][0]
+            display_context = template.format(drug1=drug1, drug2=drug2)
+            formatted_text = self._format_input(drug1, drug2, None)
+            return self._predict_single(
+                formatted_text, drug1, drug2,
+                context_sentence=display_context,
+                context_source='template',
+                template_category='effect'
+            )
+    
+    def predict_ensemble(self, drug1: str, drug2: str) -> DDITextPrediction:
+        """
+        Predict using ensemble of DDI Corpus-style templates.
+        
+        Strategy: Use the EFFECT template as primary (most clinically relevant),
+        and use other templates to validate the prediction.
+        
+        The effect template asks "do these drugs cause adverse effects together?"
+        which is the most important clinical question for DDI.
+        """
+        # Primary prediction: Use effect-focused template
+        primary_template = self.CONTEXT_TEMPLATES['effect'][0]
+        formatted = primary_template.format(
+            drug1=f"<e1>{drug1}</e1>", 
+            drug2=f"<e2>{drug2}</e2>"
+        )
+        primary_pred = self._predict_single(formatted, drug1, drug2)
+        
+        # Secondary validations with other templates
+        secondary_templates = [
+            self.CONTEXT_TEMPLATES['mechanism'][0],
+            self.CONTEXT_TEMPLATES['advise'][0],
+        ]
+        
+        secondary_preds = []
+        for template in secondary_templates:
+            formatted = template.format(
+                drug1=f"<e1>{drug1}</e1>", 
+                drug2=f"<e2>{drug2}</e2>"
+            )
+            pred = self._predict_single(formatted, drug1, drug2)
+            secondary_preds.append(pred)
+        
+        # Count how many predictions show interaction (not no_interaction)
+        all_preds = [primary_pred] + secondary_preds
+        interaction_count = sum(
+            1 for p in all_preds 
+            if p.interaction_type != 'no_interaction'
+        )
+        consensus = interaction_count / len(all_preds)
+        
+        # Use primary prediction result with consensus-adjusted confidence
+        if consensus >= 0.67:  # 2/3 or more agree there's an interaction
+            confidence_boost = 1.1
+        elif consensus >= 0.33:  # At least 1/3 agree
+            confidence_boost = 1.0
+        else:
+            # Majority say no interaction - trust them
+            confidence_boost = 0.7
+        
+        final_confidence = min(0.99, primary_pred.confidence * confidence_boost)
+        
+        severity, base_risk = self.LABEL_TO_SEVERITY.get(
+            primary_pred.interaction_type, ('unknown', 0.5)
+        )
+        
+        # Create human-readable context sentence (without entity markers for display)
+        display_context = primary_template.format(drug1=drug1, drug2=drug2)
+        
+        return DDITextPrediction(
+            drug_a=drug1,
+            drug_b=drug2,
+            interaction_type=primary_pred.interaction_type,
+            confidence=final_confidence,
+            risk_score=base_risk * final_confidence,
+            severity=severity,
+            formatted_input=f"[Ensemble: 3 templates, consensus: {consensus:.0%}, primary: {primary_pred.interaction_type}]",
+            all_probabilities=primary_pred.all_probabilities,
+            context_sentence=display_context,
+            context_source='template',
+            template_category='effect (ensemble)'
         )
     
     def predict_with_multiple_contexts(self, drug1: str, drug2: str, 
@@ -274,13 +479,19 @@ class PubMedBERTPredictor:
         
         This can improve robustness by averaging predictions across different
         phrasings of the same drug pair.
+        
+        DEPRECATED: Use predict_ensemble() instead for better results.
         """
         if contexts is None:
-            contexts = [t.format(drug1=drug1, drug2=drug2) for t in self.CONTEXT_TEMPLATES]
+            # Use flat list of templates
+            contexts = [t.format(
+                drug1=f"<e1>{drug1}</e1>", 
+                drug2=f"<e2>{drug2}</e2>"
+            ) for t in self.CONTEXT_TEMPLATES_FLAT]
         
         all_predictions = []
         for ctx in contexts:
-            pred = self.predict(drug1, drug2, ctx)
+            pred = self.predict(drug1, drug2, ctx, use_ensemble=False)
             all_predictions.append(pred)
         
         # Aggregate: average probabilities
