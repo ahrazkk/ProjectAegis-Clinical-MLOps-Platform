@@ -7,6 +7,9 @@ Endpoints:
 - /api/v1/chat/ - GraphRAG research assistant
 - /api/v1/drugs/ - Drug search and CRUD
 - /api/v1/health/ - System health check
+- /api/v1/stats/ - Database statistics
+- /api/v1/alternatives/ - Therapeutic alternatives
+- /api/v1/compare/ - Drug comparison
 """
 
 from django.urls import path, include
@@ -23,6 +26,9 @@ from .views import (
     EnhancedDrugInfoView,
     EnhancedInteractionInfoView,
     RealWorldEvidenceView,
+    DatabaseStatsView,
+    TherapeuticAlternativesView,
+    DrugComparisonView,
 )
 
 # Create router for ViewSets
@@ -43,6 +49,11 @@ urlpatterns = [
     path('drug-info/', EnhancedDrugInfoView.as_view(), name='drug-info'),
     path('interaction-info/', EnhancedInteractionInfoView.as_view(), name='interaction-info'),
     path('real-world-evidence/', RealWorldEvidenceView.as_view(), name='real-world-evidence'),
+    
+    # Dashboard & Analytics endpoints
+    path('stats/', DatabaseStatsView.as_view(), name='database-stats'),
+    path('alternatives/', TherapeuticAlternativesView.as_view(), name='therapeutic-alternatives'),
+    path('compare/', DrugComparisonView.as_view(), name='drug-compare'),
     
     # Health check
     path('health/', HealthCheckView.as_view(), name='health-check'),

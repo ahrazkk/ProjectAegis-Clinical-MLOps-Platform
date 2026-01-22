@@ -26,6 +26,7 @@ import {
   AlertCircle,
   TrendingUp,
   GitBranch,
+  GitCompare,
   RefreshCw,
   ExternalLink,
   Microscope,
@@ -33,7 +34,9 @@ import {
   Target,
   Layers,
   Box,
-  Hexagon
+  Hexagon,
+  BarChart3,
+  Lightbulb
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo } from '../services/api';
@@ -42,6 +45,9 @@ import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
 import KnowledgeGraphView from '../components/KnowledgeGraphView';
 import RiskGauge from '../components/RiskGauge';
+import StatsDashboard from '../components/StatsDashboard';
+import DrugComparison from '../components/DrugComparison';
+import TherapeuticAlternatives from '../components/TherapeuticAlternatives';
 
 // Debounce hook
 function useDebounce(value, delay) {
@@ -80,6 +86,8 @@ export default function Dashboard() {
   // UI State
   const [activeTab, setActiveTab] = useState('molecules2d');
   const [showSearch, setShowSearch] = useState(false);
+  const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'stats' | 'compare'
+  const [showAlternatives, setShowAlternatives] = useState(false);
 
   // Chat State
   const [messages, setMessages] = useState([]);
@@ -337,6 +345,11 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Compact Stats in Header */}
+            {apiStatus === 'online' && (
+              <StatsDashboard compact onExpand={() => setViewMode('stats')} />
+            )}
+
             {/* API Status */}
             <div className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border ${apiStatus === 'online'
               ? 'border-fui-accent-green/50 text-fui-accent-green'
@@ -348,6 +361,28 @@ export default function Dashboard() {
                 apiStatus === 'checking' ? 'bg-fui-accent-orange animate-pulse' : 'bg-fui-accent-red'
                 }`} />
               {apiStatus === 'online' ? 'Connected' : apiStatus === 'checking' ? 'Connecting' : 'Offline'}
+            </div>
+
+            {/* View Mode Selector */}
+            <div className="flex items-center gap-1 border border-fui-gray-500/30 p-1">
+              {[
+                { id: 'analysis', label: 'Analysis', icon: Zap },
+                { id: 'compare', label: 'Compare', icon: GitCompare },
+                { id: 'stats', label: 'Stats', icon: BarChart3 },
+              ].map(mode => (
+                <button
+                  key={mode.id}
+                  onClick={() => setViewMode(mode.id)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] uppercase tracking-widest transition-all ${
+                    viewMode === mode.id
+                      ? 'bg-fui-accent-cyan/10 text-fui-accent-cyan border border-fui-accent-cyan/30'
+                      : 'text-fui-gray-500 hover:text-fui-gray-300 border border-transparent'
+                  }`}
+                >
+                  <mode.icon className="w-3 h-3" />
+                  {mode.label}
+                </button>
+              ))}
             </div>
 
             <button className="p-2 border border-fui-gray-500/30 hover:border-fui-gray-400 transition-colors text-fui-gray-500 hover:text-fui-gray-300">
@@ -594,6 +629,20 @@ export default function Dashboard() {
           </div>
         </aside>
 
+        {/* Main Content - Conditional based on viewMode */}
+        {viewMode === 'stats' ? (
+          <main className="flex-1 overflow-y-auto p-6 bg-gradient-to-br from-gray-900/50 to-black">
+            <StatsDashboard />
+          </main>
+        ) : viewMode === 'compare' ? (
+          <main className="flex-1 overflow-y-auto p-6 bg-gradient-to-br from-gray-900/50 to-black">
+            <DrugComparison 
+              initialDrugs={selectedDrugs} 
+              onClose={() => setViewMode('analysis')}
+            />
+          </main>
+        ) : (
+          <>
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Visualization Tabs */}
@@ -670,11 +719,25 @@ export default function Dashboard() {
         <aside className="w-96 border-l border-fui-gray-500/30 flex flex-col bg-black/50">
           {/* Results Section */}
           <div className="flex-1 overflow-y-auto">
-            <div className="p-4 border-b border-fui-gray-500/30">
+            <div className="p-4 border-b border-fui-gray-500/30 flex items-center justify-between">
               <h2 className="text-[10px] font-normal text-fui-gray-400 flex items-center gap-2 uppercase tracking-widest">
                 <Sparkles className="w-3.5 h-3.5 text-fui-accent-cyan" />
                 // Analysis Results
               </h2>
+              {/* Show Alternatives toggle when there's a result */}
+              {result && result.severity && ['severe', 'high', 'critical'].includes(result.severity) && (
+                <button
+                  onClick={() => setShowAlternatives(!showAlternatives)}
+                  className={`flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-wider transition-all border ${
+                    showAlternatives 
+                      ? 'border-emerald-500/50 text-emerald-400 bg-emerald-500/10' 
+                      : 'border-fui-gray-500/30 text-fui-gray-500 hover:text-emerald-400'
+                  }`}
+                >
+                  <Lightbulb className="w-3 h-3" />
+                  Alternatives
+                </button>
+              )}
             </div>
 
             <div className="p-4">
@@ -689,6 +752,26 @@ export default function Dashboard() {
                       <p className="text-[10px] text-fui-accent-red/70 mt-1">{error}</p>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Therapeutic Alternatives Panel */}
+              {showAlternatives && result && selectedDrugs.length >= 2 && (
+                <div className="mb-4">
+                  <TherapeuticAlternatives
+                    drugName={selectedDrugs[0]?.name}
+                    interactingWith={selectedDrugs[1]?.name}
+                    severity={result.severity}
+                    onSelectAlternative={(alt) => {
+                      // Replace first drug with alternative
+                      setSelectedDrugs([
+                        { name: alt.name, drugbank_id: alt.drugbank_id, smiles: alt.smiles },
+                        ...selectedDrugs.slice(1)
+                      ]);
+                      setResult(null);
+                      setShowAlternatives(false);
+                    }}
+                  />
                 </div>
               )}
 
@@ -1091,6 +1174,8 @@ export default function Dashboard() {
             </form>
           </div>
         </aside>
+        </>
+        )}
       </div>
     </div>
   );

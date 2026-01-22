@@ -164,6 +164,38 @@ export async function getRealWorldEvidence(drug1, drug2 = null) {
     return apiRequest(`/real-world-evidence/?${params}`);
 }
 
+/**
+ * Get database statistics for dashboard
+ * @returns {Promise<DatabaseStats>}
+ */
+export async function getDatabaseStats() {
+    return apiRequest('/stats/');
+}
+
+/**
+ * Get therapeutic alternatives for a drug
+ * @param {string} drugName - Drug to find alternatives for
+ * @param {string} interactingWith - Optional drug that has problematic interaction
+ * @returns {Promise<AlternativesResponse>}
+ */
+export async function getTherapeuticAlternatives(drugName, interactingWith = null) {
+    const params = new URLSearchParams({ drug: drugName });
+    if (interactingWith) params.append('interacting_with', interactingWith);
+    return apiRequest(`/alternatives/?${params}`);
+}
+
+/**
+ * Compare multiple drugs side-by-side
+ * @param {Array<string>} drugNames - Array of drug names (2-5)
+ * @returns {Promise<ComparisonResponse>}
+ */
+export async function compareDrugs(drugNames) {
+    return apiRequest('/compare/', {
+        method: 'POST',
+        body: JSON.stringify({ drugs: drugNames }),
+    });
+}
+
 // ============== Type Definitions (for reference) ==============
 
 /**
@@ -218,4 +250,7 @@ export default {
     getDrugInfo,
     getInteractionInfo,
     getRealWorldEvidence,
+    getDatabaseStats,
+    getTherapeuticAlternatives,
+    compareDrugs,
 };

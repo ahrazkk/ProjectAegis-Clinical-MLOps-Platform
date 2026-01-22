@@ -858,3 +858,343 @@ class RealWorldEvidenceView(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class DatabaseStatsView(APIView):
+    """
+    GET /api/v1/stats/
+    
+    Returns database statistics and metrics for the dashboard.
+    Includes drug counts, interaction counts, severity distribution, etc.
+    """
+    
+    def get(self, request):
+        try:
+            kg = KnowledgeGraphService
+            stats = {
+                'total_drugs': 0,
+                'total_interactions': 0,
+                'drugs_with_smiles': 0,
+                'drugs_with_descriptions': 0,
+                'drugs_with_classes': 0,
+                'severity_distribution': {'severe': 0, 'moderate': 0, 'minor': 0},
+                'top_therapeutic_classes': [],
+                'top_interacting_drugs': [],
+                'recent_predictions': 0,
+                'database_sources': ['DDI Corpus 2013', 'SIDER 4.1', 'PubChem', 'OpenFDA FAERS'],
+            }
+            
+            if kg.is_connected():
+                # Total drugs
+                result = kg.run_query("MATCH (d:Drug) RETURN count(d) as count")
+                stats['total_drugs'] = result[0]['count'] if result else 0
+                
+                # Total interactions
+                result = kg.run_query("MATCH ()-[i:INTERACTS_WITH]-() RETURN count(i)/2 as count")
+                stats['total_interactions'] = result[0]['count'] if result else 0
+                
+                # Drugs with SMILES
+                result = kg.run_query("MATCH (d:Drug) WHERE d.smiles IS NOT NULL AND d.smiles <> '' RETURN count(d) as count")
+                stats['drugs_with_smiles'] = result[0]['count'] if result else 0
+                
+                # Drugs with descriptions
+                result = kg.run_query("MATCH (d:Drug) WHERE d.description IS NOT NULL AND d.description <> '' RETURN count(d) as count")
+                stats['drugs_with_descriptions'] = result[0]['count'] if result else 0
+                
+                # Drugs with therapeutic classes
+                result = kg.run_query("MATCH (d:Drug) WHERE d.therapeutic_class IS NOT NULL AND d.therapeutic_class <> '' RETURN count(d) as count")
+                stats['drugs_with_classes'] = result[0]['count'] if result else 0
+                
+                # Severity distribution
+                result = kg.run_query("""
+                    MATCH ()-[i:INTERACTS_WITH]-()
+                    WITH i.severity as severity, count(*)/2 as cnt
+                    RETURN severity, cnt
+                """)
+                for row in result:
+                    sev = row['severity']
+                    if sev in stats['severity_distribution']:
+                        stats['severity_distribution'][sev] = row['cnt']
+                
+                # Top therapeutic classes
+                result = kg.run_query("""
+                    MATCH (d:Drug) 
+                    WHERE d.therapeutic_class IS NOT NULL AND d.therapeutic_class <> ''
+                    RETURN d.therapeutic_class as class, count(*) as count
+                    ORDER BY count DESC LIMIT 8
+                """)
+                stats['top_therapeutic_classes'] = [
+                    {'name': r['class'], 'count': r['count']} for r in result
+                ]
+                
+                # Top interacting drugs (by interaction count)
+                result = kg.run_query("""
+                    MATCH (d:Drug)-[i:INTERACTS_WITH]-()
+                    RETURN d.name as drug, count(i) as interactions
+                    ORDER BY interactions DESC LIMIT 10
+                """)
+                stats['top_interacting_drugs'] = [
+                    {'name': r['drug'], 'interactions': r['interactions']} for r in result
+                ]
+            
+            # Recent predictions from log
+            try:
+                from django.utils import timezone
+                from datetime import timedelta
+                recent = PredictionLog.objects.filter(
+                    timestamp__gte=timezone.now() - timedelta(hours=24)
+                ).count()
+                stats['recent_predictions'] = recent
+            except:
+                pass
+            
+            return Response(stats)
+            
+        except Exception as e:
+            logger.error(f"Stats query failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class TherapeuticAlternativesView(APIView):
+    """
+    GET /api/v1/alternatives/?drug=<name>&interacting_with=<name>
+    
+    Given a drug with a severe interaction, suggest therapeutic alternatives
+    from the same class that have lower interaction severity.
+    """
+    
+    def get(self, request):
+        drug_name = request.query_params.get('drug', '').strip()
+        interacting_drug = request.query_params.get('interacting_with', '').strip()
+        
+        if not drug_name:
+            return Response(
+                {'error': 'drug parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            kg = KnowledgeGraphService
+            if not kg.is_connected():
+                return Response({'error': 'Database unavailable'}, status=503)
+            
+            # Get the drug's therapeutic class
+            result = kg.run_query("""
+                MATCH (d:Drug)
+                WHERE toLower(d.name) = toLower($name)
+                RETURN d.therapeutic_class as therapeutic_class, d.name as name
+            """, {'name': drug_name})
+            
+            if not result or not result[0].get('therapeutic_class'):
+                return Response({
+                    'drug': drug_name,
+                    'therapeutic_class': None,
+                    'alternatives': [],
+                    'message': 'No therapeutic class found for this drug'
+                })
+            
+            therapeutic_class = result[0]['therapeutic_class']
+            original_drug = result[0]['name']
+            
+            # Find other drugs in the same therapeutic class
+            alternatives_query = """
+                MATCH (d:Drug)
+                WHERE d.therapeutic_class = $class 
+                AND toLower(d.name) <> toLower($original_name)
+                RETURN d.name as name, d.drugbank_id as id, d.smiles as smiles
+                LIMIT 20
+            """
+            alternatives = kg.run_query(alternatives_query, {
+                'class': therapeutic_class,
+                'original_name': drug_name
+            })
+            
+            # If we have an interacting drug, check interaction severity for each alternative
+            if interacting_drug and alternatives:
+                scored_alternatives = []
+                for alt in alternatives:
+                    # Check interaction with the problematic drug
+                    interaction = kg.check_interaction(alt['id'], interacting_drug) if alt.get('id') else None
+                    
+                    # Also try by name if no ID match
+                    if not interaction:
+                        interaction_result = kg.run_query("""
+                            MATCH (d1:Drug)-[i:INTERACTS_WITH]-(d2:Drug)
+                            WHERE toLower(d1.name) = toLower($alt) 
+                            AND toLower(d2.name) = toLower($interact)
+                            RETURN i.severity as severity, i.mechanism as mechanism
+                            LIMIT 1
+                        """, {'alt': alt['name'], 'interact': interacting_drug})
+                        interaction = interaction_result[0] if interaction_result else None
+                    
+                    severity = interaction.get('severity', 'unknown') if interaction else 'no_interaction'
+                    mechanism = interaction.get('mechanism', '') if interaction else ''
+                    
+                    # Score: no_interaction=0, minor=1, moderate=2, severe=3
+                    severity_score = {'no_interaction': 0, 'unknown': 1, 'minor': 1, 'moderate': 2, 'severe': 3}.get(severity, 2)
+                    
+                    scored_alternatives.append({
+                        'name': alt['name'],
+                        'drugbank_id': alt.get('id', ''),
+                        'smiles': alt.get('smiles', ''),
+                        'interaction_severity': severity,
+                        'mechanism': mechanism,
+                        'safety_score': 100 - (severity_score * 25),  # 100=safest, 25=severe
+                        'is_safer': severity in ['no_interaction', 'minor', 'unknown']
+                    })
+                
+                # Sort by safety score (highest first)
+                scored_alternatives.sort(key=lambda x: x['safety_score'], reverse=True)
+                alternatives = scored_alternatives
+            else:
+                # No interacting drug specified, just return class members
+                alternatives = [
+                    {
+                        'name': alt['name'],
+                        'drugbank_id': alt.get('id', ''),
+                        'smiles': alt.get('smiles', ''),
+                        'interaction_severity': 'unknown',
+                        'safety_score': 50
+                    }
+                    for alt in alternatives
+                ]
+            
+            return Response({
+                'drug': original_drug,
+                'therapeutic_class': therapeutic_class,
+                'interacting_with': interacting_drug or None,
+                'alternatives': alternatives[:10],  # Top 10
+                'total_in_class': len(alternatives)
+            })
+            
+        except Exception as e:
+            logger.error(f"Alternatives query failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class DrugComparisonView(APIView):
+    """
+    POST /api/v1/compare/
+    
+    Compare multiple drugs side-by-side, showing their properties,
+    interactions with each other, and common side effects.
+    """
+    
+    def post(self, request):
+        drugs = request.data.get('drugs', [])
+        
+        if len(drugs) < 2 or len(drugs) > 5:
+            return Response(
+                {'error': 'Provide 2-5 drugs for comparison'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            kg = KnowledgeGraphService
+            if not kg.is_connected():
+                return Response({'error': 'Database unavailable'}, status=503)
+            
+            comparison_data = {
+                'drugs': [],
+                'pairwise_interactions': [],
+                'common_targets': [],
+                'risk_matrix': []
+            }
+            
+            # Get info for each drug
+            for drug_name in drugs:
+                drug_query = """
+                    MATCH (d:Drug)
+                    WHERE toLower(d.name) = toLower($name)
+                    OPTIONAL MATCH (d)-[i:INTERACTS_WITH]-()
+                    RETURN d.name as name, d.drugbank_id as id, d.smiles as smiles,
+                           d.therapeutic_class as therapeutic_class,
+                           d.description as description,
+                           d.molecular_weight as molecular_weight,
+                           d.molecular_formula as molecular_formula,
+                           count(i) as interaction_count
+                """
+                result = kg.run_query(drug_query, {'name': drug_name})
+                
+                if result:
+                    drug_data = result[0]
+                    comparison_data['drugs'].append({
+                        'name': drug_data['name'],
+                        'drugbank_id': drug_data.get('id', ''),
+                        'smiles': drug_data.get('smiles', ''),
+                        'therapeutic_class': drug_data.get('therapeutic_class', 'Unknown'),
+                        'description': drug_data.get('description', '')[:200] if drug_data.get('description') else '',
+                        'molecular_weight': drug_data.get('molecular_weight'),
+                        'molecular_formula': drug_data.get('molecular_formula'),
+                        'interaction_count': drug_data['interaction_count']
+                    })
+                else:
+                    # Drug not found, add placeholder
+                    comparison_data['drugs'].append({
+                        'name': drug_name,
+                        'drugbank_id': '',
+                        'therapeutic_class': 'Unknown',
+                        'interaction_count': 0
+                    })
+            
+            # Get pairwise interactions
+            drug_names = [d['name'] for d in comparison_data['drugs']]
+            for i, drug1 in enumerate(drug_names):
+                for drug2 in drug_names[i+1:]:
+                    interaction_query = """
+                        MATCH (d1:Drug)-[i:INTERACTS_WITH]-(d2:Drug)
+                        WHERE toLower(d1.name) = toLower($drug1) 
+                        AND toLower(d2.name) = toLower($drug2)
+                        RETURN i.severity as severity, i.mechanism as mechanism,
+                               i.description as description
+                        LIMIT 1
+                    """
+                    result = kg.run_query(interaction_query, {'drug1': drug1, 'drug2': drug2})
+                    
+                    if result:
+                        interaction = result[0]
+                        comparison_data['pairwise_interactions'].append({
+                            'drug1': drug1,
+                            'drug2': drug2,
+                            'severity': interaction.get('severity', 'unknown'),
+                            'mechanism': interaction.get('mechanism', ''),
+                            'description': interaction.get('description', '')
+                        })
+                    else:
+                        comparison_data['pairwise_interactions'].append({
+                            'drug1': drug1,
+                            'drug2': drug2,
+                            'severity': 'no_interaction',
+                            'mechanism': 'No known interaction in database'
+                        })
+            
+            # Build risk matrix (N x N)
+            n = len(drug_names)
+            matrix = [[{'severity': 'self', 'score': 0} for _ in range(n)] for _ in range(n)]
+            
+            severity_scores = {'no_interaction': 0, 'minor': 1, 'moderate': 2, 'severe': 3, 'unknown': 1}
+            
+            for interaction in comparison_data['pairwise_interactions']:
+                i = drug_names.index(interaction['drug1'])
+                j = drug_names.index(interaction['drug2'])
+                score = severity_scores.get(interaction['severity'], 1)
+                matrix[i][j] = {'severity': interaction['severity'], 'score': score}
+                matrix[j][i] = {'severity': interaction['severity'], 'score': score}
+            
+            comparison_data['risk_matrix'] = matrix
+            comparison_data['drug_names'] = drug_names
+            
+            return Response(comparison_data)
+            
+        except Exception as e:
+            logger.error(f"Drug comparison failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
