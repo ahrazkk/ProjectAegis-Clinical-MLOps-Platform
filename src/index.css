@@ -1,4 +1,5 @@
-/* Fonts - Inter for clean, professional UI */
+/* Fonts - JetBrains Mono for FUI Blueprint aesthetic */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 @tailwind base;
@@ -6,43 +7,52 @@
 @tailwind utilities;
 
 /* ========================================
-   PREMIUM MEDICAL AI - CSS FOUNDATION
-   Dark Glassmorphic Theme with Grid Patterns
+   FUI BLUEPRINT - CSS FOUNDATION
+   Black Schematic / Tactical Dashboard Theme
    ======================================== */
 
 :root {
   /* Core backgrounds - Pure BLACK base */
   --bg-primary: #000000;
-  --bg-secondary: #050505;
-  --bg-tertiary: #0a0a0a;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #111111;
 
-  /* Glass panels - Heavy frosted glass */
-  --bg-panel: rgba(10, 10, 10, 0.85);
+  /* Panel backgrounds - Blueprint style */
+  --bg-panel: rgba(0, 0, 0, 0.95);
+  --bg-panel-elevated: rgba(15, 15, 15, 0.95);
 
-  /* Borders - Crisp grid lines */
-  --border-color: rgba(255, 255, 255, 0.06);
-  --border-highlight: rgba(255, 255, 255, 0.15);
-  --grid-color: rgba(255, 255, 255, 0.03);
+  /* Blueprint Grid Colors */
+  --grid-primary: rgba(102, 102, 102, 0.15);
+  --grid-secondary: rgba(102, 102, 102, 0.08);
+  --grid-accent: rgba(224, 224, 224, 0.05);
 
-  /* Text - High contrast and legible */
-  --text-primary: #ffffff;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
+  /* Borders - Hairline precision (1px) */
+  --border-color: rgba(102, 102, 102, 0.4);
+  --border-highlight: rgba(224, 224, 224, 0.3);
+  --border-dim: rgba(102, 102, 102, 0.2);
 
-  /* Accent Colors - Minimal, clinical */
-  --accent-cyan: #22d3ee;
-  --accent-blue: #60a5fa;
-  --accent-emerald: #34d399;
+  /* Text - Blueprint palette */
+  --text-primary: #E0E0E0;
+  --text-secondary: #888888;
+  --text-muted: #666666;
+  --text-dim: #444444;
 
-  /* Functional Colors */
-  --risk-low: #22c55e;
-  --risk-medium: #eab308;
-  --risk-high: #ef4444;
-  --risk-critical: #dc2626;
+  /* Accent Colors - Technical/Schematic */
+  --accent-primary: #E0E0E0;
+  --accent-cyan: #00FFFF;
+  --accent-blue: #4488FF;
+  --accent-emerald: #00FF88;
 
-  /* Glows - Ultra subtle */
-  --glow-primary: 0 0 30px rgba(34, 211, 238, 0.1);
-  --glow-accent: 0 0 30px rgba(96, 165, 250, 0.1);
+  /* Functional Colors - Tactical */
+  --risk-low: #00FF88;
+  --risk-medium: #FFAA00;
+  --risk-high: #FF4444;
+  --risk-critical: #FF0044;
+
+  /* Glows - Subtle blueprint glow */
+  --glow-primary: 0 0 20px rgba(224, 224, 224, 0.1);
+  --glow-accent: 0 0 15px rgba(0, 255, 255, 0.15);
+  --glow-warning: 0 0 15px rgba(255, 170, 0, 0.2);
 }
 
 * {
@@ -55,7 +65,7 @@ html {
 
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-primary);
@@ -63,9 +73,10 @@ body {
   line-height: 1.6;
   min-height: 100vh;
   position: relative;
+  letter-spacing: 0.02em;
 }
 
-/* Grid Pattern Overlay - Gaussian Splat Aesthetic */
+/* Blueprint Grid Pattern - Fixed Square Grid */
 body::before {
   content: '';
   position: fixed;
@@ -74,22 +85,27 @@ body::before {
   right: 0;
   bottom: 0;
   background-image:
-    /* Main grid */
-    linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
-    /* Subtle larger grid */
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    /* Primary grid - 40px squares */
+    linear-gradient(var(--grid-primary) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-primary) 1px, transparent 1px),
+    /* Secondary grid - 8px subdivisions */
+    linear-gradient(var(--grid-secondary) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-secondary) 1px, transparent 1px),
+    /* Major grid - 200px sections */
+    linear-gradient(var(--grid-accent) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-accent) 1px, transparent 1px);
   background-size:
     40px 40px,
     40px 40px,
+    8px 8px,
+    8px 8px,
     200px 200px,
     200px 200px;
   pointer-events: none;
   z-index: 0;
 }
 
-/* Ambient glows - Gaussian splat style */
+/* Subtle corner vignette for depth */
 body::after {
   content: '';
   position: fixed;
@@ -98,9 +114,8 @@ body::after {
   right: 0;
   bottom: 0;
   background:
-    radial-gradient(ellipse 600px 400px at 10% 10%, rgba(34, 211, 238, 0.04) 0%, transparent 60%),
-    radial-gradient(ellipse 500px 500px at 90% 80%, rgba(167, 139, 250, 0.04) 0%, transparent 60%),
-    radial-gradient(ellipse 400px 300px at 50% 50%, rgba(52, 211, 153, 0.02) 0%, transparent 60%);
+    radial-gradient(ellipse at top left, transparent 0%, rgba(0, 0, 0, 0.3) 70%),
+    radial-gradient(ellipse at bottom right, transparent 0%, rgba(0, 0, 0, 0.3) 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -108,17 +123,17 @@ body::after {
 
 /* Selection styling */
 ::selection {
-  background-color: rgba(56, 189, 248, 0.3);
+  background-color: rgba(224, 224, 224, 0.2);
   color: #ffffff;
 }
 
 /* ========================================
-   CUSTOM SCROLLBAR
+   CUSTOM SCROLLBAR - Blueprint Style
    ======================================== */
 
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -126,69 +141,131 @@ body::after {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  background: var(--border-color);
+  border-radius: 0;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--text-muted);
 }
 
 /* ========================================
-   MODERN GLASSMORPHISM - Pure Black
+   FUI BLUEPRINT PANELS
    ======================================== */
 
 .glass {
   background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--border-color);
   position: relative;
   z-index: 1;
 }
 
 .glass-panel {
-  background: rgba(10, 10, 10, 0.75);
-  backdrop-filter: blur(24px) saturate(120%);
-  -webkit-backdrop-filter: blur(24px) saturate(120%);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow:
-    0 8px 32px rgba(0, 0, 0, 0.4),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  box-shadow: 
+    inset 0 0 0 1px var(--border-dim),
+    0 0 30px rgba(0, 0, 0, 0.5);
   position: relative;
   z-index: 1;
 }
 
+/* Blueprint corner accents */
+.glass-panel::before,
+.glass-panel::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--text-muted);
+  border-style: solid;
+  border-width: 0;
+  pointer-events: none;
+}
+
+.glass-panel::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.glass-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
 .glass-panel-hover:hover {
-  background: rgba(15, 15, 15, 0.8);
-  border-color: rgba(255, 255, 255, 0.08);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border-color: var(--text-secondary);
+  box-shadow: 
+    inset 0 0 0 1px var(--border-color),
+    0 0 40px rgba(0, 0, 0, 0.6),
+    var(--glow-primary);
 }
 
 /* ========================================
-   UTILITY CLASSES & EFFECTS
+   UTILITY CLASSES & EFFECTS - FUI Style
    ======================================== */
 
-/* Refined Gradient Text */
+/* Blueprint Text Effect */
 .gradient-text {
-  background: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
+  background: linear-gradient(135deg, #E0E0E0 0%, #888888 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
-/* Subtle Glows */
+/* Schematic accent text */
+.accent-text {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
+}
+
+/* Blueprint Glows */
 .neon-glow-cyan {
-  box-shadow: var(--glow-primary);
+  box-shadow: 
+    0 0 5px rgba(0, 255, 255, 0.3),
+    0 0 20px rgba(0, 255, 255, 0.1);
 }
 
 .neon-glow-blue {
-  box-shadow: var(--glow-accent);
+  box-shadow: 
+    0 0 5px rgba(68, 136, 255, 0.3),
+    0 0 20px rgba(68, 136, 255, 0.1);
 }
 
-/* Loading Skeleton Shimmer */
+/* Scan line effect for FUI */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+
+.scanline::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(224, 224, 224, 0.02) 50%,
+    transparent 100%
+  );
+  background-size: 100% 4px;
+  pointer-events: none;
+  animation: scanlines 8s linear infinite;
+}
+
+@keyframes scanlines {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 100%; }
+}
+
+/* Loading Skeleton - Blueprint Style */
 .shimmer {
   position: relative;
   overflow: hidden;
@@ -204,9 +281,9 @@ body::after {
   transform: translateX(-100%);
   background: linear-gradient(90deg,
       transparent,
-      rgba(255, 255, 255, 0.05),
+      rgba(224, 224, 224, 0.05),
       transparent);
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 2s infinite;
 }
 
 @keyframes shimmer {
@@ -216,18 +293,16 @@ body::after {
 }
 
 /* ========================================
-   ANIMATIONS (Subtle & Professional)
+   ANIMATIONS (Precise & Technical)
    ======================================== */
 
 @keyframes float {
-
   0%,
   100% {
     transform: translateY(0);
   }
-
   50% {
-    transform: translateY(-5px);
+    transform: translateY(-3px);
   }
 }
 
@@ -238,9 +313,8 @@ body::after {
 @keyframes fade-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(5px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -248,18 +322,16 @@ body::after {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.4s ease-out forwards;
+  animation: fade-in 0.3s ease-out forwards;
 }
 
 @keyframes pulse-subtle {
-
   0%,
   100% {
     opacity: 1;
   }
-
   50% {
-    opacity: 0.7;
+    opacity: 0.6;
   }
 }
 
@@ -267,34 +339,100 @@ body::after {
   animation: pulse-subtle 2s ease-in-out infinite;
 }
 
+/* Blueprint flicker effect */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  93% { opacity: 0.8; }
+  94% { opacity: 1; }
+  96% { opacity: 0.9; }
+  97% { opacity: 1; }
+}
+
+.animate-flicker {
+  animation: flicker 4s ease-in-out infinite;
+}
+
 /* ========================================
-   BUTTON STYLES
+   BUTTON STYLES - FUI Blueprint
    ======================================== */
 
 .btn-primary-glow {
-  background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%);
-  color: white;
-  border: 1px solid rgba(56, 189, 248, 0.2);
-  box-shadow:
-    0 1px 2px 0 rgba(0, 0, 0, 0.05),
-    0 0 15px rgba(14, 165, 233, 0.2);
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--text-muted);
+  box-shadow: none;
   transition: all 0.2s ease;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
 }
 
 .btn-primary-glow:hover {
-  background: linear-gradient(135deg, #0369a1 0%, #0284c7 100%);
-  box-shadow:
-    0 4px 6px -1px rgba(0, 0, 0, 0.1),
-    0 0 20px rgba(14, 165, 233, 0.4);
-  transform: translateY(-1px);
+  background: rgba(224, 224, 224, 0.05);
+  border-color: var(--text-primary);
+  box-shadow: var(--glow-primary);
+  transform: none;
 }
 
 .btn-primary-glow:active {
-  transform: translateY(0);
+  background: rgba(224, 224, 224, 0.1);
+}
+
+/* Blueprint button variant */
+.btn-blueprint {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.75rem 1.5rem;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-size: 0.7rem;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.btn-blueprint::before,
+.btn-blueprint::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-color: var(--text-muted);
+  border-style: solid;
+  border-width: 0;
+  transition: border-color 0.2s;
+}
+
+.btn-blueprint::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 1px;
+  border-left-width: 1px;
+}
+
+.btn-blueprint::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 1px;
+  border-right-width: 1px;
+}
+
+.btn-blueprint:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.5);
+}
+
+.btn-blueprint:hover::before,
+.btn-blueprint:hover::after {
+  border-color: var(--accent-cyan);
 }
 
 /* ========================================
-   TYPOGRAPHY
+   TYPOGRAPHY - Monospace Blueprint
    ======================================== */
 
 h1,
@@ -303,50 +441,81 @@ h3,
 h4,
 h5,
 h6 {
-  letter-spacing: -0.025em;
-  /* Tight tracking for modern feel */
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 400;
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.125rem; }
+
+/* Technical labels */
+.label-technical {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--text-muted);
 }
 
 /* ========================================
-   RISK INDICATORS
+   RISK INDICATORS - FUI Style
    ======================================== */
 
 .risk-tag {
-  @apply px-2.5 py-0.5 rounded-full text-xs font-medium border;
+  @apply px-2.5 py-0.5 text-xs font-medium border;
+  font-family: 'JetBrains Mono', monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
 }
 
 .risk-low {
-  background: rgba(16, 185, 129, 0.1);
-  color: #34d399;
-  border-color: rgba(16, 185, 129, 0.2);
+  background: transparent;
+  color: var(--risk-low);
+  border-color: var(--risk-low);
+  box-shadow: 0 0 10px rgba(0, 255, 136, 0.2);
 }
 
 .risk-medium {
-  background: rgba(245, 158, 11, 0.1);
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.2);
+  background: transparent;
+  color: var(--risk-medium);
+  border-color: var(--risk-medium);
+  box-shadow: 0 0 10px rgba(255, 170, 0, 0.2);
 }
 
 .risk-high {
-  background: rgba(239, 68, 68, 0.1);
-  color: #f87171;
-  border-color: rgba(239, 68, 68, 0.2);
+  background: transparent;
+  color: var(--risk-high);
+  border-color: var(--risk-high);
+  box-shadow: 0 0 10px rgba(255, 68, 68, 0.2);
 }
 
-/* PROSE */
+.risk-critical {
+  background: transparent;
+  color: var(--risk-critical);
+  border-color: var(--risk-critical);
+  box-shadow: 0 0 15px rgba(255, 0, 68, 0.3);
+  animation: flicker 2s ease-in-out infinite;
+}
+
+/* PROSE - Blueprint Style */
 .prose-invert {
   color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .prose-invert a {
   color: var(--accent-cyan);
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: border-color 0.2s;
+  transition: all 0.2s;
 }
 
 .prose-invert a:hover {
   border-bottom-color: var(--accent-cyan);
+  text-shadow: 0 0 10px rgba(0, 255, 255, 0.3);
 }
 
 .prose-invert strong {
@@ -354,8 +523,124 @@ h6 {
 }
 
 .prose-invert code {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(224, 224, 224, 0.05);
+  border: 1px solid var(--border-dim);
   padding: 0.2em 0.4em;
-  rounded: 0.25rem;
   font-size: 0.875em;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* ========================================
+   FUI SPECIFIC COMPONENTS
+   ======================================== */
+
+/* Technical readout display */
+.readout {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.readout-value {
+  color: var(--text-primary);
+  font-size: 1rem;
+}
+
+/* Crosshair markers */
+.crosshair {
+  position: relative;
+}
+
+.crosshair::before,
+.crosshair::after {
+  content: '';
+  position: absolute;
+  background: var(--text-muted);
+}
+
+.crosshair::before {
+  width: 1px;
+  height: 10px;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+.crosshair::after {
+  width: 10px;
+  height: 1px;
+  top: 50%;
+  left: 0;
+  transform: translateY(-50%);
+}
+
+/* Blueprint divider */
+.divider-blueprint {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--border-color) 20%,
+    var(--border-color) 80%,
+    transparent
+  );
+  position: relative;
+}
+
+.divider-blueprint::before,
+.divider-blueprint::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--text-muted);
+  background: var(--bg-primary);
+}
+
+.divider-blueprint::before {
+  left: 20%;
+  transform: rotate(45deg);
+}
+
+.divider-blueprint::after {
+  right: 20%;
+  transform: rotate(45deg);
+}
+
+/* Data grid lines */
+.data-grid-line {
+  border-bottom: 1px solid var(--border-dim);
+  position: relative;
+}
+
+.data-grid-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  width: 20px;
+  height: 1px;
+  background: var(--text-muted);
+}
+
+/* Status indicator */
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border: 1px solid currentColor;
+  position: relative;
+}
+
+.status-indicator.active::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 2px;
+  height: 2px;
+  background: currentColor;
+  box-shadow: 0 0 4px currentColor;
 }

@@ -1,6 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import LandingPage from './pages/LandingPage';
+import LandingPage from './pages/LandingPageV2';
 import Dashboard from './pages/Dashboard';
 import { SystemLogsProvider } from './hooks/useSystemLogs';
 import SystemMonitor from './components/SystemMonitor';
