@@ -186,18 +186,14 @@ function DrugInfoCard({ drug, onRemove, index }) {
             <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Interactions</p>
             <p className="text-xs font-bold text-fui-accent-cyan">{drug.interaction_count || 0}</p>
           </div>
-          {drug.molecular_weight && (
-            <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-              <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Mol. Weight</p>
-              <p className="text-xs font-medium text-white">{parseFloat(drug.molecular_weight).toFixed(1)}</p>
-            </div>
-          )}
-          {drug.molecular_formula && (
-            <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-              <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Formula</p>
-              <p className="text-xs font-mono text-white">{drug.molecular_formula}</p>
-            </div>
-          )}
+          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
+            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Mol. Weight</p>
+            <p className="text-xs font-medium text-white">{drug.molecular_weight ? parseFloat(drug.molecular_weight).toFixed(1) : '—'}</p>
+          </div>
+          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
+            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Formula</p>
+            <p className="text-xs font-mono text-white">{drug.molecular_formula || '—'}</p>
+          </div>
         </div>
 
         {/* SMILES Indicator */}
@@ -536,14 +532,14 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                 <h3 className="text-[10px] font-medium text-fui-gray-300 uppercase tracking-widest">// Interaction Matrix</h3>
               </div>
               
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="overflow-x-auto flex justify-center">
+                <table className="border-collapse">
                   <thead>
                     <tr>
-                      <th className="p-3"></th>
+                      <th className="p-2"></th>
                       {comparison.drug_names.map((name, i) => (
-                        <th key={name} className="p-3 text-center">
-                          <span className="text-xs font-medium text-gray-400 inline-block max-w-[80px] truncate">
+                        <th key={name} className="p-2 text-center">
+                          <span className="text-xs font-medium text-gray-400">
                             {name}
                           </span>
                         </th>
@@ -553,14 +549,14 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                   <tbody>
                     {comparison.drug_names.map((rowName, i) => (
                       <tr key={rowName}>
-                        <td className="p-3 text-right">
-                          <span className="text-xs font-medium text-gray-400 inline-block max-w-[100px] truncate">
+                        <td className="p-2 text-right">
+                          <span className="text-xs font-medium text-gray-400">
                             {rowName}
                           </span>
                         </td>
                         {comparison.risk_matrix[i].map((cell, j) => (
-                          <td key={j} className="p-2">
-                            <div className="w-[90px] h-[60px]">
+                          <td key={j} className="p-1">
+                            <div className="w-[80px] h-[50px]">
                               <RiskCell 
                                 severity={cell.severity} 
                                 drug1={rowName}
