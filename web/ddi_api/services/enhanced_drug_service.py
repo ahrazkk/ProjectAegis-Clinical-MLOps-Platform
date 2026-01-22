@@ -8,14 +8,65 @@ Provides enriched drug data from multiple sources:
 - Drug properties from Knowledge Graph
 """
 
+import re
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_drug_name(name: str) -> Tuple[str, str]:
+    """
+    Normalize drug names to find matches for variants like:
+    - Stereoisomers: (R)-Warfarin, (S)-Warfarin, (+)-Amphetamine, L-Dopa
+    - Salts: Warfarin Sodium, Aspirin Calcium, Metoprolol Tartrate
+    - Brand vs Generic: Tylenol -> Acetaminophen
+    
+    Returns: (normalized_name, original_base_name)
+    """
+    if not name:
+        return '', ''
+    
+    original = name.strip()
+    normalized = original.lower()
+    
+    # 1. Remove stereochemistry prefixes
+    stereochemistry_pattern = r'^[\(\[]?[RSrs±\+\-DdLl]+[\)\]]?-\s*'
+    normalized = re.sub(stereochemistry_pattern, '', normalized)
+    
+    # 2. Remove salt/ester suffixes
+    salt_suffixes = [
+        ' sodium', ' potassium', ' calcium', ' magnesium', ' zinc',
+        ' hydrochloride', ' hcl', ' hydrobromide', ' sulfate', ' sulphate',
+        ' acetate', ' citrate', ' maleate', ' fumarate', ' tartrate',
+        ' mesylate', ' besylate', ' phosphate', ' nitrate', ' chloride',
+        ' bromide', ' iodide', ' succinate', ' gluconate', ' lactate',
+        ' propionate', ' valerate', ' dipropionate', ' dihydrate',
+        ' monohydrate', ' anhydrous', ' extended release', ' er', ' sr',
+        ' xl', ' xr', ' cr', ' la', ' sustained release'
+    ]
+    for suffix in salt_suffixes:
+        if normalized.endswith(suffix):
+            normalized = normalized[:-len(suffix)].strip()
+    
+    # 3. Brand name to generic mappings
+    brand_to_generic = {
+        'tylenol': 'acetaminophen', 'advil': 'ibuprofen', 'motrin': 'ibuprofen',
+        'aleve': 'naproxen', 'lipitor': 'atorvastatin', 'zocor': 'simvastatin',
+        'crestor': 'rosuvastatin', 'prilosec': 'omeprazole', 'nexium': 'esomeprazole',
+        'coumadin': 'warfarin', 'plavix': 'clopidogrel', 'xarelto': 'rivaroxaban',
+    }
+    if normalized in brand_to_generic:
+        normalized = brand_to_generic[normalized]
+    
+    # 4. Clean up remaining punctuation
+    normalized = re.sub(r'[^\w\s-]', '', normalized).strip()
+    
+    return normalized, original
 
 
 @dataclass
@@ -201,6 +252,7 @@ class EnhancedDrugService:
                               include_faers: bool = True) -> EnhancedInteractionInfo:
         """
         Get comprehensive interaction information.
+        Uses drug name normalization to match variants like (R)-Warfarin -> Warfarin.
         
         Args:
             drug1: First drug name
@@ -212,13 +264,27 @@ class EnhancedDrugService:
         """
         self._lazy_init()
         
+        # Normalize drug names for better matching
+        norm1, orig1 = normalize_drug_name(drug1)
+        norm2, orig2 = normalize_drug_name(drug2)
+        
         info = EnhancedInteractionInfo(drug1=drug1, drug2=drug2)
         evidence = []
         
-        # Get polypharmacy effects from TWOSIDES
+        # Track if we matched via normalization
+        matched_normalized = False
+        
+        # Get polypharmacy effects from TWOSIDES - try both normalized and original
         if self._twosides:
             try:
+                # Try original names first
                 effects = self._twosides.get_pair_effects(drug1, drug2, limit=10)
+                # If no results, try normalized
+                if not effects and (norm1 != drug1.lower() or norm2 != drug2.lower()):
+                    effects = self._twosides.get_pair_effects(norm1, norm2, limit=10)
+                    if effects:
+                        matched_normalized = True
+                        
                 info.polypharmacy_effects = [
                     PolypharmacyEffect(
                         effect=e['side_effect'],
@@ -237,7 +303,8 @@ class EnhancedDrugService:
         # Get real-world co-reported events from OpenFDA
         if include_faers and self._openfda:
             try:
-                faers_data = self._openfda.get_pair_reports(drug1, drug2)
+                # Try normalized names for FAERS (often better matches)
+                faers_data = self._openfda.get_pair_reports(norm1, norm2)
                 if 'error' not in faers_data:
                     info.faers_reports = faers_data.get('total_reports', 0)
                     info.faers_reactions = faers_data.get('top_reactions', [])
@@ -246,33 +313,61 @@ class EnhancedDrugService:
             except Exception as e:
                 logger.debug(f"OpenFDA pair lookup failed: {e}")
         
-        # Check DDI Corpus
+        # Check DDI Corpus - try both original and normalized
         try:
             from .ddi_sentence_db import get_ddi_sentence_db
             db = get_ddi_sentence_db()
             sentence = db.find_sentence(drug1, drug2)
+            if not sentence and (norm1 != drug1.lower() or norm2 != drug2.lower()):
+                sentence = db.find_sentence(norm1, norm2)
+                if sentence:
+                    matched_normalized = True
             if sentence:
                 evidence.append('ddi_corpus')
         except Exception as e:
             logger.debug(f"DDI Corpus lookup failed: {e}")
         
-        # Check Knowledge Graph
+        # Check Knowledge Graph - use normalized names for better matching
         try:
             from .knowledge_graph import KnowledgeGraphService as KG
             if KG.is_connected():
-                # Search by name
+                # First try exact match
                 results = KG.run_query('''
                     MATCH (d1:Drug)-[r:INTERACTS_WITH]-(d2:Drug)
-                    WHERE toLower(d1.name) CONTAINS toLower($drug1)
-                      AND toLower(d2.name) CONTAINS toLower($drug2)
-                    RETURN r.severity as severity, r.mechanism as mechanism
+                    WHERE toLower(d1.name) = toLower($drug1)
+                      AND toLower(d2.name) = toLower($drug2)
+                    RETURN r.severity as severity, r.mechanism as mechanism, r.description as description
                     LIMIT 1
                 ''', {'drug1': drug1, 'drug2': drug2})
                 
+                # If no match, try with normalized names
+                if not results and (norm1 != drug1.lower() or norm2 != drug2.lower()):
+                    results = KG.run_query('''
+                        MATCH (d1:Drug)-[r:INTERACTS_WITH]-(d2:Drug)
+                        WHERE toLower(d1.name) = toLower($drug1)
+                          AND toLower(d2.name) = toLower($drug2)
+                        RETURN r.severity as severity, r.mechanism as mechanism, r.description as description
+                        LIMIT 1
+                    ''', {'drug1': norm1, 'drug2': norm2})
+                    if results:
+                        matched_normalized = True
+                
+                # If still no match, try CONTAINS for partial matches
+                if not results:
+                    results = KG.run_query('''
+                        MATCH (d1:Drug)-[r:INTERACTS_WITH]-(d2:Drug)
+                        WHERE toLower(d1.name) CONTAINS toLower($drug1)
+                          AND toLower(d2.name) CONTAINS toLower($drug2)
+                        RETURN r.severity as severity, r.mechanism as mechanism, r.description as description
+                        LIMIT 1
+                    ''', {'drug1': norm1, 'drug2': norm2})
+                
                 if results:
                     info.severity = results[0].get('severity', 'unknown')
-                    info.mechanism = results[0].get('mechanism', '')
+                    info.mechanism = results[0].get('mechanism', '') or results[0].get('description', '')
                     evidence.append('knowledge_graph')
+                    if matched_normalized:
+                        evidence.append(f'matched_via_normalization:{norm1}+{norm2}')
         except Exception as e:
             logger.debug(f"KG interaction lookup failed: {e}")
         

@@ -8,10 +8,11 @@ These views provide the REST endpoints for:
 4. Drug Search and CRUD operations
 """
 
+import re
 import time
 import uuid
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
 
 from django.conf import settings
 from rest_framework import status, viewsets
@@ -38,6 +39,108 @@ from .services.pubmedbert_predictor import get_pubmedbert_predictor
 logger = logging.getLogger(__name__)
 
 
+# ============== Drug Name Normalization ==============
+
+def normalize_drug_name(name: str) -> Tuple[str, str]:
+    """
+    Normalize drug names to find matches for variants like:
+    - Stereoisomers: (R)-Warfarin, (S)-Warfarin, (+)-Amphetamine, L-Dopa
+    - Salts: Warfarin Sodium, Aspirin Calcium, Metoprolol Tartrate
+    - Brand vs Generic: Tylenol -> Acetaminophen
+    
+    Returns: (normalized_name, original_base_name)
+    """
+    if not name:
+        return '', ''
+    
+    original = name.strip()
+    normalized = original.lower()
+    
+    # 1. Remove stereochemistry prefixes
+    # Matches: (R)-, (S)-, (RS)-, (±)-, (+)-, (-)-, D-, L-, d-, l-, R-, S-
+    stereochemistry_pattern = r'^[\(\[]?[RSrs±\+\-DdLl]+[\)\]]?-\s*'
+    normalized = re.sub(stereochemistry_pattern, '', normalized)
+    
+    # 2. Remove salt/ester suffixes
+    salt_suffixes = [
+        ' sodium', ' potassium', ' calcium', ' magnesium', ' zinc',
+        ' hydrochloride', ' hcl', ' hydrobromide', ' sulfate', ' sulphate',
+        ' acetate', ' citrate', ' maleate', ' fumarate', ' tartrate',
+        ' mesylate', ' besylate', ' phosphate', ' nitrate', ' chloride',
+        ' bromide', ' iodide', ' succinate', ' gluconate', ' lactate',
+        ' propionate', ' valerate', ' dipropionate', ' dihydrate',
+        ' monohydrate', ' anhydrous', ' extended release', ' er', ' sr',
+        ' xl', ' xr', ' cr', ' la', ' sustained release'
+    ]
+    for suffix in salt_suffixes:
+        if normalized.endswith(suffix):
+            normalized = normalized[:-len(suffix)].strip()
+    
+    # 3. Brand name to generic mappings (common ones)
+    brand_to_generic = {
+        'tylenol': 'acetaminophen', 'advil': 'ibuprofen', 'motrin': 'ibuprofen',
+        'aleve': 'naproxen', 'lipitor': 'atorvastatin', 'zocor': 'simvastatin',
+        'crestor': 'rosuvastatin', 'prilosec': 'omeprazole', 'nexium': 'esomeprazole',
+        'zantac': 'ranitidine', 'pepcid': 'famotidine', 'coumadin': 'warfarin',
+        'plavix': 'clopidogrel', 'xarelto': 'rivaroxaban', 'eliquis': 'apixaban',
+        'pradaxa': 'dabigatran', 'lasix': 'furosemide', 'lopressor': 'metoprolol',
+        'toprol': 'metoprolol', 'norvasc': 'amlodipine', 'prozac': 'fluoxetine',
+        'zoloft': 'sertraline', 'lexapro': 'escitalopram', 'paxil': 'paroxetine',
+        'wellbutrin': 'bupropion', 'effexor': 'venlafaxine', 'cymbalta': 'duloxetine',
+        'xanax': 'alprazolam', 'ativan': 'lorazepam', 'valium': 'diazepam',
+        'klonopin': 'clonazepam', 'ambien': 'zolpidem', 'lunesta': 'eszopiclone',
+        'vicodin': 'hydrocodone', 'percocet': 'oxycodone', 'oxycontin': 'oxycodone',
+        'ultram': 'tramadol', 'synthroid': 'levothyroxine', 'glucophage': 'metformin',
+        'januvia': 'sitagliptin', 'lantus': 'insulin glargine', 'humira': 'adalimumab',
+        'enbrel': 'etanercept', 'remicade': 'infliximab', 'prednisone': 'prednisone',
+        'medrol': 'methylprednisolone', 'decadron': 'dexamethasone',
+        'augmentin': 'amoxicillin', 'zithromax': 'azithromycin', 'cipro': 'ciprofloxacin',
+        'levaquin': 'levofloxacin', 'diflucan': 'fluconazole', 'viagra': 'sildenafil',
+        'cialis': 'tadalafil', 'singulair': 'montelukast', 'proventil': 'albuterol',
+        'ventolin': 'albuterol', 'flovent': 'fluticasone', 'advair': 'fluticasone',
+        'symbicort': 'budesonide', 'spiriva': 'tiotropium',
+    }
+    if normalized in brand_to_generic:
+        normalized = brand_to_generic[normalized]
+    
+    # 4. Clean up remaining punctuation
+    normalized = re.sub(r'[^\w\s-]', '', normalized).strip()
+    
+    return normalized, original
+
+
+def search_drug_with_normalization(name: str) -> Optional[Dict]:
+    """
+    Search for a drug, trying normalized name if exact match fails.
+    Returns the drug dict with 'matched_as' field showing what matched.
+    """
+    kg = KnowledgeGraphService
+    if not kg.is_connected():
+        return None
+    
+    normalized_name, original_name = normalize_drug_name(name)
+    
+    # Try exact match first
+    results = kg.search_drugs(name, limit=1)
+    if results:
+        drug = results[0]
+        drug['matched_as'] = 'exact'
+        drug['original_query'] = name
+        return drug
+    
+    # Try normalized name
+    if normalized_name and normalized_name != name.lower():
+        results = kg.search_drugs(normalized_name, limit=1)
+        if results:
+            drug = results[0]
+            drug['matched_as'] = 'normalized'
+            drug['original_query'] = name
+            drug['normalized_to'] = normalized_name
+            return drug
+    
+    return None
+
+
 def get_drug_from_knowledge_graph(name: str) -> Dict:
     """Look up drug from Neo4j Knowledge Graph."""
     try:
@@ -56,14 +159,66 @@ def get_drug_from_knowledge_graph(name: str) -> Dict:
     return None
 
 
-def get_known_interaction(drug1_id: str, drug2_id: str) -> Dict:
-    """Check for known interaction in Knowledge Graph."""
+def get_known_interaction(drug1_id: str, drug2_id: str, drug1_name: str = None, drug2_name: str = None) -> Dict:
+    """
+    Check for known interaction in Knowledge Graph.
+    Tries both exact match and normalized drug lookups.
+    
+    Args:
+        drug1_id: DrugBank ID of first drug
+        drug2_id: DrugBank ID of second drug
+        drug1_name: Original drug name (for normalization fallback)
+        drug2_name: Original drug name (for normalization fallback)
+    """
     try:
         kg = KnowledgeGraphService
-        if kg.is_connected():
-            result = kg.check_interaction(drug1_id, drug2_id)
-            if result:
-                return result
+        if not kg.is_connected():
+            return None
+            
+        # Try exact match first with provided IDs
+        result = kg.check_interaction(drug1_id, drug2_id)
+        if result:
+            return result
+        
+        # If names provided, try to find interaction via normalized drug names
+        # This handles cases like (R)-Warfarin -> Warfarin
+        name1 = drug1_name or drug1_id
+        name2 = drug2_name or drug2_id
+        
+        norm1, _ = normalize_drug_name(name1)
+        norm2, _ = normalize_drug_name(name2)
+        
+        # Check if normalization changed anything
+        needs_norm1 = norm1 != name1.lower()
+        needs_norm2 = norm2 != name2.lower()
+        
+        if needs_norm1 or needs_norm2:
+            # Look up the normalized drug's actual DrugBank ID
+            norm_id1 = drug1_id
+            norm_id2 = drug2_id
+            
+            if needs_norm1:
+                # Search for the base drug (e.g., "warfarin" instead of "(R)-Warfarin")
+                results = kg.search_drugs(norm1, limit=1)
+                if results:
+                    norm_id1 = results[0].get('id', drug1_id)
+                    logger.info(f"Normalized {name1} -> {norm1} (ID: {norm_id1})")
+            
+            if needs_norm2:
+                results = kg.search_drugs(norm2, limit=1)
+                if results:
+                    norm_id2 = results[0].get('id', drug2_id)
+                    logger.info(f"Normalized {name2} -> {norm2} (ID: {norm_id2})")
+            
+            # Try interaction with normalized IDs
+            if norm_id1 != drug1_id or norm_id2 != drug2_id:
+                result = kg.check_interaction(norm_id1, norm_id2)
+                if result:
+                    result['matched_via_normalization'] = True
+                    result['original_drugs'] = [name1, name2]
+                    result['normalized_to'] = [norm1, norm2]
+                    return result
+                    
     except Exception as e:
         logger.warning(f"Interaction lookup failed: {e}")
     return None
@@ -77,14 +232,20 @@ def lookup_drug(drug_input: Dict) -> Dict:
     smiles = drug_input.get('smiles', '')
     drugbank_id = drug_input.get('drugbank_id', '')
     
-    # 1. Try Knowledge Graph (Neo4j)
+    # 1. Try Knowledge Graph (Neo4j) with normalization
     if name and not drugbank_id:
-        kg_result = get_drug_from_knowledge_graph(name)
+        # First try exact match, then normalized
+        kg_result = search_drug_with_normalization(name)
         if kg_result:
+            matched_name = kg_result.get('name', name)
+            logger.info(f"Drug lookup: '{name}' -> matched as '{matched_name}' ({kg_result.get('matched_as', 'exact')})")
             return {
-                'name': kg_result.get('name', name),
+                'name': matched_name,
+                'original_name': name,  # Keep original for reference
                 'smiles': kg_result.get('smiles', '') or smiles,
-                'drugbank_id': kg_result.get('drugbank_id', '')
+                'drugbank_id': kg_result.get('id', ''),
+                'therapeutic_class': kg_result.get('therapeutic_class', ''),
+                'matched_via': kg_result.get('matched_as', 'exact')
             }
     
     # 2. Try Local DrugService (JSON DB)
@@ -96,13 +257,20 @@ def lookup_drug(drug_input: Dict) -> Dict:
         if found:
             return {
                 'name': found['name'],
-                'smiles': found['smiles'] or smiles, # Use found SMILES if available
+                'smiles': found['smiles'] or smiles,
                 'drugbank_id': found['drugbank_id']
             }
             
-    # Try Name lookup
+    # Try Name lookup (with normalization)
     if name:
+        # Try exact first
         found = drug_service.get_drug(name)
+        if not found:
+            # Try normalized
+            normalized_name, _ = normalize_drug_name(name)
+            if normalized_name != name.lower():
+                found = drug_service.get_drug(normalized_name)
+        
         if found:
             return {
                 'name': found['name'],
@@ -111,8 +279,11 @@ def lookup_drug(drug_input: Dict) -> Dict:
             }
             
     # 3. Fallback: Return what we have (even if just name)
+    # Also try to get the normalized base name
+    normalized_name, _ = normalize_drug_name(drug_input.get('name', 'Unknown'))
     return {
         'name': drug_input.get('name', 'Unknown'),
+        'normalized_name': normalized_name,
         'smiles': smiles,
         'drugbank_id': drugbank_id
     }
@@ -160,12 +331,19 @@ class DDIPredictionView(APIView):
         drug_a = lookup_drug(data['drug_a'])
         drug_b = lookup_drug(data['drug_b'])
         
+        # Get original input names for normalization fallback
+        original_name_a = data['drug_a'].get('name', drug_a.get('name', ''))
+        original_name_b = data['drug_b'].get('name', drug_b.get('name', ''))
+        
         # Check for known interaction in Knowledge Graph first
+        # Pass both IDs and original names so we can try normalized lookups
         known_interaction = None
         if drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
             known_interaction = get_known_interaction(
                 drug_a['drugbank_id'], 
-                drug_b['drugbank_id']
+                drug_b['drugbank_id'],
+                original_name_a,
+                original_name_b
             )
         
         if known_interaction:
