@@ -33,6 +33,7 @@ from .serializers import (
 )
 from .services.ddi_predictor import get_ddi_service, DDIPrediction
 from .services.knowledge_graph import KnowledgeGraphService
+from .services.pubmedbert_predictor import get_pubmedbert_predictor
 
 logger = logging.getLogger(__name__)
 
@@ -68,121 +69,64 @@ def get_known_interaction(drug1_id: str, drug2_id: str) -> Dict:
     return None
 
 
-# Fallback sample drugs if KG is unavailable
-SAMPLE_DRUGS = {
-    'warfarin': {
-        'name': 'Warfarin',
-        'smiles': 'CC(=O)CC(C1=CC=CC=C1)C2=C(C3=CC=CC=C3OC2=O)O',
-        'drugbank_id': 'DB00682'
-    },
-    'aspirin': {
-        'name': 'Aspirin',
-        'smiles': 'CC(=O)OC1=CC=CC=C1C(=O)O',
-        'drugbank_id': 'DB00945'
-    },
-    'ibuprofen': {
-        'name': 'Ibuprofen',
-        'smiles': 'CC(C)CC1=CC=C(C(C)C(=O)O)C=C1',
-        'drugbank_id': 'DB01050'
-    },
-    'metformin': {
-        'name': 'Metformin',
-        'smiles': 'CN(C)C(=N)NC(=N)N',
-        'drugbank_id': 'DB00331'
-    },
-    'simvastatin': {
-        'name': 'Simvastatin',
-        'smiles': 'CCC(C)(C)C(=O)OC1CC(C)C=C2C=CC(C)C(CCC3CC(O)CC(=O)O3)C12',
-        'drugbank_id': 'DB00641'
-    },
-    'amiodarone': {
-        'name': 'Amiodarone',
-        'smiles': 'CCCCC1=C(C2=CC=C(OCCN(CC)CC)C=C2)C3=CC(I)=C(OCCC)C(I)=C3O1',
-        'drugbank_id': 'DB01118'
-    },
-    'digoxin': {
-        'name': 'Digoxin',
-        'smiles': 'CC1OC(CC(O)C1O)OC2C(O)CC(OC3C(O)CC(OC4CCC5(C)C(CCC6C5CCC7(C)C(C8=CC(=O)OC8)CCC67)C4)OC3C)OC2C',
-        'drugbank_id': 'DB00390'
-    },
-    'clarithromycin': {
-        'name': 'Clarithromycin',
-        'smiles': 'CCC1OC(=O)C(C)C(OC2CC(C)(OC)C(O)C(C)O2)C(C)C(OC3OC(C)CC(N(C)C)C3O)C(C)(O)CC(C)C(=O)C(C)C(O)C1(C)O',
-        'drugbank_id': 'DB01211'
-    },
-    'fluoxetine': {
-        'name': 'Fluoxetine',
-        'smiles': 'CNCCC(OC1=CC=C(C(F)(F)F)C=C1)C2=CC=CC=C2',
-        'drugbank_id': 'DB00472'
-    },
-    'carbamazepine': {
-        'name': 'Carbamazepine',
-        'smiles': 'NC(=O)N1C2=CC=CC=C2C=CC3=CC=CC=C13',
-        'drugbank_id': 'DB00564'
-    }
-}
-
-
-def get_risk_level(risk_score: float) -> str:
-    """Convert numeric risk score to categorical level."""
-    if risk_score < 0.2:
-        return 'low'
-    elif risk_score < 0.5:
-        return 'medium'
-    elif risk_score < 0.8:
-        return 'high'
-    return 'critical'
-
+from .services.drug_service import get_drug_service
 
 def lookup_drug(drug_input: Dict) -> Dict:
-    """Look up drug SMILES from name or ID - first from Knowledge Graph, then fallback."""
+    """Look up drug SMILES from name or ID - first from Knowledge Graph, then DrugService."""
     name = drug_input.get('name', '').lower().strip()
     smiles = drug_input.get('smiles', '')
     drugbank_id = drug_input.get('drugbank_id', '')
     
-    # Always try to get drugbank_id from Knowledge Graph if we have a name
+    # 1. Try Knowledge Graph (Neo4j)
     if name and not drugbank_id:
         kg_result = get_drug_from_knowledge_graph(name)
         if kg_result:
-            drugbank_id = kg_result.get('drugbank_id', '')
-            # If no SMILES provided, use the one from KG
-            if not smiles:
-                smiles = kg_result.get('smiles', '')
+            return {
+                'name': kg_result.get('name', name),
+                'smiles': kg_result.get('smiles', '') or smiles,
+                'drugbank_id': kg_result.get('drugbank_id', '')
+            }
     
-    # If we have drugbank_id now, return with it
+    # 2. Try Local DrugService (JSON DB)
+    drug_service = get_drug_service()
+    
+    # Try ID lookup first
     if drugbank_id:
-        return {
-            'name': drug_input.get('name', 'Unknown'),
-            'smiles': smiles,
-            'drugbank_id': drugbank_id
-        }
-    
-    # If SMILES provided but no drugbank_id found, still return with SMILES
-    if smiles:
-        return {
-            'name': drug_input.get('name', 'Unknown'),
-            'smiles': smiles,
-            'drugbank_id': ''
-        }
-    
-    # Try to find in sample data
-    if name in SAMPLE_DRUGS:
-        return SAMPLE_DRUGS[name]
-    
-    # Try partial match
-    for key, drug in SAMPLE_DRUGS.items():
-        if name in key or key in name:
-            return drug
-    
-    # Return with empty SMILES (will use random features)
+        found = drug_service.get_drug(drugbank_id)
+        if found:
+            return {
+                'name': found['name'],
+                'smiles': found['smiles'] or smiles, # Use found SMILES if available
+                'drugbank_id': found['drugbank_id']
+            }
+            
+    # Try Name lookup
+    if name:
+        found = drug_service.get_drug(name)
+        if found:
+            return {
+                'name': found['name'],
+                'smiles': found['smiles'] or smiles,
+                'drugbank_id': found['drugbank_id']
+            }
+            
+    # 3. Fallback: Return what we have (even if just name)
     return {
         'name': drug_input.get('name', 'Unknown'),
-        'smiles': '',
-        'drugbank_id': ''
+        'smiles': smiles,
+        'drugbank_id': drugbank_id
     }
 
 
 # ============== API Views ==============
+
+def get_risk_level(risk_score: float) -> str:
+    """Map numerical risk score (0-1) to risk level string."""
+    if risk_score >= 0.8: return 'critical'
+    if risk_score >= 0.6: return 'high'
+    if risk_score >= 0.3: return 'medium'
+    return 'low'
+
 
 class DDIPredictionView(APIView):
     """
@@ -194,6 +138,17 @@ class DDIPredictionView(APIView):
     """
     
     def post(self, request):
+        try:
+            return self._internal_post_logic(request)
+        except Exception as e:
+            import traceback
+            logger.error(f"Prediction failed: {e}\n{traceback.format_exc()}")
+            return Response(
+                {'error': 'Internal server error during prediction', 'details': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _internal_post_logic(self, request):
         serializer = DDIPredictionRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -236,30 +191,76 @@ class DDIPredictionView(APIView):
                 'source': 'knowledge_graph'
             }
         else:
-            # Use AI model for prediction
-            service = get_ddi_service()
-            prediction = service.predict(
-                drug_a.get('smiles', ''),
-                drug_b.get('smiles', ''),
-                drug_a['name'],
-                drug_b['name']
-            )
+            # Use PubMedBERT model for text-based DDI prediction
+            # This model was trained on ~19,000 DDI Corpus sentences
+            pubmedbert = get_pubmedbert_predictor()
             
-            response_data = {
-                'drug_a': prediction.drug_a,
-                'drug_b': prediction.drug_b,
-                'risk_score': prediction.risk_score,
-                'risk_level': get_risk_level(prediction.risk_score),
-                'severity': prediction.severity,
-                'confidence': prediction.confidence,
-                'mechanism_hypothesis': prediction.mechanism_hypothesis,
-                'affected_systems': [
-                    {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                    for sys in prediction.affected_systems
-                ],
-                'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': 'ai_model'
-            }
+            if pubmedbert.is_loaded:
+                # Use PubMedBERT for prediction (primary method)
+                prediction = pubmedbert.predict(drug_a['name'], drug_b['name'])
+                
+                # Map interaction type to affected systems
+                affected_systems_map = {
+                    'mechanism': ['liver', 'metabolic'],
+                    'effect': ['cardiovascular', 'hematologic'],
+                    'advise': ['general'],
+                    'int': ['general'],
+                    'no_interaction': []
+                }
+                affected = affected_systems_map.get(prediction.interaction_type, [])
+                
+                response_data = {
+                    'drug_a': prediction.drug_a,
+                    'drug_b': prediction.drug_b,
+                    'risk_score': prediction.risk_score,
+                    'risk_level': get_risk_level(prediction.risk_score),
+                    'severity': prediction.severity,
+                    'confidence': prediction.confidence,
+                    'mechanism_hypothesis': pubmedbert.get_mechanism_description(
+                        prediction.interaction_type, 
+                        prediction.drug_a, 
+                        prediction.drug_b,
+                        prediction.confidence
+                    ),
+                    'affected_systems': [
+                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                        for sys in affected
+                    ],
+                    'inference_time_ms': (time.time() - start_time) * 1000,
+                    'source': 'pubmedbert',
+                    'interaction_type': prediction.interaction_type,
+                    'all_probabilities': prediction.all_probabilities,
+                    # Context sentence information for transparency
+                    'context_sentence': prediction.context_sentence,
+                    'context_source': prediction.context_source,
+                    'template_category': prediction.template_category
+                }
+            else:
+                # Fallback to molecular structure-based model
+                logger.warning("PubMedBERT not loaded, falling back to GNN model")
+                service = get_ddi_service()
+                prediction = service.predict(
+                    drug_a.get('smiles', ''),
+                    drug_b.get('smiles', ''),
+                    drug_a['name'],
+                    drug_b['name']
+                )
+                
+                response_data = {
+                    'drug_a': prediction.drug_a,
+                    'drug_b': prediction.drug_b,
+                    'risk_score': prediction.risk_score,
+                    'risk_level': get_risk_level(prediction.risk_score),
+                    'severity': prediction.severity,
+                    'confidence': prediction.confidence,
+                    'mechanism_hypothesis': prediction.mechanism_hypothesis,
+                    'affected_systems': [
+                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                        for sys in prediction.affected_systems
+                    ],
+                    'inference_time_ms': (time.time() - start_time) * 1000,
+                    'source': 'ai_model'
+                }
         
         inference_time = response_data['inference_time_ms']
         
@@ -434,16 +435,21 @@ class DrugSearchView(APIView):
         except Exception as e:
             logger.warning(f"Knowledge graph search failed: {e}")
         
-        # If no KG results, search in sample data
+        # If no KG results, search in local DrugService (JSON DB)
         if not results:
-            for key, drug in SAMPLE_DRUGS.items():
-                if query in drug['name'].lower():
+            try:
+                drug_service = get_drug_service()
+                service_results = drug_service.search_drugs(query, limit=10)
+                
+                for drug in service_results:
                     results.append({
                         'name': drug['name'],
-                        'drugbank_id': drug['drugbank_id'],
-                        'smiles': drug.get('smiles', ''),  # Include SMILES for 3D visualization
-                        'category': '',
+                        'drugbank_id': drug.get('drugbank_id', ''),
+                        'smiles': drug.get('smiles', ''),
+                        'category': drug.get('category', ''),
                     })
+            except Exception as e:
+                logger.warning(f"DrugService search failed: {e}")
         
         # Also search database
         try:
@@ -540,3 +546,113 @@ class PredictionLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = PredictionLog.objects.all()
     serializer_class = PredictionLogSerializer
+
+
+# ============== Enhanced Drug Info Endpoints ==============
+
+class EnhancedDrugInfoView(APIView):
+    """
+    GET /api/v1/drug-info/?name=<drug_name>
+    
+    Returns comprehensive drug information including:
+    - Side effects from SIDER database
+    - Real-world adverse event statistics from OpenFDA FAERS
+    - Interaction count from Knowledge Graph
+    """
+    
+    def get(self, request):
+        drug_name = request.query_params.get('name', '').strip()
+        if not drug_name:
+            return Response(
+                {'error': 'name parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        include_faers = request.query_params.get('faers', 'true').lower() == 'true'
+        
+        try:
+            from .services.enhanced_drug_service import get_enhanced_drug_service
+            service = get_enhanced_drug_service()
+            info = service.get_drug_info(drug_name, include_faers=include_faers)
+            return Response(info.to_dict())
+        except Exception as e:
+            logger.error(f"Enhanced drug info failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class EnhancedInteractionInfoView(APIView):
+    """
+    GET /api/v1/interaction-info/?drug1=<name>&drug2=<name>
+    
+    Returns comprehensive interaction information including:
+    - Polypharmacy side effects from TWOSIDES
+    - Real-world co-reported adverse events from OpenFDA FAERS
+    - Evidence sources (DDI Corpus, Knowledge Graph, etc.)
+    """
+    
+    def get(self, request):
+        drug1 = request.query_params.get('drug1', '').strip()
+        drug2 = request.query_params.get('drug2', '').strip()
+        
+        if not drug1 or not drug2:
+            return Response(
+                {'error': 'drug1 and drug2 parameters required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        include_faers = request.query_params.get('faers', 'true').lower() == 'true'
+        
+        try:
+            from .services.enhanced_drug_service import get_enhanced_drug_service
+            service = get_enhanced_drug_service()
+            info = service.get_interaction_info(drug1, drug2, include_faers=include_faers)
+            return Response(info.to_dict())
+        except Exception as e:
+            logger.error(f"Enhanced interaction info failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RealWorldEvidenceView(APIView):
+    """
+    GET /api/v1/real-world-evidence/?drug1=<name>&drug2=<name>
+    
+    Returns real-world evidence from FDA Adverse Event Reporting System.
+    Shows how many adverse event reports mention these drugs together.
+    """
+    
+    def get(self, request):
+        drug1 = request.query_params.get('drug1', '').strip()
+        drug2 = request.query_params.get('drug2', '')
+        
+        if not drug1:
+            return Response(
+                {'error': 'drug1 parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Dynamic import to avoid startup issues
+            from .management.commands.import_external_data import get_openfda_importer
+            openfda = get_openfda_importer()
+            
+            if drug2:
+                # Pair query
+                result = openfda.get_pair_reports(drug1, drug2)
+            else:
+                # Single drug query
+                result = openfda.get_adverse_events(drug1, limit=15)
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"Real-world evidence query failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

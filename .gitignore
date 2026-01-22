@@ -149,3 +149,13 @@ tmp/
 temp/
 *.tmp
 .cache/
+# Python/Django
+__pycache__/
+*.pyc
+db.sqlite3
+.venv
+venv/
+
+# Secrets
+.env
+**/.env

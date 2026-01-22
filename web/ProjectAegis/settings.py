@@ -45,6 +45,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # Add Whitenoise for static files
     'corsheaders.middleware.CorsMiddleware',  # CORS must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -72,9 +73,21 @@ REST_FRAMEWORK = {
     ],
 }
 
+# Redis Cache Configuration
+CACHES = {
+    "default": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": os.environ.get('REDIS_URL', "redis://redis:6379/1"),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+        }
+    }
+}
+
 # Neo4j Configuration (Knowledge Graph)
+# In Docker, hostname is 'neo4j', locally it's 'localhost'
 NEO4J_CONFIG = {
-    'uri': os.environ.get('NEO4J_URI', 'bolt://localhost:7687'),
+    'uri': os.environ.get('NEO4J_URI', 'bolt://neo4j:7687'),
     'user': os.environ.get('NEO4J_USER', 'neo4j'),
     'password': os.environ.get('NEO4J_PASSWORD', 'password123'),
 }
@@ -84,6 +97,41 @@ AI_MODEL_CONFIG = {
     'model_path': BASE_DIR / 'models' / 'aegis_ddi_model.pt',
     'onnx_path': BASE_DIR / 'models' / 'aegis_model_optimized.onnx',
     'device': 'cpu',  # Use 'cuda' if GPU is available
+}
+
+# =============================================================================
+# DDI RETRIEVAL CONFIGURATION (RAG System)
+# =============================================================================
+# This controls how context sentences are retrieved for PubMedBERT predictions.
+#
+# Options:
+#   'rag'    - [DEFAULT] Live PubMed API - Fetches real medical literature in real-time.
+#              Best accuracy, requires internet. ~1-2 second latency per query.
+#              Uses NCBI E-utilities API (free, rate-limited to 3 req/sec).
+#
+#   'hybrid' - [NOT IMPLEMENTED] Checks local corpus first, falls back to PubMed API
+#              if no matching sentences found. Balance of speed and coverage.
+#
+#   'local'  - [NOT IMPLEMENTED] Offline mode using pre-downloaded DDI corpus.
+#              Fast (~10ms) but limited to downloaded data. Requires data ingestion.
+#              Would use Neo4j or SQLite for sentence storage.
+#
+DDI_RETRIEVAL_CONFIG = {
+    'mode': os.environ.get('DDI_RETRIEVAL_MODE', 'rag'),  # 'rag', 'hybrid', 'local'
+    
+    # PubMed API Settings (for 'rag' and 'hybrid' modes)
+    'pubmed': {
+        'base_url': 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils',
+        'max_results': 5,           # Number of abstracts to fetch
+        'timeout_seconds': 10,      # API request timeout
+        'cache_ttl_hours': 24,      # Cache results in Redis for this long
+    },
+    
+    # Local Corpus Settings (for 'local' and 'hybrid' modes) - NOT IMPLEMENTED
+    'local': {
+        'corpus_path': BASE_DIR / 'data' / 'ddi_sentences.json',  # Would store pre-downloaded sentences
+        'use_vector_search': False,  # If True, use embeddings for semantic search
+    }
 }
 
 ROOT_URLCONF = 'ProjectAegis.urls'
@@ -152,6 +200,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
