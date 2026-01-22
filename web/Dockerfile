@@ -16,7 +16,13 @@ RUN apt-get update && apt-get install -y \
 # Install python dependencies
 COPY requirements.txt /app/
 RUN pip install --upgrade pip
-RUN pip install -r requirements.txt
+
+# PRO TIP: Install heavy dependencies separately to cache them layer-wise
+# and avoid timeouts on the massive single install.
+RUN pip install torch transformers rdkit --no-cache-dir --default-timeout=1000
+
+# Install remaining
+RUN pip install -r requirements.txt --no-cache-dir
 
 # Copy project
 COPY . /app/
