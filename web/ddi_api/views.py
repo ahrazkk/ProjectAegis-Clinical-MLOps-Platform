@@ -546,3 +546,113 @@ class PredictionLogViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = PredictionLog.objects.all()
     serializer_class = PredictionLogSerializer
+
+
+# ============== Enhanced Drug Info Endpoints ==============
+
+class EnhancedDrugInfoView(APIView):
+    """
+    GET /api/v1/drug-info/?name=<drug_name>
+    
+    Returns comprehensive drug information including:
+    - Side effects from SIDER database
+    - Real-world adverse event statistics from OpenFDA FAERS
+    - Interaction count from Knowledge Graph
+    """
+    
+    def get(self, request):
+        drug_name = request.query_params.get('name', '').strip()
+        if not drug_name:
+            return Response(
+                {'error': 'name parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        include_faers = request.query_params.get('faers', 'true').lower() == 'true'
+        
+        try:
+            from .services.enhanced_drug_service import get_enhanced_drug_service
+            service = get_enhanced_drug_service()
+            info = service.get_drug_info(drug_name, include_faers=include_faers)
+            return Response(info.to_dict())
+        except Exception as e:
+            logger.error(f"Enhanced drug info failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class EnhancedInteractionInfoView(APIView):
+    """
+    GET /api/v1/interaction-info/?drug1=<name>&drug2=<name>
+    
+    Returns comprehensive interaction information including:
+    - Polypharmacy side effects from TWOSIDES
+    - Real-world co-reported adverse events from OpenFDA FAERS
+    - Evidence sources (DDI Corpus, Knowledge Graph, etc.)
+    """
+    
+    def get(self, request):
+        drug1 = request.query_params.get('drug1', '').strip()
+        drug2 = request.query_params.get('drug2', '').strip()
+        
+        if not drug1 or not drug2:
+            return Response(
+                {'error': 'drug1 and drug2 parameters required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        include_faers = request.query_params.get('faers', 'true').lower() == 'true'
+        
+        try:
+            from .services.enhanced_drug_service import get_enhanced_drug_service
+            service = get_enhanced_drug_service()
+            info = service.get_interaction_info(drug1, drug2, include_faers=include_faers)
+            return Response(info.to_dict())
+        except Exception as e:
+            logger.error(f"Enhanced interaction info failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class RealWorldEvidenceView(APIView):
+    """
+    GET /api/v1/real-world-evidence/?drug1=<name>&drug2=<name>
+    
+    Returns real-world evidence from FDA Adverse Event Reporting System.
+    Shows how many adverse event reports mention these drugs together.
+    """
+    
+    def get(self, request):
+        drug1 = request.query_params.get('drug1', '').strip()
+        drug2 = request.query_params.get('drug2', '')
+        
+        if not drug1:
+            return Response(
+                {'error': 'drug1 parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Dynamic import to avoid startup issues
+            from .management.commands.import_external_data import get_openfda_importer
+            openfda = get_openfda_importer()
+            
+            if drug2:
+                # Pair query
+                result = openfda.get_pair_reports(drug1, drug2)
+            else:
+                # Single drug query
+                result = openfda.get_adverse_events(drug1, limit=15)
+            
+            return Response(result)
+            
+        except Exception as e:
+            logger.error(f"Real-world evidence query failed: {e}")
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

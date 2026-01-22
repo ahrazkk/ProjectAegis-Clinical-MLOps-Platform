@@ -122,6 +122,48 @@ export async function getPredictionHistory(limit = 20) {
     return apiRequest(`/history/?limit=${limit}`);
 }
 
+/**
+ * Get enhanced drug information including side effects and FAERS data
+ * @param {string} drugName - Drug name
+ * @param {boolean} includeFaers - Whether to include OpenFDA data (slower)
+ * @returns {Promise<EnhancedDrugInfo>}
+ */
+export async function getDrugInfo(drugName, includeFaers = true) {
+    const params = new URLSearchParams({
+        name: drugName,
+        faers: includeFaers.toString()
+    });
+    return apiRequest(`/drug-info/?${params}`);
+}
+
+/**
+ * Get enhanced interaction information including real-world evidence
+ * @param {string} drug1 - First drug name
+ * @param {string} drug2 - Second drug name
+ * @param {boolean} includeFaers - Whether to include OpenFDA data
+ * @returns {Promise<EnhancedInteractionInfo>}
+ */
+export async function getInteractionInfo(drug1, drug2, includeFaers = true) {
+    const params = new URLSearchParams({
+        drug1,
+        drug2,
+        faers: includeFaers.toString()
+    });
+    return apiRequest(`/interaction-info/?${params}`);
+}
+
+/**
+ * Get real-world evidence from FDA FAERS
+ * @param {string} drug1 - First drug name
+ * @param {string} drug2 - Optional second drug name for co-occurrence
+ * @returns {Promise<FAERSData>}
+ */
+export async function getRealWorldEvidence(drug1, drug2 = null) {
+    const params = new URLSearchParams({ drug1 });
+    if (drug2) params.append('drug2', drug2);
+    return apiRequest(`/real-world-evidence/?${params}`);
+}
+
 // ============== Type Definitions (for reference) ==============
 
 /**
@@ -173,4 +215,7 @@ export default {
     analyzePolypharmacy,
     sendChatMessage,
     getPredictionHistory,
+    getDrugInfo,
+    getInteractionInfo,
+    getRealWorldEvidence,
 };
