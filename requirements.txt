@@ -1,27 +1,36 @@
 # DDI Model Dependencies
 # Based on MCR III Model Specification
+# Dependencies pinned to specific versions to reduce supply-chain security risks
+# Update these versions only after explicit review and testing
 
 # Core ML Framework
-torch>=2.0.0
-transformers>=4.30.0
+# Security: Using torch>=2.6.0 to address multiple documented vulnerabilities:
+# - Heap buffer overflow issues (fixed in 2.2.0)
+# - Use-after-free issues (fixed in 2.2.0)  
+# - torch.load remote code execution vulnerabilities (fixed in 2.6.0)
+torch==2.6.0
+
+# Security: Using transformers>=4.48.0 to address multiple deserialization vulnerabilities
+# - Deserialization of untrusted data issues (addressed in 4.36.0 and further hardened in 4.48.0)
+transformers==4.48.0
 
 # Hugging Face PubMedBERT specific
-sentencepiece>=0.1.99
+sentencepiece==0.2.0
 
 # Scientific Computing
-numpy>=1.24.0
-scikit-learn>=1.3.0
-pandas>=2.0.0
+numpy==1.26.4
+scikit-learn==1.5.2
+pandas==2.2.3
 
 # Training Utilities
-tqdm>=4.65.0
+tqdm==4.67.1
 
 # Logging and Configuration
-pyyaml>=6.0
+pyyaml==6.0.2
 
 # For Vertex AI Vizier integration (optional)
 # google-cloud-aiplatform>=1.25.0
 
 # Development/Testing
-pytest>=7.3.0
-pytest-cov>=4.1.0
+pytest==8.3.4
+pytest-cov==6.0.0

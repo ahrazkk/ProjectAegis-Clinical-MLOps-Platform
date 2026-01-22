@@ -5,8 +5,8 @@ Implements the complete model with PubMedBERT encoder, Relation Head, and Auxili
 
 import torch
 import torch.nn as nn
-from transformers import AutoModel, AutoTokenizer
-from typing import Dict, Optional, Tuple
+from transformers import AutoModel
+from typing import Optional, Tuple
 
 from .relation_head import RelationHead
 from .auxiliary_head import AuxiliaryHead
@@ -180,8 +180,8 @@ class DDIModel(nn.Module):
         )
         
         if self.use_binary:
-            probabilities = torch.sigmoid(relation_logits)
+            probs = torch.sigmoid(relation_logits)
         else:
-            probabilities = torch.softmax(relation_logits, dim=-1)
+            probs = torch.softmax(relation_logits, dim=-1)
         
-        return probabilities
+        return probs

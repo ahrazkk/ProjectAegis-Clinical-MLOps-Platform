@@ -17,13 +17,13 @@ from pathlib import Path
 from datetime import datetime
 
 import torch
+from sklearn.model_selection import train_test_split
 
 from ddi_model import DDIModel
 from tokenization import DDITokenizer
 from dataset import DDIDataset, create_data_loaders
 from trainer import DDITrainer, TrainingConfig
 from evaluation import StratifiedKFoldValidator, evaluate_model, ErrorAnalyzer
-from hyperparameter_config import get_default_search_space
 
 
 # Setup logging
@@ -259,11 +259,34 @@ def main():
         if args.val_data_path:
             val_data = load_data(args.val_data_path)
         else:
-            # Use last 20% as validation
-            split_idx = int(len(train_data) * 0.8)
-            val_data = train_data[split_idx:]
-            train_data = train_data[:split_idx]
-            logger.info(f"Split data: {len(train_data)} train, {len(val_data)} val")
+            # Use stratified 80/20 split to ensure representative class distributions
+            # Extract labels for stratification
+            if args.use_binary:
+                labels = [sample.get('has_interaction', 0) for sample in train_data]
+            else:
+                labels = [sample.get('interaction_type', 0) for sample in train_data]
+            
+            try:
+                train_data, val_data = train_test_split(
+                    train_data,
+                    test_size=0.2,
+                    random_state=42,
+                    stratify=labels
+                )
+                logger.info(f"Stratified split: {len(train_data)} train, {len(val_data)} val")
+            except ValueError as e:
+                logger.warning(
+                    "Stratified train/validation split failed (%s). "
+                    "Falling back to non-stratified split. "
+                    "This may result in imbalanced class distributions in the validation set.",
+                    e
+                )
+                train_data, val_data = train_test_split(
+                    train_data,
+                    test_size=0.2,
+                    random_state=42
+                )
+                logger.info(f"Non-stratified split: {len(train_data)} train, {len(val_data)} val")
 
         # Create datasets
         train_dataset = DDIDataset(train_data, tokenizer, use_binary_labels=args.use_binary)

@@ -8,9 +8,12 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Tuple, Optional, Any
 import json
 import pandas as pd
-from pathlib import Path
+import logging
 
 from .tokenization import DDITokenizer
+
+
+logger = logging.getLogger(__name__)
 
 
 class DDIDataset(Dataset):
@@ -48,7 +51,8 @@ class DDIDataset(Dataset):
         self,
         data: List[Dict[str, Any]],
         tokenizer: DDITokenizer,
-        use_binary_labels: bool = True
+        use_binary_labels: bool = True,
+        lazy_loading: bool = False
     ):
         """
         Initialize DDI Dataset
@@ -58,22 +62,43 @@ class DDIDataset(Dataset):
             tokenizer: DDITokenizer instance
             use_binary_labels: If True, use binary interaction labels;
                              if False, use multi-class interaction types
+            lazy_loading: If True, process samples on-demand during iteration (slower per-batch
+                         but faster initialization and lower memory); if False, pre-process all 
+                         samples during initialization (default, faster training)
         """
         self.data = data
         self.tokenizer = tokenizer
         self.use_binary_labels = use_binary_labels
+        self.lazy_loading = lazy_loading
 
-        # Pre-process all samples
-        self.processed_samples = self._preprocess_all()
+        if lazy_loading:
+            # Lazy loading: keep track of valid indices only
+            logger.info("Using lazy loading mode - samples will be processed on-demand")
+            self.processed_samples = None
+            self.valid_indices = list(range(len(data)))
+        else:
+            # Eager loading: pre-process all samples
+            self.processed_samples = self._preprocess_all()
+            self.valid_indices = None
 
     def _preprocess_all(self) -> List[Dict[str, torch.Tensor]]:
         """Pre-process all samples for faster training"""
         processed = []
+        failed_count = 0
 
         for sample in self.data:
             processed_sample = self._preprocess_sample(sample)
             if processed_sample is not None:
                 processed.append(processed_sample)
+            else:
+                failed_count += 1
+
+        if failed_count > 0:
+            logger.warning(
+                f"Dropped {failed_count} samples during preprocessing "
+                f"({failed_count}/{len(self.data)} = {100*failed_count/len(self.data):.1f}%). "
+                f"Successfully processed {len(processed)} samples."
+            )
 
         return processed
 
@@ -119,13 +144,49 @@ class DDIDataset(Dataset):
             }
             return result
         except Exception as e:
-            print(f"Error processing sample: {e}")
+            logger.warning(f"Error processing sample: {e}")
             return None
 
     def __len__(self) -> int:
+        if self.lazy_loading:
+            return len(self.valid_indices)
         return len(self.processed_samples)
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
+        if self.lazy_loading:
+            # Process sample on-demand with robustness: skip invalid samples
+            if not self.valid_indices:
+                raise RuntimeError("No valid samples available in lazy-loading dataset.")
+
+            # Ensure idx is within current bounds (may change if we drop invalid indices)
+            idx = idx % len(self.valid_indices)
+
+            attempts = 0
+            max_attempts = len(self.valid_indices)
+
+            while attempts < max_attempts and self.valid_indices:
+                data_idx = self.valid_indices[idx]
+                sample = self.data[data_idx]
+                processed = self._preprocess_sample(sample)
+
+                if processed is not None:
+                    return processed
+
+                # If processing failed, drop this index and try another one
+                logger.warning(
+                    "Removing invalid sample at data index %s from valid_indices during lazy loading.",
+                    data_idx,
+                )
+                self.valid_indices.pop(idx)
+
+                if not self.valid_indices:
+                    break
+
+                # Adjust idx to stay within new bounds and increment attempts
+                idx = idx % len(self.valid_indices)
+                attempts += 1
+
+            raise RuntimeError("No valid samples available after removing invalid entries during lazy loading.")
         return self.processed_samples[idx]
 
     @staticmethod

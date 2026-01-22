@@ -42,7 +42,7 @@ from .hyperparameter_config import (
     ParameterSpec,
     DDI_VIZIER_STUDY,
     get_default_search_space,
-    parse_vizier_trial
+    vizier_trial_to_training_config
 )
 
 # Inference
@@ -82,7 +82,7 @@ __all__ = [
     'ParameterSpec',
     'DDI_VIZIER_STUDY',
     'get_default_search_space',
-    'parse_vizier_trial',
+    'vizier_trial_to_training_config',
 
     # Inference
     'DDIPredictor',

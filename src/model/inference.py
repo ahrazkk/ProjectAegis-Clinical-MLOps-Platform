@@ -4,9 +4,8 @@ Provides high-level API for making predictions with trained models
 """
 
 import torch
-from typing import Dict, List, Tuple, Optional, Union
+from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
-from pathlib import Path
 import logging
 
 from .ddi_model import DDIModel
@@ -153,9 +152,34 @@ class DDIPredictor:
 
         Returns:
             DDIPrediction object with prediction results
+        
+        Raises:
+            ValueError: If drug spans are invalid (out of bounds or overlapping)
         """
         if self.model is None:
             raise RuntimeError("Model not loaded. Call load_model() first.")
+
+        # Validate drug spans
+        text_len = len(text)
+        if drug1_span[0] < 0 or drug1_span[1] > text_len or drug1_span[0] >= drug1_span[1]:
+            raise ValueError(
+                f"Invalid drug1_span {drug1_span}: must be within text bounds [0, {text_len}] "
+                f"and start < end"
+            )
+        if drug2_span[0] < 0 or drug2_span[1] > text_len or drug2_span[0] >= drug2_span[1]:
+            raise ValueError(
+                f"Invalid drug2_span {drug2_span}: must be within text bounds [0, {text_len}] "
+                f"and start < end"
+            )
+        
+        # Check for overlapping spans
+        # Note: Adjacent spans (e.g., drug1_span=(0,5), drug2_span=(5,10)) are allowed
+        # but are unusual in clinical text. Consider logging a warning if this occurs.
+        if not (drug1_span[1] <= drug2_span[0] or drug2_span[1] <= drug1_span[0]):
+            raise ValueError(
+                f"Drug spans overlap: drug1_span={drug1_span}, drug2_span={drug2_span}. "
+                f"Spans must not overlap."
+            )
 
         # Extract drug names from spans if not provided
         if drug1_name is None:
@@ -186,11 +210,12 @@ class DDIPredictor:
 
         # Calculate probabilities
         if self.use_binary:
-            raw_prob = torch.sigmoid(relation_logits).item()
-            calibrated_probs = self.temperature_scaling(relation_logits)
-            calibrated_prob = calibrated_probs[0, 0].item() if calibrated_probs.dim() > 1 else calibrated_probs.item()
+            # For binary classification, use temperature scaling with sigmoid
+            # Handle tensor shape [1, 1] -> scalar by using squeeze().item()
+            calibrated_prob = self.temperature_scaling(relation_logits, use_sigmoid=True).squeeze().item()
+            raw_prob = torch.sigmoid(relation_logits).squeeze().item()
 
-            has_interaction = raw_prob > 0.5
+            has_interaction = calibrated_prob > 0.5
             interaction_type = None if not has_interaction else 'interaction'
 
             # For binary, risk score is simply the calibrated probability
@@ -273,6 +298,11 @@ class DDIPredictor:
         Predict interaction from drug names only
 
         Uses a template to create synthetic context.
+        
+        Warning: Predictions from drug names alone using this generic template may be less
+        reliable than predictions from actual clinical text, as the artificial context may
+        not match the model's training data distribution. For best results, provide real
+        clinical text context using the predict() method.
 
         Args:
             drug1_name: Name of first drug
@@ -286,6 +316,11 @@ class DDIPredictor:
             context_template = (
                 "The patient is taking {drug1} and {drug2}. "
                 "Evaluate potential drug-drug interaction."
+            )
+            logger.warning(
+                "Using default generic context template for prediction. "
+                "Predictions may be less reliable than with actual clinical text. "
+                "Consider using the predict() method with real clinical context."
             )
 
         # Create text with drug positions
