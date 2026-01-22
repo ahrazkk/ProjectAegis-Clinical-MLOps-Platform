@@ -4,14 +4,14 @@
 # Update these versions only after explicit review and testing
 
 # Core ML Framework
-# Security: Using torch>=2.6.0 to address CVEs:
-# - CVE-2024-xxxxx: Heap buffer overflow (fixed in 2.2.0)
-# - CVE-2024-xxxxx: Use-after-free (fixed in 2.2.0)  
-# - CVE-2024-xxxxx: torch.load RCE vulnerability (fixed in 2.6.0)
+# Security: Using torch>=2.6.0 to address multiple documented vulnerabilities:
+# - Heap buffer overflow issues (fixed in 2.2.0)
+# - Use-after-free issues (fixed in 2.2.0)  
+# - torch.load remote code execution vulnerabilities (fixed in 2.6.0)
 torch==2.6.0
 
-# Security: Using transformers>=4.48.0 to address multiple deserialization CVEs
-# - CVE-2024-xxxxx: Deserialization of untrusted data (fixed in 4.36.0, 4.48.0)
+# Security: Using transformers>=4.48.0 to address multiple deserialization vulnerabilities
+# - Deserialization of untrusted data issues (addressed in 4.36.0 and further hardened in 4.48.0)
 transformers==4.48.0
 
 # Hugging Face PubMedBERT specific

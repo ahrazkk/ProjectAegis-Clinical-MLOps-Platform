@@ -266,13 +266,27 @@ def main():
             else:
                 labels = [sample.get('interaction_type', 0) for sample in train_data]
             
-            train_data, val_data = train_test_split(
-                train_data,
-                test_size=0.2,
-                random_state=42,
-                stratify=labels
-            )
-            logger.info(f"Stratified split: {len(train_data)} train, {len(val_data)} val")
+            try:
+                train_data, val_data = train_test_split(
+                    train_data,
+                    test_size=0.2,
+                    random_state=42,
+                    stratify=labels
+                )
+                logger.info(f"Stratified split: {len(train_data)} train, {len(val_data)} val")
+            except ValueError as e:
+                logger.warning(
+                    "Stratified train/validation split failed (%s). "
+                    "Falling back to non-stratified split. "
+                    "This may result in imbalanced class distributions in the validation set.",
+                    e
+                )
+                train_data, val_data = train_test_split(
+                    train_data,
+                    test_size=0.2,
+                    random_state=42
+                )
+                logger.info(f"Non-stratified split: {len(train_data)} train, {len(val_data)} val")
 
         # Create datasets
         train_dataset = DDIDataset(train_data, tokenizer, use_binary_labels=args.use_binary)

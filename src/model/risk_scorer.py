@@ -76,9 +76,13 @@ class TemperatureScaling(nn.Module):
             optimizer.zero_grad()
             if use_binary:
                 # For binary classification, use BCE with logits
+                # Ensure labels match logits shape for BCE loss
+                targets = labels.float()
+                if logits.dim() > 1:
+                    targets = targets.view_as(logits)
                 loss = nn.functional.binary_cross_entropy_with_logits(
-                    logits / self.temperature, 
-                    labels.float()
+                    logits / self.temperature,
+                    targets
                 )
             else:
                 # For multi-class, use cross entropy

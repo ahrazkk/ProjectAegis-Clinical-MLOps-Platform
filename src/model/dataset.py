@@ -154,15 +154,39 @@ class DDIDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         if self.lazy_loading:
-            # Process sample on-demand
-            data_idx = self.valid_indices[idx]
-            sample = self.data[data_idx]
-            processed = self._preprocess_sample(sample)
-            if processed is None:
-                # Fallback: return a dummy sample if processing fails
-                # This shouldn't happen if valid_indices is correctly maintained
-                raise RuntimeError(f"Failed to process sample at index {data_idx} during lazy loading")
-            return processed
+            # Process sample on-demand with robustness: skip invalid samples
+            if not self.valid_indices:
+                raise RuntimeError("No valid samples available in lazy-loading dataset.")
+
+            # Ensure idx is within current bounds (may change if we drop invalid indices)
+            idx = idx % len(self.valid_indices)
+
+            attempts = 0
+            max_attempts = len(self.valid_indices)
+
+            while attempts < max_attempts and self.valid_indices:
+                data_idx = self.valid_indices[idx]
+                sample = self.data[data_idx]
+                processed = self._preprocess_sample(sample)
+
+                if processed is not None:
+                    return processed
+
+                # If processing failed, drop this index and try another one
+                logger.warning(
+                    "Removing invalid sample at data index %s from valid_indices during lazy loading.",
+                    data_idx,
+                )
+                self.valid_indices.pop(idx)
+
+                if not self.valid_indices:
+                    break
+
+                # Adjust idx to stay within new bounds and increment attempts
+                idx = idx % len(self.valid_indices)
+                attempts += 1
+
+            raise RuntimeError("No valid samples available after removing invalid entries during lazy loading.")
         return self.processed_samples[idx]
 
     @staticmethod

@@ -112,6 +112,9 @@ class DDITokenizer:
             next_char = after[0] if after else ''
 
             # Add a space before the start marker only if needed
+            # Note: This logic assumes drug names don't start/end with punctuation.
+            # Edge cases with punctuation within drug names (e.g., hyphens, parentheses)
+            # may result in incorrect spacing but are rare in practice.
             add_space_before = bool(before and not prev_char.isspace() and prev_char not in self.OPENING_PUNCTUATION)
             # Add a space after the end marker only if the next char is not whitespace or punctuation
             add_space_after = bool(after and not next_char.isspace() and next_char not in self.CLOSING_PUNCTUATION)
@@ -202,7 +205,8 @@ class DDITokenizer:
             texts,
             return_tensors=return_tensors,
             padding=True,
-            truncation=True
+            truncation=True,
+            max_length=self.max_length
         )
 
         input_ids = encoding["input_ids"]
@@ -214,21 +218,20 @@ class DDITokenizer:
         ner_labels = []
 
         for seq_ids in input_ids:
-            drug1_masks.append(
-                self._create_drug_mask(
-                    seq_ids,
-                    self.drug1_start_id,
-                    self.drug1_end_id
-                )
+            drug1_mask = self._create_drug_mask(
+                seq_ids,
+                self.drug1_start_id,
+                self.drug1_end_id
             )
-            drug2_masks.append(
-                self._create_drug_mask(
-                    seq_ids,
-                    self.drug2_start_id,
-                    self.drug2_end_id
-                )
+            drug2_mask = self._create_drug_mask(
+                seq_ids,
+                self.drug2_start_id,
+                self.drug2_end_id
             )
-            ner_labels.append(self._create_ner_labels(seq_ids))
+            drug1_masks.append(drug1_mask)
+            drug2_masks.append(drug2_mask)
+            # _create_ner_labels requires input_ids, drug1_mask, and drug2_mask
+            ner_labels.append(self._create_ner_labels(seq_ids, drug1_mask, drug2_mask))
 
         return {
             "input_ids": input_ids,
@@ -298,6 +301,7 @@ class DDITokenizer:
         marker_ids = self.get_marker_ids()
 
         # Process drug1 region
+        # Note: drug1_positions is guaranteed to be sorted in ascending order by nonzero()
         drug1_positions = (drug1_mask > 0).nonzero(as_tuple=True)[0]
         for i, pos in enumerate(drug1_positions):
             if input_ids[pos].item() not in marker_ids:
@@ -315,6 +319,7 @@ class DDITokenizer:
                         ner_labels[pos] = self.NER_LABELS['B-DRUG']
 
         # Process drug2 region
+        # Note: drug2_positions is guaranteed to be sorted in ascending order by nonzero()
         drug2_positions = (drug2_mask > 0).nonzero(as_tuple=True)[0]
         for i, pos in enumerate(drug2_positions):
             if input_ids[pos].item() not in marker_ids:

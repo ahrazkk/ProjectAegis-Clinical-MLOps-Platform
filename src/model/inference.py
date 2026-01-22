@@ -173,6 +173,8 @@ class DDIPredictor:
             )
         
         # Check for overlapping spans
+        # Note: Adjacent spans (e.g., drug1_span=(0,5), drug2_span=(5,10)) are allowed
+        # but are unusual in clinical text. Consider logging a warning if this occurs.
         if not (drug1_span[1] <= drug2_span[0] or drug2_span[1] <= drug1_span[0]):
             raise ValueError(
                 f"Drug spans overlap: drug1_span={drug1_span}, drug2_span={drug2_span}. "
@@ -209,8 +211,9 @@ class DDIPredictor:
         # Calculate probabilities
         if self.use_binary:
             # For binary classification, use temperature scaling with sigmoid
-            calibrated_prob = self.temperature_scaling(relation_logits, use_sigmoid=True).item()
-            raw_prob = torch.sigmoid(relation_logits).item()
+            # Handle tensor shape [1, 1] -> scalar by using squeeze().item()
+            calibrated_prob = self.temperature_scaling(relation_logits, use_sigmoid=True).squeeze().item()
+            raw_prob = torch.sigmoid(relation_logits).squeeze().item()
 
             has_interaction = calibrated_prob > 0.5
             interaction_type = None if not has_interaction else 'interaction'

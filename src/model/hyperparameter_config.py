@@ -175,9 +175,9 @@ class VizierStudyConfig:
         the JSON config and initialize VizierStudyConfig with the actual parameters.
         """
         with open(filepath, 'r') as f:
-            config_data = json.load(f)
+            _ = json.load(f)  # TODO: use loaded config data when implementing parsing
         # Parse and return config (simplified for now - returns default config)
-        # TODO: Parse config_data to extract actual parameters
+        # TODO: Parse loaded config data to extract actual parameters
         return cls()
 
 
