@@ -1,7 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text, Line, Stars } from '@react-three/drei';
-import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+// Removed post-processing for stability
 import * as THREE from 'three';
 
 // CPK Coloring - Standard scientific atom colors (brighter for dark background)
@@ -40,11 +40,11 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
 
   const atoms = [];
   const bonds = [];
-  
+
   // Spacing between molecules
   const spacing = 8;
   const offsetX = (index - (totalDrugs - 1) / 2) * spacing;
-  
+
   // Parse SMILES
   let atomIndex = 0;
   let lastAtom = null;
@@ -54,7 +54,7 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
 
   for (let i = 0; i < smiles.length; i++) {
     const char = smiles[i];
-    
+
     // Handle branching
     if (char === '(') {
       branchStack.push(lastAtom);
@@ -68,7 +68,7 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
     if (char === '=') { bondType = 2; continue; }
     if (char === '#') { bondType = 3; continue; }
     if (char === '-' || char === '+' || char === '@') continue;
-    
+
     // Parse atoms
     if (/[A-Z]/.test(char)) {
       let element = char;
@@ -76,14 +76,14 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
         element += smiles[i + 1];
         i++;
       }
-      
+
       // Create layered spiral structure for aesthetics
       const layer = Math.floor(atomIndex / 6);
       const posInLayer = atomIndex % 6;
       const layerAngle = (posInLayer / 6) * Math.PI * 2 + layer * 0.5;
       const layerRadius = 1.3 + layer * 0.35;
       const layerHeight = (layer - 1) * 0.7 + Math.sin(posInLayer * 0.8) * 0.25;
-      
+
       const atom = {
         element: element.toUpperCase(),
         position: [
@@ -94,7 +94,7 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
         index: atomIndex
       };
       atoms.push(atom);
-      
+
       if (lastAtom !== null) {
         bonds.push({
           start: lastAtom,
@@ -103,11 +103,11 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
         });
         bondType = 1;
       }
-      
+
       lastAtom = atomIndex;
       atomIndex++;
     }
-    
+
     // Ring closures
     if (/[0-9]/.test(char)) {
       const ringNum = parseInt(char);
@@ -127,48 +127,33 @@ function generateMoleculeGeometry(smiles, index = 0, totalDrugs = 1) {
   return { atoms, bonds };
 }
 
-// Glowing atom with advanced materials
-function Atom({ position, element, isHighlighted, pulsePhase = 0 }) {
+// Glowing atom with premium materials - Optimized for Stability
+function Atom({ position, element, isHighlighted }) {
   const color = ATOM_COLORS[element] || ATOM_COLORS.default;
   const radius = ATOM_RADII[element] || ATOM_RADII.default;
-  const meshRef = useRef();
-  const glowRef = useRef();
-
-  useFrame((state) => {
-    if (meshRef.current) {
-      // Subtle breathing animation
-      const scale = 1 + Math.sin(state.clock.elapsedTime * 2 + pulsePhase) * 0.02;
-      meshRef.current.scale.setScalar(isHighlighted ? scale * 1.1 : scale);
-    }
-    if (glowRef.current && isHighlighted) {
-      glowRef.current.material.opacity = 0.25 + Math.sin(state.clock.elapsedTime * 3) * 0.1;
-    }
-  });
 
   return (
     <group position={position}>
-      {/* Main atom sphere */}
-      <mesh ref={meshRef}>
+      <mesh castShadow receiveShadow>
         <sphereGeometry args={[radius, 32, 32]} />
-        <meshPhysicalMaterial
+        <meshStandardMaterial
           color={color}
           emissive={color}
-          emissiveIntensity={isHighlighted ? 0.35 : 0.12}
-          metalness={0.15}
-          roughness={0.25}
-          clearcoat={0.9}
-          clearcoatRoughness={0.15}
+          emissiveIntensity={isHighlighted ? 0.4 : 0.15}
+          metalness={0.5}
+          roughness={0.2}
+          envMapIntensity={1}
         />
       </mesh>
-      
-      {/* Outer glow for highlighted atoms */}
+
+      {/* Subtle outer glow for high-risk highlights */}
       {isHighlighted && (
-        <mesh ref={glowRef}>
-          <sphereGeometry args={[radius * 1.6, 16, 16]} />
+        <mesh>
+          <sphereGeometry args={[radius * 1.5, 32, 32]} />
           <meshBasicMaterial
             color={color}
             transparent
-            opacity={0.2}
+            opacity={0.15}
             side={THREE.BackSide}
           />
         </mesh>
@@ -177,12 +162,11 @@ function Atom({ position, element, isHighlighted, pulsePhase = 0 }) {
   );
 }
 
-// Stylized bond with proper double/triple bond rendering
+// Stylized bond with metallic finish
 function Bond({ start, end, order, isHighlighted }) {
-  // For double/triple bonds, offset the lines
-  const offsets = order === 1 ? [[0, 0, 0]] : 
-                  order === 2 ? [[0, 0.06, 0], [0, -0.06, 0]] :
-                  [[0, 0.08, 0], [0, 0, 0], [0, -0.08, 0]];
+  const offsets = order === 1 ? [[0, 0, 0]] :
+    order === 2 ? [[0, 0.05, 0], [0, -0.05, 0]] :
+      [[0, 0.07, 0], [0, 0, 0], [0, -0.07, 0]];
 
   return (
     <group>
@@ -193,9 +177,9 @@ function Bond({ start, end, order, isHighlighted }) {
             [start[0] + offset[0], start[1] + offset[1], start[2] + offset[2]],
             [end[0] + offset[0], end[1] + offset[1], end[2] + offset[2]]
           ]}
-          color={isHighlighted ? '#818CF8' : '#475569'}
-          lineWidth={isHighlighted ? 2.5 : 2}
-          opacity={isHighlighted ? 1 : 0.75}
+          color={isHighlighted ? '#ffffff' : '#94a3b8'}
+          lineWidth={isHighlighted ? 3 : 2}
+          opacity={isHighlighted ? 0.8 : 0.4}
           transparent
         />
       ))}
@@ -272,14 +256,14 @@ function Molecule({ smiles, name, index, totalDrugs, isInteracting, riskLevel })
 function InteractionBeam({ riskLevel }) {
   const beamRef = useRef();
   const particlesRef = useRef();
-  
+
   const riskColors = {
     critical: '#EF4444',
     high: '#F97316',
-    medium: '#EAB308', 
+    medium: '#EAB308',
     low: '#22C55E'
   };
-  
+
   const color = riskColors[riskLevel] || '#3B82F6';
 
   // Create particles along the beam
@@ -315,7 +299,7 @@ function InteractionBeam({ riskLevel }) {
         <cylinderGeometry args={[0.06, 0.06, 7, 16]} />
         <meshBasicMaterial color={color} transparent opacity={0.45} />
       </mesh>
-      
+
       {/* Outer glow */}
       <mesh rotation={[0, 0, Math.PI / 2]}>
         <cylinderGeometry args={[0.18, 0.18, 7, 16]} />
@@ -344,33 +328,27 @@ function InteractionBeam({ riskLevel }) {
   );
 }
 
-// Enhanced background particles with color gradient
+// Background with cleaner, subtler particles
 function BackgroundParticles() {
   const pointsRef = useRef();
-  const particleCount = 350;
+  const particleCount = 200; // Reduced count for cleaner look
 
-  const [positions, colors] = useMemo(() => {
+  const [positions, sizes] = useMemo(() => {
     const pos = new Float32Array(particleCount * 3);
-    const col = new Float32Array(particleCount * 3);
-    
+    const sz = new Float32Array(particleCount);
+
     for (let i = 0; i < particleCount; i++) {
-      pos[i * 3] = (Math.random() - 0.5) * 45;
-      pos[i * 3 + 1] = (Math.random() - 0.5) * 30;
-      pos[i * 3 + 2] = (Math.random() - 0.5) * 45;
-      
-      // Gradient from blue to cyan to purple
-      const t = Math.random();
-      col[i * 3] = 0.2 + t * 0.3;     // R
-      col[i * 3 + 1] = 0.35 + t * 0.4; // G
-      col[i * 3 + 2] = 0.7 + t * 0.3; // B
+      pos[i * 3] = (Math.random() - 0.5) * 50;
+      pos[i * 3 + 1] = (Math.random() - 0.5) * 40;
+      pos[i * 3 + 2] = (Math.random() - 0.5) * 50;
+      sz[i] = Math.random();
     }
-    return [pos, col];
+    return [pos, sz];
   }, []);
 
   useFrame((state) => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.008;
-      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.015) * 0.08;
+      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.005;
     }
   });
 
@@ -378,30 +356,43 @@ function BackgroundParticles() {
     <points ref={pointsRef}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" count={particleCount} array={positions} itemSize={3} />
-        <bufferAttribute attach="attributes-color" count={particleCount} array={colors} itemSize={3} />
+        <bufferAttribute attach="attributes-size" count={particleCount} array={sizes} itemSize={1} />
       </bufferGeometry>
-      <pointsMaterial size={0.035} vertexColors transparent opacity={0.5} sizeAttenuation />
+      <pointsMaterial
+        size={0.05}
+        color="#38bdf8"
+        transparent
+        opacity={0.3}
+        sizeAttenuation
+        blending={THREE.AdditiveBlending}
+      />
     </points>
   );
 }
 
-// Main scene composition
+// Main scene composition with professional studio lighting
 function Scene({ drugs, result }) {
   const hasResult = result && result.severity !== 'no_interaction';
   const riskLevel = result?.risk_level || 'low';
 
   return (
     <>
-      {/* Enhanced lighting */}
-      <ambientLight intensity={0.35} />
-      <pointLight position={[10, 10, 10]} intensity={0.9} color="#ffffff" />
-      <pointLight position={[-10, -5, -10]} intensity={0.5} color="#3B82F6" />
-      <pointLight position={[0, 10, 0]} intensity={0.35} color="#06B6D4" />
-      <pointLight position={[0, -8, 5]} intensity={0.25} color="#8B5CF6" />
-      
-      {/* Background effects */}
+      {/* Studio Lighting Setup */}
+      <ambientLight intensity={0.5} />
+      <spotLight
+        position={[10, 10, 10]}
+        angle={0.5}
+        penumbra={1}
+        intensity={1.2}
+        color="#ffffff"
+        castShadow
+      />
+      <pointLight position={[-10, -5, -10]} intensity={0.8} color="#3b82f6" />
+      <pointLight position={[5, 0, 5]} intensity={0.5} color="#06b6d4" />
+
+      {/* Background */}
       <BackgroundParticles />
-      <Stars radius={60} depth={60} count={800} factor={2.5} saturation={0.1} fade speed={0.4} />
+      <Stars radius={100} depth={50} count={1000} factor={4} saturation={0} fade speed={0.5} opacity={0.3} />
 
       {/* Molecules */}
       {drugs.map((drug, i) => (
@@ -421,22 +412,16 @@ function Scene({ drugs, result }) {
         <InteractionBeam riskLevel={riskLevel} />
       )}
 
-      {/* Camera controls */}
+      {/* Camera */}
       <OrbitControls
         enablePan={false}
-        minDistance={7}
-        maxDistance={22}
-        autoRotate
-        autoRotateSpeed={0.35}
-        maxPolarAngle={Math.PI * 0.72}
-        minPolarAngle={Math.PI * 0.28}
+        minDistance={8}
+        maxDistance={25}
+        autoRotate={!hasResult}
+        autoRotateSpeed={0.5}
+        maxPolarAngle={Math.PI * 0.65}
+        minPolarAngle={Math.PI * 0.35}
       />
-
-      {/* Post-processing effects */}
-      <EffectComposer>
-        <Bloom intensity={0.7} luminanceThreshold={0.35} luminanceSmoothing={0.85} radius={0.75} />
-        <Vignette darkness={0.35} offset={0.25} />
-      </EffectComposer>
     </>
   );
 }
@@ -479,12 +464,12 @@ export default function MoleculeViewer({ drugs = [], result }) {
     <div className="w-full h-full relative">
       <Canvas
         camera={{ position: [0, 2, 14], fov: 45 }}
-        gl={{ antialias: true, alpha: true, powerPreference: 'high-performance' }}
-        dpr={[1, 2]}
+        gl={{ antialias: true, alpha: true }}
+        dpr={[1, 1.5]}
       >
         <Scene drugs={drugs} result={result} />
       </Canvas>
-      
+
       {/* Enhanced Legend */}
       <div className="absolute bottom-4 left-4 flex items-center gap-2.5">
         {[
@@ -493,13 +478,13 @@ export default function MoleculeViewer({ drugs = [], result }) {
           { color: '#F87171', label: 'Oxygen' },
           { color: '#FBBF24', label: 'Sulfur' },
         ].map(({ color, label }) => (
-          <div 
+          <div
             key={label}
             className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
           >
-            <div 
+            <div
               className="w-3 h-3 rounded-full shadow-lg"
-              style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}50` }} 
+              style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}50` }}
             />
             <span className="text-xs text-slate-400 font-medium">{label}</span>
           </div>

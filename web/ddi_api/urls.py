@@ -20,6 +20,9 @@ from .views import (
     HealthCheckView,
     DrugViewSet,
     PredictionLogViewSet,
+    EnhancedDrugInfoView,
+    EnhancedInteractionInfoView,
+    RealWorldEvidenceView,
 )
 
 # Create router for ViewSets
@@ -35,6 +38,11 @@ urlpatterns = [
     
     # Search
     path('search/', DrugSearchView.as_view(), name='drug-search'),
+    
+    # Enhanced information endpoints
+    path('drug-info/', EnhancedDrugInfoView.as_view(), name='drug-info'),
+    path('interaction-info/', EnhancedInteractionInfoView.as_view(), name='interaction-info'),
+    path('real-world-evidence/', RealWorldEvidenceView.as_view(), name='real-world-evidence'),
     
     # Health check
     path('health/', HealthCheckView.as_view(), name='health-check'),
