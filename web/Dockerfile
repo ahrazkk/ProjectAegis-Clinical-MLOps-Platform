@@ -22,7 +22,7 @@ RUN pip install --upgrade pip
 RUN pip install torch transformers rdkit --no-cache-dir --default-timeout=1000
 
 # Install remaining
-RUN pip install -r requirements.txt --no-cache-dir
+RUN pip install -r requirements.txt --no-cache-dir # Force update
 
 # Copy project
 COPY . /app/

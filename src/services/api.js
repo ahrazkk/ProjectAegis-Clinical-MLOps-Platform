@@ -10,18 +10,18 @@
  * - /api/v1/health/ - System health check
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 /**
  * Generic fetch wrapper with error handling
  */
 async function apiRequest(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
-    
+
     const defaultHeaders = {
         'Content-Type': 'application/json',
     };
-    
+
     const config = {
         ...options,
         headers: {
@@ -29,15 +29,15 @@ async function apiRequest(endpoint, options = {}) {
             ...options.headers,
         },
     };
-    
+
     try {
         const response = await fetch(url, config);
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
         }
-        
+
         return await response.json();
     } catch (error) {
         console.error(`API Error [${endpoint}]:`, error);

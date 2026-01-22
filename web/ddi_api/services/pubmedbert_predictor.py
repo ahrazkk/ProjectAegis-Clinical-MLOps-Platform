@@ -92,16 +92,21 @@ class PubMedBERTPredictor:
         
         # Find model path
         if model_path is None:
-            # Look for DDI_Model_Final at the repo root level
-            # Path: web/ddi_api/services/pubmedbert_predictor.py -> web -> molecular-ai -> DDI_PROJECTV2-FRONTEND
-            base_dir = Path(__file__).parent.parent.parent.parent.parent  # this_file -> services -> ddi_api -> web -> molecular-ai -> DDI_PROJECTV2-FRONTEND
-            model_path = base_dir / 'DDI_Model_Final'
-            
-            # Fallback: try relative to web directory
-            if not model_path.exists():
-                alt_path = Path(__file__).parent.parent.parent.parent / 'DDI_Model_Final'  # web/../DDI_Model_Final
-                if alt_path.exists():
-                    model_path = alt_path
+            # Docker: Model is mounted at /app/DDI_Model_Final
+            docker_path = Path('/app/DDI_Model_Final')
+            if docker_path.exists():
+                model_path = docker_path
+            else:
+                # Local dev: Look for DDI_Model_Final at the repo root level
+                # Path: web/ddi_api/services/pubmedbert_predictor.py -> web -> molecular-ai -> DDI_PROJECTV2-FRONTEND
+                base_dir = Path(__file__).parent.parent.parent.parent.parent  # this_file -> services -> ddi_api -> web -> molecular-ai -> DDI_PROJECTV2-FRONTEND
+                model_path = base_dir / 'DDI_Model_Final'
+                
+                # Fallback: try relative to web directory
+                if not model_path.exists():
+                    alt_path = Path(__file__).parent.parent.parent.parent / 'DDI_Model_Final'  # web/../DDI_Model_Final
+                    if alt_path.exists():
+                        model_path = alt_path
         else:
             model_path = Path(model_path)
         

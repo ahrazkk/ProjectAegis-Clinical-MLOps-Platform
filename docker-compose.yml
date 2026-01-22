@@ -12,6 +12,8 @@ services:
       - ./web/.env
     environment:
       - DJANGO_SETTINGS_MODULE=ProjectAegis.settings
+    volumes:
+      - ../DDI_Model_Final:/app/DDI_Model_Final:ro
 
   frontend:
     build:
@@ -23,7 +25,7 @@ services:
       - backend
 
   redis:
-    image: redis:alpine
+    image: redis:7
     container_name: aegis-redis
     ports:
       - "6379:6379"
@@ -31,18 +33,18 @@ services:
       - redis_data:/data
 
   neo4j:
-    image: neo4j:5.11
+    image: neo4j:community
     container_name: aegis-neo4j
     ports:
-      - "7474:7474"
-      - "7687:7687"
+      - "7475:7474"
+      - "7688:7687"
     environment:
       - NEO4J_AUTH=neo4j/password123
     volumes:
-      - neo4j_data:/data
-      - neo4j_logs:/logs
+      - neo4j_data_v2:/data
+      - neo4j_logs_v2:/logs
 
 volumes:
   redis_data:
-  neo4j_data:
-  neo4j_logs:
+  neo4j_data_v2:
+  neo4j_logs_v2:
