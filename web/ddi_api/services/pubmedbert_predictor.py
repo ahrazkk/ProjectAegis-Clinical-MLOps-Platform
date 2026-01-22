@@ -34,6 +34,15 @@ except ImportError:
     TRANSFORMERS_AVAILABLE = False
     logger.warning("Transformers not available. PubMedBERT predictions disabled.")
 
+# Import retriever for RAG mode
+try:
+    from django.conf import settings as django_settings
+    from .pubmed_retriever import get_retriever, RetrievedContext
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
+    logger.warning("PubMed retriever not available. Using template-only mode.")
+
 
 @dataclass
 class DDITextPrediction:
@@ -167,6 +176,9 @@ class PubMedBERTPredictor:
         """
         Predict DDI between two drugs using PubMedBERT.
         
+        Uses RAG (Retrieval-Augmented Generation) to fetch real context from PubMed
+        when available, falling back to templates if not.
+        
         Args:
             drug1: First drug name
             drug2: Second drug name
@@ -188,7 +200,32 @@ class PubMedBERTPredictor:
                 all_probabilities={}
             )
         
-        # Format input text
+        # =====================================================================
+        # RAG: Try to retrieve real context from PubMed
+        # =====================================================================
+        retrieved_context = None
+        context_source = 'template'
+        
+        if context is None and RAG_AVAILABLE:
+            # Check if RAG mode is enabled in settings
+            retrieval_config = getattr(django_settings, 'DDI_RETRIEVAL_CONFIG', {})
+            retrieval_mode = retrieval_config.get('mode', 'rag')
+            
+            if retrieval_mode in ('rag', 'hybrid'):
+                try:
+                    retriever = get_retriever()
+                    retrieved = retriever.retrieve(drug1, drug2)
+                    
+                    if retrieved:
+                        context = retrieved.sentence
+                        context_source = f'pubmed:{retrieved.pmid}'
+                        logger.info(f"RAG: Using context from PMID {retrieved.pmid}")
+                    else:
+                        logger.info(f"RAG: No PubMed results for '{drug1}' + '{drug2}', using template")
+                except Exception as e:
+                    logger.warning(f"RAG retrieval failed: {e}, falling back to template")
+        
+        # Format input text (with retrieved context or template fallback)
         formatted_text = self._format_input(drug1, drug2, context)
         
         # Tokenize

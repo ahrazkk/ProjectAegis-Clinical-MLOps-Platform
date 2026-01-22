@@ -99,6 +99,41 @@ AI_MODEL_CONFIG = {
     'device': 'cpu',  # Use 'cuda' if GPU is available
 }
 
+# =============================================================================
+# DDI RETRIEVAL CONFIGURATION (RAG System)
+# =============================================================================
+# This controls how context sentences are retrieved for PubMedBERT predictions.
+#
+# Options:
+#   'rag'    - [DEFAULT] Live PubMed API - Fetches real medical literature in real-time.
+#              Best accuracy, requires internet. ~1-2 second latency per query.
+#              Uses NCBI E-utilities API (free, rate-limited to 3 req/sec).
+#
+#   'hybrid' - [NOT IMPLEMENTED] Checks local corpus first, falls back to PubMed API
+#              if no matching sentences found. Balance of speed and coverage.
+#
+#   'local'  - [NOT IMPLEMENTED] Offline mode using pre-downloaded DDI corpus.
+#              Fast (~10ms) but limited to downloaded data. Requires data ingestion.
+#              Would use Neo4j or SQLite for sentence storage.
+#
+DDI_RETRIEVAL_CONFIG = {
+    'mode': os.environ.get('DDI_RETRIEVAL_MODE', 'rag'),  # 'rag', 'hybrid', 'local'
+    
+    # PubMed API Settings (for 'rag' and 'hybrid' modes)
+    'pubmed': {
+        'base_url': 'https://eutils.ncbi.nlm.nih.gov/entrez/eutils',
+        'max_results': 5,           # Number of abstracts to fetch
+        'timeout_seconds': 10,      # API request timeout
+        'cache_ttl_hours': 24,      # Cache results in Redis for this long
+    },
+    
+    # Local Corpus Settings (for 'local' and 'hybrid' modes) - NOT IMPLEMENTED
+    'local': {
+        'corpus_path': BASE_DIR / 'data' / 'ddi_sentences.json',  # Would store pre-downloaded sentences
+        'use_vector_search': False,  # If True, use embeddings for semantic search
+    }
+}
+
 ROOT_URLCONF = 'ProjectAegis.urls'
 
 TEMPLATES = [
