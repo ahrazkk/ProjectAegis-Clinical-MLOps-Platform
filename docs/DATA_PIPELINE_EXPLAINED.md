@@ -4,6 +4,54 @@
 
 ---
 
+## 🎯 Quick Reference: What Data Source Answers Your Question?
+
+| Your Question | Data Source Used | Notes |
+|---------------|------------------|-------|
+| "Do these drugs interact?" | **Neo4j** (checked FIRST) | If we have this pair stored, instant answer at 95% confidence |
+| "Predict unknown interaction" | **PubMedBERT AI** | Uses DDI Sentence Database or templates for context |
+| "What sentences mention this pair?" | **DDI Sentence Database** | ~19,000 curated sentences from DDI Corpus |
+| "Get live research papers" | **⚠️ PubMed API (NOT CONNECTED)** | Code exists but is NOT integrated yet |
+| "What drugs share enzymes?" | **Neo4j Graph Queries** | Traverses relationships between drugs |
+
+### The Critical Decision Flow (Memorize This!)
+
+```
+User enters: "Warfarin" + "Aspirin"
+                │
+                ▼
+    ┌───────────────────────┐
+    │ 1. Check Neo4j        │
+    │    "Known interaction?"│
+    └───────────┬───────────┘
+                │
+       ┌────────┴────────┐
+       ▼                 ▼
+   FOUND               NOT FOUND
+   (95% conf)          (Use AI)
+       │                 │
+       ▼                 ▼
+   Return data    ┌─────────────────┐
+   immediately    │ 2. Find Context │
+                  │    for AI       │
+                  └────────┬────────┘
+                           │
+                   ┌───────┴───────┐
+                   ▼               ▼
+              DDI Sentence    Templates
+              Database        (fallback)
+              (~19K sentences)
+                   │               │
+                   └───────┬───────┘
+                           ▼
+                  ┌─────────────────┐
+                  │ 3. PubMedBERT   │
+                  │    Prediction   │
+                  └─────────────────┘
+```
+
+---
+
 ## 📚 Table of Contents
 
 1. [High-Level Overview](#1-high-level-overview)
