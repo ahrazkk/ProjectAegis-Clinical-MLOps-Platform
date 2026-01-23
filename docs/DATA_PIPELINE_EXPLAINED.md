@@ -247,74 +247,263 @@ RETURN r.severity as severity,
 
 ---
 
-### Step 4: PubMed Literature Retrieval (pubmed_retriever.py)
+### Step 4: The Decision Point - Where Does Data Come From?
 
-If we don't have a cached interaction, we search medical literature:
+**🔑 THIS IS THE CRITICAL DECISION POINT**
+
+After looking up the drugs, the system decides which path to take:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         DECISION FLOW DIAGRAM                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   User enters: "Warfarin" + "Aspirin"                                        │
+│                        │                                                     │
+│                        ▼                                                     │
+│   ┌────────────────────────────────────────┐                                │
+│   │  STEP 1: Neo4j Lookup                  │                                │
+│   │  "Do we ALREADY know this interaction?"│                                │
+│   └────────────────────┬───────────────────┘                                │
+│                        │                                                     │
+│            ┌───────────┴───────────┐                                        │
+│            ▼                       ▼                                        │
+│   ┌─────────────────┐    ┌─────────────────┐                                │
+│   │   YES - Found   │    │   NO - Unknown  │                                │
+│   │   in Neo4j!     │    │   drug pair     │                                │
+│   └────────┬────────┘    └────────┬────────┘                                │
+│            │                      │                                          │
+│            ▼                      ▼                                          │
+│   ┌─────────────────┐    ┌─────────────────────────────────┐                │
+│   │ Return stored   │    │  STEP 2: Use PubMedBERT AI      │                │
+│   │ severity &      │    │  to PREDICT the interaction     │                │
+│   │ mechanism       │    └────────────────┬────────────────┘                │
+│   │                 │                     │                                  │
+│   │ Confidence: 95% │                     ▼                                  │
+│   │ Source: Neo4j   │    ┌─────────────────────────────────┐                │
+│   └─────────────────┘    │  WHERE DOES CONTEXT COME FROM?  │                │
+│                          │                                  │                │
+│                          │  Try in order:                   │                │
+│                          │  1. DDI Sentence Database ✓      │                │
+│                          │     (~19,000 curated sentences)  │                │
+│                          │                                  │                │
+│                          │  2. Templates (fallback) ✓       │                │
+│                          │     "The concomitant use of..."  │                │
+│                          │                                  │                │
+│                          │  ⚠️ PubMed API is NOT currently │                │
+│                          │     integrated! (future work)    │                │
+│                          └─────────────────────────────────┘                │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Understanding Each Data Source
+
+| Data Source | What It Contains | When Used | Confidence |
+|-------------|------------------|-----------|------------|
+| **Neo4j Knowledge Graph** | Pre-loaded known interactions with severity & mechanism | Checked FIRST for every query | 95% (trusted curated data) |
+| **DDI Sentence Database** | ~19,000 real sentences from DDI Corpus (training data) | If Neo4j has no interaction | High (real medical text) |
+| **Context Templates** | Generic phrases like "may interact" | Fallback if no real sentence | Lower (generic) |
+| **PubMed API** | Live medical literature search | ⚠️ **NOT CURRENTLY USED** | N/A (future feature) |
+
+### Path A: Known Interaction (Neo4j Has It)
 
 ```python
-# Search PubMed for relevant papers
+# views.py - What happens when Neo4j knows the interaction
+known_interaction = get_interaction_from_kg(drug_a, drug_b)
+
+if known_interaction:
+    # USE NEO4J DATA DIRECTLY - No AI needed!
+    return {
+        'severity': known_interaction['severity'],      # From Neo4j
+        'mechanism': known_interaction['mechanism'],    # From Neo4j
+        'confidence': 0.95,  # High because it's curated data
+        'source': 'knowledge_graph'
+    }
+```
+
+**Result:** Fast, high confidence, uses pre-stored data.
+
+### Path B: Unknown Interaction (Need AI Prediction)
+
+```python
+# views.py - What happens when Neo4j doesn't know
+else:
+    # Use PubMedBERT to PREDICT the interaction
+    prediction = pubmedbert.predict(drug_a['name'], drug_b['name'])
+    # Note: No context is passed! The predictor finds its own context.
+```
+
+**Inside the predictor, context is found from:**
+
+```python
+# pubmedbert_predictor.py - Context discovery
+def predict(self, drug1, drug2, context=None):
+    
+    # Priority 1: Check DDI Sentence Database for real sentences
+    if DDI_SENTENCE_DB_AVAILABLE:
+        sentence = ddi_db.find_sentence(drug1, drug2)
+        if sentence:
+            # Found a real medical sentence!
+            context = sentence.sentence
+            # Example: "Warfarin plasma levels may be increased by..."
+    
+    # Priority 2: Fallback to templates
+    if not context:
+        context = "The concomitant use of {drug1} with {drug2} may result in enhanced effects."
+    
+    # Now classify with this context
+    formatted = f"<e1>{drug1}</e1> and <e2>{drug2}</e2>. {context}"
+    return self.model.classify(formatted)
+```
+
+---
+
+### ⚠️ Important: PubMed API Status
+
+**The `pubmed_retriever.py` file exists but is NOT connected to the prediction flow!**
+
+The code was built for future RAG (Retrieval-Augmented Generation) but is not currently integrated:
+
+```python
+# This code EXISTS but is NOT CALLED during predictions
 class PubMedRetriever:
     def search(self, drug1: str, drug2: str) -> List[RetrievedContext]:
-        # Step 4a: Search for PubMed IDs
-        search_url = f"{self.base_url}/esearch.fcgi"
-        params = {
-            'db': 'pubmed',
-            'term': f'"{drug1}" AND "{drug2}" AND (interaction OR adverse)',
-            'retmax': 5,
-            'retmode': 'json'
-        }
-        # Returns: ["38291045", "37654321", ...]
-        
-        # Step 4b: Fetch abstracts
-        fetch_url = f"{self.base_url}/efetch.fcgi"
-        params = {
-            'db': 'pubmed',
-            'id': ','.join(pmids),
-            'rettype': 'abstract',
-            'retmode': 'xml'
-        }
-        
-        # Step 4c: Extract sentences mentioning both drugs
-        sentences = self._extract_relevant_sentences(abstracts, drug1, drug2)
+        # Would search PubMed for: "Warfarin" AND "Aspirin" AND "interaction"
+        # Would return real-time sentences from medical literature
+        # BUT... this is never called from views.py!
+        pass
 ```
 
-**Example Retrieved Sentence:**
-
-```
-"Concurrent use of warfarin and aspirin significantly increases the risk of 
-gastrointestinal bleeding and should be avoided unless the benefit outweighs 
-the risk."
-- PMID: 38291045, Journal of Clinical Pharmacology
-```
+**Future Plan:** Connect PubMed retrieval → pass to PubMedBERT → true RAG system
 
 ---
 
 ### Step 5: AI Prediction (pubmedbert_predictor.py)
 
-This is where the magic happens! The PubMedBERT model classifies the interaction.
+When Neo4j doesn't have a known interaction, the AI model predicts it.
+
+**The Full Context Discovery + Prediction Flow:**
 
 ```python
 class PubMedBERTPredictor:
     def predict(self, drug1: str, drug2: str, context: str = None):
-        # Step 5a: Format input with special tokens
-        formatted_input = f"@DRUG${drug1}@DRUG$ and @DRUG${drug2}@DRUG$ interaction. {context}"
         
-        # Step 5b: Tokenize
+        # ===============================================================
+        # STEP 5a: Find Context (if not provided)
+        # ===============================================================
+        
+        if context is None:
+            # Try DDI Sentence Database first (best quality)
+            if DDI_SENTENCE_DB_AVAILABLE:
+                ddi_sentence = ddi_db.find_sentence(drug1, drug2)
+                if ddi_sentence:
+                    context = ddi_sentence.sentence
+                    # Example: "Aspirin inhibits platelet aggregation and 
+                    #          may displace warfarin from protein binding."
+            
+            # Fallback to templates
+            if context is None:
+                context = self.CONTEXT_TEMPLATES['effect'][0].format(
+                    drug1=drug1, drug2=drug2
+                )
+                # Example: "The concomitant use of Warfarin with Aspirin 
+                #          may result in enhanced pharmacological effects."
+        
+        # ===============================================================
+        # STEP 5b: Format input with entity markers
+        # ===============================================================
+        
+        formatted_input = f"<e1>{drug1}</e1> and <e2>{drug2}</e2>. {context}"
+        # Result: "<e1>Warfarin</e1> and <e2>Aspirin</e2>. Aspirin inhibits..."
+        
+        # ===============================================================
+        # STEP 5c: Tokenize for BERT
+        # ===============================================================
+        
         tokens = self.tokenizer(
             formatted_input,
-            max_length=128,
+            max_length=512,
             truncation=True,
             return_tensors='pt'
         )
         
-        # Step 5c: Run through model
+        # ===============================================================
+        # STEP 5d: Run through PubMedBERT model
+        # ===============================================================
+        
         with torch.no_grad():
             outputs = self.model(**tokens)
             probabilities = F.softmax(outputs.logits, dim=-1)
         
-        # Step 5d: Get prediction
-        predicted_class = probabilities.argmax().item()
-        confidence = probabilities.max().item()
+        # ===============================================================
+        # STEP 5e: Get prediction class and confidence
+        # ===============================================================
+        
+        predicted_class = probabilities.argmax().item()  # e.g., "mechanism"
+        confidence = probabilities.max().item()          # e.g., 0.85
+```
+
+**Visual Flow:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        AI PREDICTION PIPELINE                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  INPUT: drug1="Warfarin", drug2="Aspirin", context=None                     │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────────────────────────────────────────────┐                  │
+│  │ 1. CONTEXT DISCOVERY                                   │                  │
+│  │                                                        │                  │
+│  │    DDI Sentence DB ──► Found? ──► Use real sentence   │                  │
+│  │           │                                            │                  │
+│  │           ▼ Not found                                  │                  │
+│  │    Templates ──► Generate: "The concomitant use..."   │                  │
+│  └───────────────────────────────────────────────────────┘                  │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────────────────────────────────────────────┐                  │
+│  │ 2. FORMAT WITH ENTITY MARKERS                          │                  │
+│  │                                                        │                  │
+│  │    "<e1>Warfarin</e1> and <e2>Aspirin</e2>. {context}"│                  │
+│  └───────────────────────────────────────────────────────┘                  │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────────────────────────────────────────────┐                  │
+│  │ 3. TOKENIZE                                            │                  │
+│  │                                                        │                  │
+│  │    Text → [101, 1026, 1041, 1028, 2227, ...]          │                  │
+│  └───────────────────────────────────────────────────────┘                  │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────────────────────────────────────────────┐                  │
+│  │ 4. PUBMEDBERT INFERENCE                                │                  │
+│  │                                                        │                  │
+│  │    ┌──────────────────────────────┐                   │                  │
+│  │    │     12-Layer BERT Encoder    │                   │                  │
+│  │    │     (768 hidden dimensions)  │                   │                  │
+│  │    └──────────────┬───────────────┘                   │                  │
+│  │                   │                                    │                  │
+│  │                   ▼                                    │                  │
+│  │    ┌──────────────────────────────┐                   │                  │
+│  │    │   Classification Head (5)    │                   │                  │
+│  │    └──────────────────────────────┘                   │                  │
+│  └───────────────────────────────────────────────────────┘                  │
+│                              │                                               │
+│                              ▼                                               │
+│  ┌───────────────────────────────────────────────────────┐                  │
+│  │ 5. OUTPUT PROBABILITIES                                │                  │
+│  │                                                        │                  │
+│  │    no_interaction: 0.02                                │                  │
+│  │    int:            0.05                                │                  │
+│  │    advise:         0.08                                │                  │
+│  │    effect:         0.35                                │                  │
+│  │    mechanism:      0.50  <-- PREDICTED CLASS          │                  │
+│  └───────────────────────────────────────────────────────┘                  │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **The 5 Interaction Classes:**
@@ -667,7 +856,62 @@ User Query → Retriever → Retrieved Context
                     (real-time information)
 ```
 
-### Our RAG Pipeline
+---
+
+### ⚠️ IMPORTANT: Current State vs. Future Vision
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    HONEST ASSESSMENT OF RAG STATUS                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  CURRENT STATE (What we actually do):                                        │
+│  ─────────────────────────────────────                                       │
+│                                                                              │
+│  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐           │
+│  │    Neo4j       │     │  DDI Sentence  │     │   Templates    │           │
+│  │   (Primary)    │ --> │   Database     │ --> │   (Fallback)   │           │
+│  │                │     │                │     │                │           │
+│  │ Known drugs &  │     │ ~19,000 real   │     │ Generic        │           │
+│  │ interactions   │     │ sentences from │     │ phrases like   │           │
+│  │ we've loaded   │     │ DDI Corpus     │     │ "may interact" │           │
+│  └────────────────┘     └────────────────┘     └────────────────┘           │
+│          ↓                      ↓                      ↓                    │
+│     If found: DONE        Context for AI          Last resort               │
+│     (no AI needed)                                                          │
+│                                                                              │
+│  ⚠️ PubMed API exists in code but is NOT connected!                        │
+│                                                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  FUTURE VISION (What we plan to build):                                      │
+│  ──────────────────────────────────────                                      │
+│                                                                              │
+│  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐           │
+│  │   Neo4j KG     │     │   PubMed API   │     │   DrugBank     │           │
+│  │   (Facts)      │     │   (Real-time)  │     │   (Details)    │           │
+│  └───────┬────────┘     └───────┬────────┘     └───────┬────────┘           │
+│          │                      │                      │                    │
+│          └──────────────────────┼──────────────────────┘                    │
+│                                 ▼                                            │
+│                    ┌────────────────────────┐                               │
+│                    │   Combined Context     │                               │
+│                    │   + Vector Similarity  │                               │
+│                    └───────────┬────────────┘                               │
+│                                │                                             │
+│                                ▼                                             │
+│                    ┌────────────────────────┐                               │
+│                    │   LLM (GPT-4/Claude)   │                               │
+│                    │   Natural Language     │                               │
+│                    │   Explanations         │                               │
+│                    └────────────────────────┘                               │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### What We Currently Have (Simplified RAG)
 
 ```
 Step 1: Query Understanding
@@ -677,57 +921,58 @@ User: "What happens if I take Warfarin with Aspirin?"
 Extracted: drug1="Warfarin", drug2="Aspirin"
 
 
-Step 2: Retrieval (Multiple Sources)
-────────────────────────────────────
+Step 2: Check Neo4j First
+─────────────────────────
 ┌─────────────────┐
-│   PubMed API    │ → Recent research papers
+│   Neo4j KG      │ → Do we have this interaction stored?
 └─────────────────┘
-         +
+        │
+        ├── YES → Return stored data (95% confidence)
+        │
+        └── NO → Continue to Step 3
+
+
+Step 3: Find Context for AI
+───────────────────────────
 ┌─────────────────┐
-│   Neo4j KG      │ → Known drug properties & interactions
-└─────────────────┘
-         +
-┌─────────────────┐
-│   DDI Sentence  │ → Curated medical sentences
+│   DDI Sentence  │ → Try to find a real sentence about these drugs
 │   Database      │
 └─────────────────┘
-
-
-Step 3: Context Formatting
-──────────────────────────
-Combined Context:
-"According to PubMed (PMID: 38291045), concurrent use of warfarin 
-and aspirin significantly increases bleeding risk. The Knowledge 
-Graph shows both drugs affect the cardiovascular system. Warfarin 
-is metabolized by CYP2C9, and aspirin inhibits platelet aggregation."
+        │
+        ├── Found → Use real medical sentence
+        │
+        └── Not Found → Use template: "The concomitant use of..."
 
 
 Step 4: Model Inference
 ───────────────────────
 PubMedBERT receives:
-"@DRUG$Warfarin@DRUG$ and @DRUG$Aspirin@DRUG$ interaction. 
- [Retrieved Context]"
+"<e1>Warfarin</e1> and <e2>Aspirin</e2>. [Context from Step 3]"
 
-→ Predicts: "mechanism" with 0.85 confidence
+→ Predicts: "mechanism" with 0.50 confidence
 
 
 Step 5: Response Generation
 ───────────────────────────
 Final Response includes:
-- Prediction (mechanism/severe)
-- Source citations (PMID)
-- Clinical recommendations
-- Affected body systems
+- Prediction (mechanism → severe)
+- Confidence score
+- Context source (ddi_corpus or template)
+- Mechanism description (generated from type)
 ```
 
-### Current vs. Future RAG
+---
+
+### Current vs. Future RAG Comparison
 
 | Aspect | Current State | Future Plan |
 |--------|---------------|-------------|
-| **Retriever** | PubMed keyword search | Dense retrieval with embeddings |
-| **Generator** | PubMedBERT (classification only) | GPT-4/Claude for natural language |
-| **Context** | Single sentences | Full paragraphs with reasoning |
-| **Sources** | PubMed, Neo4j | + DrugBank, FDA, WHO |
+| **Knowledge Graph** | Neo4j ✅ (working) | Neo4j + more data |
+| **Real-time Search** | ❌ PubMed NOT connected | PubMed + DrugBank APIs |
+| **Context Source** | DDI Sentence DB + Templates | Multiple sources merged |
+| **Classifier** | PubMedBERT (5 classes) | Multi-task + severity |
+| **Generator** | Template-based explanations | GPT-4/Claude natural language |
+| **Vector Search** | ❌ Not implemented | Pinecone/Weaviate embeddings |
 
 ---
 
