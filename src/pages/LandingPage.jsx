@@ -1,7 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas } from '@react-three/fiber';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowRight, 
@@ -21,6 +20,178 @@ import {
   Linkedin
 } from 'lucide-react';
 import ParticleSystem from '../components/MolecularParticles';
+
+// Fractured Glass Effect - CSS/SVG based approach that works reliably
+const FracturedGlassOverlay = ({ mousePos, isActive }) => {
+  const effectSize = 220;
+  const halfSize = effectSize / 2;
+  
+  // Generate shard data once
+  const shards = useMemo(() => {
+    const pieces = [];
+    const numShards = 12;
+    for (let i = 0; i < numShards; i++) {
+      const angle = (i / numShards) * Math.PI * 2;
+      const nextAngle = ((i + 1) / numShards) * Math.PI * 2;
+      
+      // Random offsets for each shard
+      pieces.push({ 
+        id: i, 
+        angle,
+        nextAngle,
+        offsetX: (Math.random() - 0.5) * 12,
+        offsetY: (Math.random() - 0.5) * 12,
+        scale: 0.95 + Math.random() * 0.1,
+        hue: (Math.random() - 0.5) * 30,
+        delay: Math.random() * 0.1,
+      });
+    }
+    return pieces;
+  }, []);
+
+  if (!isActive) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.5 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.5 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
+      className="fixed pointer-events-none"
+      style={{
+        left: mousePos.x - halfSize,
+        top: mousePos.y - halfSize,
+        width: effectSize,
+        height: effectSize,
+        zIndex: 5,
+      }}
+    >
+      {/* Glass shards with backdrop blur - each shard distorts differently */}
+      {shards.map((shard) => {
+        // Calculate polygon points for this shard (pie slice)
+        const x1 = 50 + Math.cos(shard.angle) * 50;
+        const y1 = 50 + Math.sin(shard.angle) * 50;
+        const x2 = 50 + Math.cos(shard.nextAngle) * 50;
+        const y2 = 50 + Math.sin(shard.nextAngle) * 50;
+        
+        return (
+          <motion.div
+            key={shard.id}
+            className="absolute inset-0"
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ 
+              opacity: 1, 
+              scale: 1,
+              x: [0, shard.offsetX * 0.3, 0],
+              y: [0, shard.offsetY * 0.3, 0],
+            }}
+            transition={{
+              opacity: { duration: 0.1, delay: shard.delay },
+              x: { duration: 0.8, repeat: Infinity, ease: "easeInOut" },
+              y: { duration: 0.8, repeat: Infinity, ease: "easeInOut", delay: 0.1 },
+            }}
+            style={{
+              clipPath: `polygon(50% 50%, ${x1}% ${y1}%, ${x2}% ${y2}%)`,
+              backdropFilter: `blur(2px) hue-rotate(${shard.hue}deg) brightness(1.1) contrast(1.05)`,
+              WebkitBackdropFilter: `blur(2px) hue-rotate(${shard.hue}deg) brightness(1.1) contrast(1.05)`,
+              transform: `translate(${shard.offsetX}px, ${shard.offsetY}px) scale(${shard.scale})`,
+              background: 'rgba(0, 212, 255, 0.03)',
+            }}
+          />
+        );
+      })}
+
+      {/* Fracture lines SVG */}
+      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 220 220">
+        <defs>
+          <linearGradient id="frac-line-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="rgba(0, 212, 255, 0.9)" />
+            <stop offset="50%" stopColor="rgba(255, 255, 255, 1)" />
+            <stop offset="100%" stopColor="rgba(168, 85, 247, 0.9)" />
+          </linearGradient>
+          <filter id="fracture-glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="2" result="blur"/>
+            <feMerge>
+              <feMergeNode in="blur"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+        
+        {/* Main radial fracture lines */}
+        <g stroke="url(#frac-line-grad)" strokeWidth="2" fill="none" filter="url(#fracture-glow)">
+          {shards.map((shard) => {
+            const x2 = 110 + Math.cos(shard.angle) * 105;
+            const y2 = 110 + Math.sin(shard.angle) * 105;
+            return (
+              <motion.line 
+                key={shard.id} 
+                x1="110" 
+                y1="110" 
+                x2={x2} 
+                y2={y2} 
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 0.9 }}
+                transition={{ duration: 0.2, delay: shard.delay }}
+              />
+            );
+          })}
+        </g>
+        
+        {/* Secondary branching cracks */}
+        <g stroke="rgba(255,255,255,0.5)" strokeWidth="1" fill="none">
+          {shards.map((shard, i) => {
+            const midR = 45 + (i % 4) * 12;
+            const x1 = 110 + Math.cos(shard.angle) * midR;
+            const y1 = 110 + Math.sin(shard.angle) * midR;
+            const branchAngle = shard.angle + ((i % 2) ? 0.5 : -0.5);
+            const x2 = x1 + Math.cos(branchAngle) * 20;
+            const y2 = y1 + Math.sin(branchAngle) * 20;
+            return <line key={`b-${shard.id}`} x1={x1} y1={y1} x2={x2} y2={y2} opacity="0.6" />;
+          })}
+        </g>
+        
+        {/* Impact center */}
+        <motion.circle 
+          cx="110" 
+          cy="110" 
+          r="5" 
+          fill="rgba(255,255,255,0.95)" 
+          filter="url(#fracture-glow)"
+          animate={{ scale: [1, 1.3, 1] }}
+          transition={{ duration: 0.5, repeat: Infinity }}
+        />
+        <circle cx="110" cy="110" r="12" stroke="rgba(0, 212, 255, 0.7)" strokeWidth="1.5" fill="none" />
+        <circle cx="110" cy="110" r="25" stroke="rgba(168, 85, 247, 0.4)" strokeWidth="1" fill="none" />
+        <circle cx="110" cy="110" r="50" stroke="rgba(0, 212, 255, 0.2)" strokeWidth="0.5" fill="none" />
+      </svg>
+
+      {/* Outer glow ring */}
+      <div 
+        className="absolute inset-0 rounded-full pointer-events-none"
+        style={{
+          boxShadow: `
+            0 0 30px rgba(0, 212, 255, 0.4),
+            0 0 60px rgba(0, 212, 255, 0.2),
+            inset 0 0 40px rgba(0, 212, 255, 0.15)
+          `,
+        }}
+      />
+      
+      {/* Chromatic aberration edge */}
+      <motion.div
+        className="absolute inset-1 rounded-full pointer-events-none"
+        animate={{
+          boxShadow: [
+            'inset 3px 0 12px rgba(255,0,100,0.4), inset -3px 0 12px rgba(0,200,255,0.4)',
+            'inset -3px 0 12px rgba(255,0,100,0.4), inset 3px 0 12px rgba(0,200,255,0.4)',
+          ]
+        }}
+        transition={{ duration: 0.15, repeat: Infinity, ease: "linear" }}
+      />
+    </motion.div>
+  );
+};
 
 const features = [
   {
@@ -66,12 +237,31 @@ export default function LandingPage() {
   const navigate = useNavigate();
   const [scrollY, setScrollY] = useState(0);
   const [showModal, setShowModal] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: -1000, y: -1000 });
+  const [isMouseActive, setIsMouseActive] = useState(false);
   const heroRef = useRef(null);
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Track mouse for fractured glass overlay
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+      setIsMouseActive(true);
+    };
+    const handleMouseLeave = () => setIsMouseActive(false);
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseleave', handleMouseLeave);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseleave', handleMouseLeave);
+    };
   }, []);
 
   const scrollProgress = Math.min(scrollY / 500, 1);
@@ -118,16 +308,20 @@ export default function LandingPage() {
 
       {/* Hero Section */}
       <section ref={heroRef} className="relative min-h-screen flex items-center justify-center overflow-hidden pt-20">
-        {/* 3D Background */}
+        {/* 3D Background with Fractured Glass Distortion Shader */}
         <div className="absolute inset-0 z-0">
-          <Canvas camera={{ position: [0, 0, 15], fov: 45 }} gl={{ alpha: true }}>
+          <Canvas 
+            camera={{ position: [0, 0, 15], fov: 45 }} 
+            gl={{ alpha: true, antialias: true }}
+          >
             <ParticleSystem scrollProgress={scrollProgress} />
-            <ambientLight intensity={0.3} />
-            <EffectComposer>
-              <Bloom intensity={0.2} luminanceThreshold={0.9} luminanceSmoothing={0.9} />
-            </EffectComposer>
           </Canvas>
         </div>
+
+        {/* Fractured Glass Visual Overlay (SVG lines) */}
+        <AnimatePresence>
+          <FracturedGlassOverlay mousePos={mousePos} isActive={isMouseActive} />
+        </AnimatePresence>
 
         {/* Subtle vignette overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black pointer-events-none" />
