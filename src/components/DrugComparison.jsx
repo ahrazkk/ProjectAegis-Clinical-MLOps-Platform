@@ -82,10 +82,10 @@ const severityConfig = {
 function RiskCell({ severity, drug1, drug2, onClick }) {
   const config = severityConfig[severity] || severityConfig.unknown;
   const Icon = config.icon;
-  
+
   if (severity === 'self') {
     return (
-      <div className="w-full h-full min-h-[50px] flex items-center justify-center bg-black/30 border border-fui-gray-700/30">
+      <div className="w-full h-full min-h-[50px] flex items-center justify-center bg-theme-tertiary border border-theme">
         <span className="text-fui-gray-700 text-sm">—</span>
       </div>
     );
@@ -122,7 +122,7 @@ function DrugChip({ name, onRemove, index }) {
     >
       <Pill size={12} />
       {name}
-      <button 
+      <button
         onClick={() => onRemove(name)}
         className="ml-1 hover:text-fui-accent-red transition-colors"
       >
@@ -135,7 +135,7 @@ function DrugChip({ name, onRemove, index }) {
 // Drug Info Card Component
 function DrugInfoCard({ drug, onRemove, index }) {
   const [expanded, setExpanded] = useState(false);
-  
+
   const colors = [
     { accent: 'bg-fui-accent-cyan', border: 'border-fui-accent-cyan/30', text: 'text-fui-accent-cyan' },
     { accent: 'bg-fui-accent-purple', border: 'border-fui-accent-purple/30', text: 'text-fui-accent-purple' },
@@ -151,11 +151,11 @@ function DrugInfoCard({ drug, onRemove, index }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      className={`relative overflow-hidden bg-black/50 border ${color.border}`}
+      className={`relative overflow-hidden bg-theme-panel border ${color.border}`}
     >
       {/* Accent line top */}
       <div className={`h-0.5 ${color.accent}`} />
-      
+
       {/* Header */}
       <div className="p-4">
         <div className="flex items-start justify-between">
@@ -164,8 +164,8 @@ function DrugInfoCard({ drug, onRemove, index }) {
               <Pill size={18} />
             </div>
             <div>
-              <h3 className="font-medium text-white text-sm">{drug.name}</h3>
-              <p className="text-[10px] text-fui-gray-400 font-mono uppercase tracking-widest">{drug.drugbank_id || 'N/A'}</p>
+              <h3 className="font-medium text-theme-primary text-sm">{drug.name}</h3>
+              <p className="text-[10px] text-theme-muted font-mono uppercase tracking-widest">{drug.drugbank_id || 'N/A'}</p>
             </div>
           </div>
           <button
@@ -178,21 +178,21 @@ function DrugInfoCard({ drug, onRemove, index }) {
 
         {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-2 mt-3">
-          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Class</p>
-            <p className="text-xs font-medium text-white truncate">{drug.therapeutic_class || 'Unknown'}</p>
+          <div className="p-2 bg-theme-secondary border border-theme">
+            <p className="text-[10px] text-theme-muted uppercase tracking-widest mb-0.5">Class</p>
+            <p className="text-xs font-medium text-theme-primary truncate">{drug.therapeutic_class || 'Unknown'}</p>
           </div>
-          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Interactions</p>
-            <p className="text-xs font-bold text-fui-accent-cyan">{drug.interaction_count || 0}</p>
+          <div className="p-2 bg-theme-secondary border border-theme">
+            <p className="text-[10px] text-theme-muted uppercase tracking-widest mb-0.5">Interactions</p>
+            <p className="text-xs font-bold text-theme-accent">{drug.interaction_count || 0}</p>
           </div>
-          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Mol. Weight</p>
-            <p className="text-xs font-medium text-white">{drug.molecular_weight ? parseFloat(drug.molecular_weight).toFixed(1) : '—'}</p>
+          <div className="p-2 bg-theme-secondary border border-theme">
+            <p className="text-[10px] text-theme-muted uppercase tracking-widest mb-0.5">Mol. Weight</p>
+            <p className="text-xs font-medium text-theme-primary">{drug.molecular_weight ? parseFloat(drug.molecular_weight).toFixed(1) : '—'}</p>
           </div>
-          <div className="p-2 bg-black/30 border border-fui-gray-500/20">
-            <p className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-0.5">Formula</p>
-            <p className="text-xs font-mono text-white">{drug.molecular_formula || '—'}</p>
+          <div className="p-2 bg-theme-secondary border border-theme">
+            <p className="text-[10px] text-theme-muted uppercase tracking-widest mb-0.5">Formula</p>
+            <p className="text-xs font-mono text-theme-primary">{drug.molecular_formula || '—'}</p>
           </div>
         </div>
 
@@ -251,13 +251,13 @@ function InteractionDetail({ interaction, index }) {
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05 }}
-      className={`p-3 bg-black/40 border ${config.border}`}
+      className={`p-3 bg-theme-secondary border ${config.border}`}
     >
       <div className="flex items-center gap-3 mb-2">
         <div className="flex items-center gap-2 flex-1">
-          <span className="text-sm font-medium text-white">{interaction.drug1}</span>
-          <ArrowRight size={12} className="text-fui-gray-500" />
-          <span className="text-sm font-medium text-white">{interaction.drug2}</span>
+          <span className="text-sm font-medium text-theme-primary">{interaction.drug1}</span>
+          <ArrowRight size={12} className="text-theme-muted" />
+          <span className="text-sm font-medium text-theme-primary">{interaction.drug2}</span>
         </div>
         <span className={`flex items-center gap-1.5 px-2 py-1 border ${config.border} ${config.text} text-[10px] uppercase tracking-widest font-medium`}>
           {Icon && <Icon size={10} />}
@@ -265,7 +265,7 @@ function InteractionDetail({ interaction, index }) {
         </span>
       </div>
       {interaction.mechanism && (
-        <p className="text-xs text-fui-gray-300 leading-relaxed">{interaction.mechanism}</p>
+        <p className="text-xs text-theme-secondary leading-relaxed">{interaction.mechanism}</p>
       )}
     </motion.div>
   );
@@ -281,7 +281,7 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
 
   return (
     <div className="relative">
-      <div className="flex items-center gap-2 bg-black/50 border border-fui-gray-500/30 px-3 py-2 focus-within:border-fui-accent-cyan/50 transition-colors">
+      <div className="flex items-center gap-2 bg-theme-panel border border-theme px-3 py-2 focus-within:border-fui-accent-cyan/50 transition-colors">
         <Search size={14} className="text-fui-gray-400" />
         <input
           ref={inputRef}
@@ -289,7 +289,7 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Search drugs..."
-          className="bg-transparent text-white text-xs focus:outline-none flex-1 placeholder-fui-gray-500"
+          className="bg-transparent text-theme-primary text-xs focus:outline-none flex-1 placeholder-theme-muted"
         />
         {isSearching && <Loader2 size={12} className="text-fui-accent-cyan animate-spin" />}
         <button onClick={onClose} className="p-1 hover:bg-fui-gray-500/20 transition-colors">
@@ -304,7 +304,7 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-full mt-1 left-0 right-0 max-h-60 overflow-y-auto bg-black/95 border border-fui-gray-500/30 z-50"
+            className="absolute top-full mt-1 left-0 right-0 max-h-60 overflow-y-auto bg-theme-panel border border-theme z-50"
           >
             {results.map((drug, i) => (
               <button
@@ -313,7 +313,7 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
                 className="w-full px-3 py-2 text-left hover:bg-fui-gray-500/20 transition-colors border-b border-fui-gray-500/20 last:border-0 flex items-center justify-between group"
               >
                 <div>
-                  <span className="text-xs font-medium text-white group-hover:text-fui-accent-cyan transition-colors">
+                  <span className="text-xs font-medium text-theme-primary group-hover:text-fui-accent-cyan transition-colors">
                     {drug.name}
                   </span>
                   {drug.therapeutic_class && (
@@ -363,7 +363,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
         setIsSearching(false);
       }
     };
-    
+
     const timeout = setTimeout(search, 300);
     return () => clearTimeout(timeout);
   }, [searchQuery, selectedDrugs]);
@@ -432,14 +432,14 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
       </div>
 
       {/* Drug Selector */}
-      <div className="p-4 bg-black/50 border border-fui-gray-500/30">
+      <div className="p-4 bg-theme-panel border border-theme">
         <div className="flex items-center gap-2 flex-wrap">
           <AnimatePresence mode="popLayout">
             {selectedDrugs.map((drug, i) => (
               <DrugChip key={drug} name={drug} onRemove={removeDrug} index={i} />
             ))}
           </AnimatePresence>
-          
+
           {selectedDrugs.length < 5 && (
             showSearch ? (
               <div className="w-64">
@@ -502,11 +502,10 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
       {comparison && !loading && (
         <div className="space-y-6">
           {/* Drug Cards Grid */}
-          <div className={`grid gap-5 ${
-            comparison.drugs.length === 2 ? 'grid-cols-1 md:grid-cols-2' :
-            comparison.drugs.length === 3 ? 'grid-cols-1 md:grid-cols-3' :
-            'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
-          }`}>
+          <div className={`grid gap-5 ${comparison.drugs.length === 2 ? 'grid-cols-1 md:grid-cols-2' :
+              comparison.drugs.length === 3 ? 'grid-cols-1 md:grid-cols-3' :
+                'grid-cols-1 md:grid-cols-2 lg:grid-cols-4'
+            }`}>
             <AnimatePresence mode="popLayout">
               {comparison.drugs.map((drug, i) => (
                 <DrugInfoCard
@@ -525,13 +524,13 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="p-4 bg-black/50 border border-fui-gray-500/30"
+              className="p-4 bg-theme-panel border border-theme"
             >
               <div className="flex items-center gap-2 mb-4">
                 <Layers size={14} className="text-fui-accent-purple" />
                 <h3 className="text-[10px] font-medium text-fui-gray-300 uppercase tracking-widest">// Interaction Matrix</h3>
               </div>
-              
+
               <div className="overflow-x-auto flex justify-center">
                 <table className="border-collapse">
                   <thead>
@@ -539,7 +538,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                       <th className="p-2"></th>
                       {comparison.drug_names.map((name, i) => (
                         <th key={name} className="p-2 text-center">
-                          <span className="text-xs font-medium text-gray-400">
+                          <span className="text-xs font-medium text-theme-primary">
                             {name}
                           </span>
                         </th>
@@ -550,15 +549,15 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                     {comparison.drug_names.map((rowName, i) => (
                       <tr key={rowName}>
                         <td className="p-2 text-right">
-                          <span className="text-xs font-medium text-gray-400">
+                          <span className="text-xs font-medium text-theme-primary">
                             {rowName}
                           </span>
                         </td>
                         {comparison.risk_matrix[i].map((cell, j) => (
                           <td key={j} className="p-1">
                             <div className="w-[80px] h-[50px]">
-                              <RiskCell 
-                                severity={cell.severity} 
+                              <RiskCell
+                                severity={cell.severity}
                                 drug1={rowName}
                                 drug2={comparison.drug_names[j]}
                                 onClick={() => cell.severity !== 'self' && setSelectedInteraction({
@@ -583,7 +582,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                     const config = severityConfig[severity];
                     return (
                       <div key={severity} className="flex items-center gap-2">
-                        <div 
+                        <div
                           className="w-3 h-3"
                           style={{ backgroundColor: config.color }}
                         />
@@ -602,7 +601,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="p-4 bg-black/50 border border-fui-gray-500/30"
+              className="p-4 bg-theme-panel border border-theme"
             >
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle size={14} className="text-fui-accent-orange" />
@@ -611,7 +610,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
                   {comparison.pairwise_interactions.filter(i => i.severity !== 'no_interaction').length} found
                 </span>
               </div>
-              
+
               <div className="space-y-2">
                 {comparison.pairwise_interactions
                   .filter(i => i.severity !== 'no_interaction')
@@ -630,8 +629,8 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
               className="p-6 bg-fui-accent-green/10 border border-fui-accent-green/30 text-center"
             >
               <CheckCircle className="text-fui-accent-green mx-auto mb-3" size={36} strokeWidth={1.5} />
-              <h3 className="text-sm font-medium text-white mb-1 uppercase tracking-widest">No Interactions Detected</h3>
-              <p className="text-[11px] text-fui-gray-300">
+              <h3 className="text-sm font-medium text-theme-primary mb-1 uppercase tracking-widest">No Interactions Detected</h3>
+              <p className="text-[11px] text-theme-secondary">
                 Based on our database, these drugs appear to be safe to use together.
               </p>
             </motion.div>

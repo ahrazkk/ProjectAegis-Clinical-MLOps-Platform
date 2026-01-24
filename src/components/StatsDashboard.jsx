@@ -100,7 +100,7 @@ function MetricCard({ icon: Icon, label, value, subtitle, trend, color = 'cyan',
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4 }}
-      className={`relative overflow-hidden bg-black/50 border ${scheme.border} p-4`}
+      className={`relative overflow-hidden bg-theme-panel border ${scheme.border} p-4`}
     >
       {/* Accent line */}
       <div className={`absolute top-0 left-0 right-0 h-[2px] ${scheme.accent} opacity-60`} />
@@ -117,10 +117,10 @@ function MetricCard({ icon: Icon, label, value, subtitle, trend, color = 'cyan',
             </div>
           )}
         </div>
-        
+
         <div className="mt-3">
           <p className="text-[10px] uppercase tracking-widest text-fui-gray-500">{label}</p>
-          <p className="text-2xl font-bold text-white mt-1 font-mono">{displayValue}</p>
+          <p className="text-2xl font-bold text-theme-primary mt-1 font-mono">{displayValue}</p>
           {subtitle && (
             <p className="text-[10px] text-fui-gray-600 mt-1">{subtitle}</p>
           )}
@@ -136,7 +136,7 @@ function DonutChart({ data, size = 160 }) {
   const strokeWidth = 20;
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  
+
   const colors = {
     severe: { stroke: '#EF4444' },
     moderate: { stroke: '#F59E0B' },
@@ -178,7 +178,7 @@ function DonutChart({ data, size = 160 }) {
             strokeWidth={strokeWidth}
             strokeLinecap="butt"
             initial={{ strokeDasharray: `0 ${circumference}` }}
-            animate={{ 
+            animate={{
               strokeDasharray: `${seg.dashLength} ${circumference - seg.dashLength}`,
               strokeDashoffset: -seg.offset
             }}
@@ -186,7 +186,7 @@ function DonutChart({ data, size = 160 }) {
           />
         ))}
       </svg>
-      
+
       {/* Center content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <motion.p
@@ -249,7 +249,7 @@ function CircularProgress({ value, max, label, color = '#22D3EE', size = 80 }) {
 // Horizontal Bar Chart - FUI Style
 function HorizontalBar({ name, value, maxValue, rank, delay = 0, color = 'cyan' }) {
   const percentage = maxValue > 0 ? (value / maxValue) * 100 : 0;
-  
+
   const colorSchemes = {
     cyan: 'bg-fui-accent-cyan',
     emerald: 'bg-fui-accent-green',
@@ -267,10 +267,10 @@ function HorizontalBar({ name, value, maxValue, rank, delay = 0, color = 'cyan' 
       <div className="flex items-center gap-2 mb-1">
         {rank && (
           <span className={`w-5 h-5 flex items-center justify-center text-[10px] font-bold shrink-0
-            ${rank === 1 ? 'bg-fui-accent-orange text-black' : 
-              rank === 2 ? 'bg-fui-gray-400 text-black' : 
-              rank === 3 ? 'bg-fui-accent-orange/50 text-white' : 
-              'bg-fui-gray-700 text-fui-gray-400'}`}>
+            ${rank === 1 ? 'bg-fui-accent-orange text-black' :
+              rank === 2 ? 'bg-fui-gray-400 text-black' :
+                rank === 3 ? 'bg-fui-accent-orange/50 text-white' :
+                  'bg-fui-gray-700 text-fui-gray-400'}`}>
             {rank}
           </span>
         )}
@@ -298,7 +298,7 @@ function GlassPanel({ children, className = '', delay = 0 }) {
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, duration: 0.4 }}
-      className={`bg-black/50 border border-fui-gray-500/30 overflow-hidden ${className}`}
+      className={`bg-theme-panel border border-fui-gray-500/30 overflow-hidden ${className}`}
     >
       {children}
     </motion.div>
@@ -329,7 +329,7 @@ function SeverityItem({ color, label, value, total }) {
     <div className="text-center p-3 border border-fui-gray-500/20 hover:border-fui-gray-500/40 transition-colors">
       <div className={`w-3 h-3 ${colorMap[color] || color} mx-auto mb-2`} />
       <p className="text-[10px] text-fui-gray-500 uppercase tracking-widest">{label}</p>
-      <p className="text-lg font-bold text-white mt-1 font-mono">{value.toLocaleString()}</p>
+      <p className="text-lg font-bold text-theme-primary mt-1 font-mono">{value.toLocaleString()}</p>
       <p className="text-[10px] text-fui-gray-600">{percentage}%</p>
     </div>
   );
@@ -406,28 +406,28 @@ export default function StatsDashboard({ compact = false, onExpand }) {
     return (
       <div className="flex items-center gap-2">
         {/* Drugs Count */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-fui-accent-cyan/50 text-fui-accent-cyan">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
           <Pill size={12} />
-          <span className="text-fui-gray-400">Drugs</span>
-          <span className="font-bold">{stats.total_drugs?.toLocaleString()}</span>
+          <span className="text-theme-muted">Drugs</span>
+          <span className="font-bold text-theme-primary">{stats.total_drugs?.toLocaleString()}</span>
         </div>
-        
+
         {/* Interactions Count */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-fui-accent-cyan/50 text-fui-accent-cyan">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
           <Activity size={12} />
-          <span className="text-fui-gray-400">DDIs</span>
-          <span className="font-bold">{stats.total_interactions?.toLocaleString()}</span>
+          <span className="text-theme-muted">DDIs</span>
+          <span className="font-bold text-theme-primary">{stats.total_interactions?.toLocaleString()}</span>
         </div>
-        
+
         {/* Coverage */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-fui-accent-purple/50 text-fui-accent-purple">
+        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
           <Atom size={12} />
-          <span className="text-fui-gray-400">Coverage</span>
-          <span className="font-bold">{coverage}%</span>
+          <span className="text-theme-muted">Coverage</span>
+          <span className="font-bold text-theme-primary">{coverage}%</span>
         </div>
-        
+
         {onExpand && (
-          <button 
+          <button
             onClick={onExpand}
             className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-fui-gray-500/30 text-fui-gray-400 hover:border-fui-accent-cyan/50 hover:text-fui-accent-cyan transition-colors"
           >
@@ -453,7 +453,7 @@ export default function StatsDashboard({ compact = false, onExpand }) {
             <BarChart3 className="text-fui-accent-cyan" size={20} strokeWidth={1.5} />
           </div>
           <div>
-            <h1 className="text-sm font-normal text-white uppercase tracking-widest">Database Analytics</h1>
+            <h1 className="text-sm font-normal text-theme-primary uppercase tracking-widest">Database Analytics</h1>
             <p className="text-[10px] text-fui-gray-500 uppercase tracking-widest">Real-time insights</p>
           </div>
         </div>
@@ -502,23 +502,23 @@ export default function StatsDashboard({ compact = false, onExpand }) {
           <PanelHeader icon={Layers} title="Data Coverage" iconColor="text-fui-accent-purple" />
           <div className="p-4">
             <div className="flex justify-around items-center py-2">
-              <CircularProgress 
-                value={stats.drugs_with_smiles} 
-                max={stats.total_drugs} 
-                label="SMILES" 
-                color="#A855F7" 
+              <CircularProgress
+                value={stats.drugs_with_smiles}
+                max={stats.total_drugs}
+                label="SMILES"
+                color="#A855F7"
               />
-              <CircularProgress 
-                value={stats.drugs_with_descriptions} 
-                max={stats.total_drugs} 
-                label="Docs" 
-                color="#10B981" 
+              <CircularProgress
+                value={stats.drugs_with_descriptions}
+                max={stats.total_drugs}
+                label="Docs"
+                color="#10B981"
               />
-              <CircularProgress 
-                value={stats.drugs_with_classes} 
-                max={stats.total_drugs} 
-                label="Class" 
-                color="#F59E0B" 
+              <CircularProgress
+                value={stats.drugs_with_classes}
+                max={stats.total_drugs}
+                label="Class"
+                color="#F59E0B"
               />
             </div>
             <div className="mt-3 pt-3 border-t border-fui-gray-500/20">
@@ -590,7 +590,7 @@ export default function StatsDashboard({ compact = false, onExpand }) {
           <span className="text-[10px] text-fui-gray-600 uppercase tracking-widest">Sources:</span>
           <div className="flex flex-wrap gap-1">
             {(stats.database_sources || ['DDI Corpus 2013', 'DrugBank', 'SIDER']).map(source => (
-              <span 
+              <span
                 key={source}
                 className="px-2 py-0.5 bg-black/30 text-[10px] text-fui-gray-500 border border-fui-gray-500/20"
               >

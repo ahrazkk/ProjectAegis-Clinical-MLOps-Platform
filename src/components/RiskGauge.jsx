@@ -21,13 +21,13 @@ export default function RiskGauge({ score, riskLevel }) {
     const circumference = 2 * Math.PI * radius;
 
     return (
-        <div className="relative w-full flex flex-col items-center justify-center p-6 border border-fui-gray-500/20 bg-black relative">
+        <div className="relative w-full flex flex-col items-center justify-center p-6 border border-theme bg-theme-panel relative">
             {/* Corner markers */}
             <div className="absolute -top-px -left-px w-3 h-3 border-t border-l border-fui-gray-500"></div>
             <div className="absolute -top-px -right-px w-3 h-3 border-t border-r border-fui-gray-500"></div>
             <div className="absolute -bottom-px -left-px w-3 h-3 border-b border-l border-fui-gray-500"></div>
             <div className="absolute -bottom-px -right-px w-3 h-3 border-b border-r border-fui-gray-500"></div>
-            
+
             <div className="relative w-48 h-48">
                 {/* SVG Container */}
                 <svg className="w-full h-full transform -rotate-90" viewBox="0 0 200 200">
@@ -41,7 +41,7 @@ export default function RiskGauge({ score, riskLevel }) {
                         strokeWidth={strokeWidth}
                         strokeDasharray="4 4"
                     />
-                    
+
                     {/* Grid circles for FUI effect */}
                     <circle cx="100" cy="100" r={radius * 0.6} fill="none" stroke="rgba(102, 102, 102, 0.15)" strokeWidth="1" />
                     <circle cx="100" cy="100" r={radius * 0.3} fill="none" stroke="rgba(102, 102, 102, 0.15)" strokeWidth="1" />
@@ -61,7 +61,7 @@ export default function RiskGauge({ score, riskLevel }) {
                         transition={{ duration: 1.5, ease: "easeOut" }}
                         style={{ filter: `drop-shadow(0 0 6px ${colors.glow})` }}
                     />
-                    
+
                     {/* Tick marks */}
                     {[0, 25, 50, 75, 100].map((tick, i) => {
                         const angle = (tick / 100) * 360 - 90;
@@ -84,13 +84,13 @@ export default function RiskGauge({ score, riskLevel }) {
                         transition={{ delay: 0.5 }}
                         className="flex flex-col items-center"
                     >
-                        <span 
+                        <span
                             className="text-3xl font-light tracking-wider"
                             style={{ color: colors.main, textShadow: `0 0 20px ${colors.glow}` }}
                         >
                             {percentage}%
                         </span>
-                        <span 
+                        <span
                             className={`text-[10px] font-normal px-3 py-1 mt-2 uppercase tracking-widest border`}
                             style={{ color: colors.main, borderColor: `${colors.main}50` }}
                         >

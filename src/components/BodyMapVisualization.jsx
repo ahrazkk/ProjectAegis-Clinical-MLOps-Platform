@@ -157,7 +157,7 @@ function InfoPanel({ system, data, severity }) {
     if (sev > 0.7) return { text: 'Severe', color: 'text-red-400 bg-red-500/10 border-red-500/20' };
     if (sev > 0.4) return { text: 'Moderate', color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' };
     if (sev > 0) return { text: 'Mild', color: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20' };
-    return { text: 'Not Affected', color: 'text-slate-400 bg-slate-500/10 border-slate-500/20' };
+    return { text: 'Not Affected', color: 'text-theme-muted bg-theme-secondary border-theme' };
   };
 
   const severityInfo = getSeverityLabel(severity);
@@ -167,11 +167,11 @@ function InfoPanel({ system, data, severity }) {
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
-      className="absolute right-6 top-1/2 -translate-y-1/2 w-72 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl"
+      className="absolute right-6 top-1/2 -translate-y-1/2 w-72 bg-theme-panel backdrop-blur-xl border border-theme rounded-2xl p-5 shadow-2xl"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h3 className="font-semibold text-white">{data.name}</h3>
+          <h3 className="font-semibold text-theme-primary">{data.name}</h3>
           <span className={`inline-block mt-1 px-2 py-0.5 text-xs rounded-full border ${severityInfo.color}`}>
             {severityInfo.text}
           </span>
@@ -181,16 +181,16 @@ function InfoPanel({ system, data, severity }) {
         )}
       </div>
 
-      <p className="text-sm text-slate-400 mb-4">{data.description}</p>
+      <p className="text-sm text-theme-secondary mb-4">{data.description}</p>
 
       {severity > 0 && (
         <div>
-          <h4 className="text-xs text-slate-500 uppercase tracking-wider mb-2">Potential Symptoms</h4>
+          <h4 className="text-xs text-theme-muted uppercase tracking-wider mb-2">Potential Symptoms</h4>
           <div className="flex flex-wrap gap-1.5">
             {data.symptoms.slice(0, 4).map((symptom, i) => (
               <span
                 key={i}
-                className="px-2 py-1 bg-white/5 rounded-lg text-xs text-slate-300"
+                className="px-2 py-1 bg-theme-secondary rounded-lg text-xs text-theme-primary border border-theme"
               >
                 {symptom}
               </span>
@@ -212,9 +212,6 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
 
   return (
     <div className="w-full h-full flex items-center justify-center relative overflow-hidden">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-slate-900/50 via-transparent to-blue-900/20" />
-
       {/* Main visualization */}
       <div className="relative">
         <svg
@@ -279,54 +276,54 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
 
       {/* Legend */}
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6">
-        <div className="flex items-center gap-4 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-xl border border-white/10">
+        <div className="flex items-center gap-4 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-slate-500" />
-            <span className="text-xs text-slate-400">Normal</span>
+            <span className="text-xs text-theme-muted">Normal</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-yellow-500" />
-            <span className="text-xs text-slate-400">Mild</span>
+            <span className="text-xs text-theme-muted">Mild</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-orange-500" />
-            <span className="text-xs text-slate-400">Moderate</span>
+            <span className="text-xs text-theme-muted">Moderate</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs text-slate-400">Severe</span>
+            <span className="text-xs text-theme-muted">Severe</span>
           </div>
         </div>
       </div>
 
       {/* Empty state */}
       {!hasAnyAffectedSystem && !result && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
-            <Info className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <p className="text-sm text-slate-500">Run analysis to see affected body systems</p>
+            <Info className="w-12 h-12 text-theme-dim mx-auto mb-4" />
+            <p className="text-sm text-theme-muted">Run analysis to see affected body systems</p>
           </div>
         </div>
       )}
 
       {/* No interaction overlay */}
       {result?.severity === 'no_interaction' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center px-6 py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
             <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-sm text-emerald-400 font-medium">No Significant Effects</p>
-            <p className="text-xs text-slate-500 mt-1">No organ systems are expected to be affected</p>
+            <p className="text-sm text-emerald-600 font-medium">No Significant Effects</p>
+            <p className="text-xs text-theme-muted mt-1">No organ systems are expected to be affected</p>
           </div>
         </div>
       )}
 
       {/* Hover instruction */}
       {hasAnyAffectedSystem && (
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-lg border border-white/10 text-xs text-slate-400">
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-lg border border-theme text-xs text-theme-muted">
           Hover over highlighted organs for details
         </div>
       )}

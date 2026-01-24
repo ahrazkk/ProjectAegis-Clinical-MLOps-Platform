@@ -1143,10 +1143,20 @@ class DrugComparisonView(APIView):
                         'interaction_count': 0
                     })
             
-            # Get pairwise interactions
+            # Get pairwise interactions - use normalized names for DB lookup
             drug_names = [d['name'] for d in comparison_data['drugs']]
+            
+            # Build a mapping of normalized names to original names
+            normalized_map = {}
+            for drug_name in drug_names:
+                norm_name, _ = normalize_drug_name(drug_name)
+                normalized_map[drug_name] = norm_name
+            
+            logger.info(f"Drug comparison: normalized map = {normalized_map}")
+            
             for i, drug1 in enumerate(drug_names):
                 for drug2 in drug_names[i+1:]:
+                    # First try exact name match
                     interaction_query = """
                         MATCH (d1:Drug)-[i:INTERACTS_WITH]-(d2:Drug)
                         WHERE toLower(d1.name) = toLower($drug1) 
@@ -1157,6 +1167,36 @@ class DrugComparisonView(APIView):
                     """
                     result = kg.run_query(interaction_query, {'drug1': drug1, 'drug2': drug2})
                     
+                    # If no direct match, try with normalized names
+                    if not result:
+                        norm1 = normalized_map.get(drug1, drug1.lower())
+                        norm2 = normalized_map.get(drug2, drug2.lower())
+                        
+                        logger.info(f"Trying normalized lookup: {drug1}->{norm1}, {drug2}->{norm2}")
+                        
+                        # Try normalized name lookup
+                        result = kg.run_query(interaction_query, {'drug1': norm1, 'drug2': norm2})
+                    
+                    # If still no match, try matching normalized to any variant
+                    if not result:
+                        norm1 = normalized_map.get(drug1, drug1.lower())
+                        norm2 = normalized_map.get(drug2, drug2.lower())
+                        
+                        # Try a CONTAINS query for partial matching
+                        fuzzy_query = """
+                            MATCH (d1:Drug)-[i:INTERACTS_WITH]-(d2:Drug)
+                            WHERE (toLower(d1.name) CONTAINS $norm1 OR toLower(d1.name) = $norm1)
+                            AND (toLower(d2.name) CONTAINS $norm2 OR toLower(d2.name) = $norm2)
+                            RETURN i.severity as severity, i.mechanism as mechanism,
+                                   i.description as description,
+                                   d1.name as matched_drug1, d2.name as matched_drug2
+                            LIMIT 1
+                        """
+                        result = kg.run_query(fuzzy_query, {'norm1': norm1, 'norm2': norm2})
+                        
+                        if result:
+                            logger.info(f"Found via fuzzy: {result[0].get('matched_drug1')} <-> {result[0].get('matched_drug2')}")
+                    
                     if result:
                         interaction = result[0]
                         comparison_data['pairwise_interactions'].append({
@@ -1164,7 +1204,8 @@ class DrugComparisonView(APIView):
                             'drug2': drug2,
                             'severity': interaction.get('severity', 'unknown'),
                             'mechanism': interaction.get('mechanism', ''),
-                            'description': interaction.get('description', '')
+                            'description': interaction.get('description', ''),
+                            'matched_via_normalization': 'matched_drug1' in interaction
                         })
                     else:
                         comparison_data['pairwise_interactions'].append({

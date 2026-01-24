@@ -323,7 +323,7 @@ function NodeInfoPanel({ node, onClose }) {
       initial={{ opacity: 0, x: 20 }}
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: 20 }}
-      className="absolute top-4 right-4 w-72 bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl"
+      className="absolute top-4 right-4 w-72 bg-theme-panel backdrop-blur-xl border border-theme rounded-2xl p-4 shadow-2xl"
     >
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-3">
@@ -331,8 +331,8 @@ function NodeInfoPanel({ node, onClose }) {
             <typeConfig.icon className="w-5 h-5" style={{ color: typeConfig.color }} />
           </div>
           <div>
-            <h3 className="font-semibold text-white">{node.label}</h3>
-            <span className="text-xs text-slate-500 capitalize">{node.type}</span>
+            <h3 className="font-semibold text-theme-primary">{node.label}</h3>
+            <span className="text-xs text-theme-muted capitalize">{node.type}</span>
           </div>
         </div>
         <button
@@ -346,8 +346,8 @@ function NodeInfoPanel({ node, onClose }) {
       {node.type === 'drug' && (
         <div className="space-y-2 text-sm">
           <div className="flex justify-between py-2 border-b border-white/5">
-            <span className="text-slate-500">ID</span>
-            <span className="text-slate-300 font-mono text-xs">{node.id}</span>
+            <span className="text-theme-muted">ID</span>
+            <span className="text-theme-secondary font-mono text-xs">{node.id}</span>
           </div>
           {node.isHub && (
             <div className="p-2 bg-amber-500/10 border border-amber-500/20 rounded-lg">
@@ -405,10 +405,10 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
     return (
       <div className="w-full h-full flex items-center justify-center">
         <div className="text-center">
-          <div className="w-20 h-20 rounded-3xl bg-white/5 flex items-center justify-center mx-auto mb-4">
-            <Activity className="w-10 h-10 text-slate-600" />
+          <div className="w-20 h-20 rounded-3xl bg-theme-secondary flex items-center justify-center mx-auto mb-4">
+            <Activity className="w-10 h-10 text-theme-dim" />
           </div>
-          <p className="text-sm text-slate-500">Add drugs to visualize the knowledge graph</p>
+          <p className="text-sm text-theme-muted">Add drugs to visualize the knowledge graph</p>
         </div>
       </div>
     );
@@ -474,32 +474,31 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
 
       {/* Legend */}
       <div className="absolute bottom-4 left-4 flex items-center gap-4">
-        <div className="flex items-center gap-3 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-xl border border-white/10">
+        <div className="flex items-center gap-3 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
           {Object.entries(nodeTypes).slice(0, 4).map(([type, config]) => (
             <div key={type} className="flex items-center gap-2">
               <div
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: config.color }}
               />
-              <span className="text-xs text-slate-400 capitalize">{type}</span>
+              <span className="text-xs text-theme-muted capitalize">{type}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Instructions */}
-      <div className="absolute top-4 left-4 px-4 py-2 bg-black/50 backdrop-blur-sm rounded-lg border border-white/10 text-xs text-slate-400">
+      <div className="absolute top-4 left-4 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-lg border border-theme text-xs text-theme-muted">
         Click nodes for details • Drag to reposition
       </div>
 
       {/* Interaction summary */}
       {result && result.severity !== 'no_interaction' && (
-        <div className="absolute bottom-4 right-4 px-4 py-3 bg-black/50 backdrop-blur-sm rounded-xl border border-white/10">
+        <div className="absolute bottom-4 right-4 px-4 py-3 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
           <div className="flex items-center gap-2 mb-1">
             <AlertTriangle className="w-4 h-4 text-orange-400" />
-            <span className="text-sm font-medium text-white">Interaction Detected</span>
+            <span className="text-sm font-medium text-theme-primary">Interaction Detected</span>
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-theme-muted">
             Risk Level: <span className="text-orange-400 capitalize">{result.risk_level || result.severity}</span>
           </p>
         </div>
