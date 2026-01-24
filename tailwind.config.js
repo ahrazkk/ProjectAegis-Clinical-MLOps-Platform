@@ -31,6 +31,39 @@ export default {
             'red': '#FF4444',
             'critical': '#FF0044',
           }
+        },
+        // Theme-aware semantic colors (uses CSS variables)
+        'theme': {
+          'bg': {
+            'primary': 'var(--bg-primary)',
+            'secondary': 'var(--bg-secondary)',
+            'tertiary': 'var(--bg-tertiary)',
+            'panel': 'var(--bg-panel)',
+            'elevated': 'var(--bg-panel-elevated)',
+          },
+          'text': {
+            'primary': 'var(--text-primary)',
+            'secondary': 'var(--text-secondary)',
+            'muted': 'var(--text-muted)',
+            'dim': 'var(--text-dim)',
+          },
+          'border': {
+            'DEFAULT': 'var(--border-color)',
+            'highlight': 'var(--border-highlight)',
+            'dim': 'var(--border-dim)',
+          },
+          'accent': {
+            'primary': 'var(--accent-primary)',
+            'cyan': 'var(--accent-cyan)',
+            'blue': 'var(--accent-blue)',
+            'emerald': 'var(--accent-emerald)',
+          },
+          'risk': {
+            'low': 'var(--risk-low)',
+            'medium': 'var(--risk-medium)',
+            'high': 'var(--risk-high)',
+            'critical': 'var(--risk-critical)',
+          }
         }
       },
       // Monospace Font Family
@@ -62,6 +95,8 @@ export default {
         'fui': '0 0 20px rgba(224, 224, 224, 0.1)',
         'fui-cyan': '0 0 15px rgba(0, 255, 255, 0.2)',
         'fui-glow': 'inset 0 0 0 1px rgba(102, 102, 102, 0.2), 0 0 30px rgba(0, 0, 0, 0.5)',
+        'theme': 'var(--glow-primary)',
+        'theme-accent': 'var(--glow-accent)',
       },
       // Animation timing
       animation: {
