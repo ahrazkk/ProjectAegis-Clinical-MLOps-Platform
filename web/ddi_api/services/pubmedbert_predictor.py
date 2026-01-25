@@ -145,8 +145,13 @@ class PubMedBERTPredictor:
         if model_path is None:
             # Docker: Model is mounted at /app/DDI_Model_Final
             docker_path = Path('/app/DDI_Model_Final')
+            # GCS Mount path for Cloud Run
+            gcs_path = Path('/mnt/gcs/DDI_Model_Final')
+            
             if docker_path.exists():
                 model_path = docker_path
+            elif gcs_path.exists():
+                model_path = gcs_path
             else:
                 # Local dev: Look for DDI_Model_Final at the repo root level
                 # Path: web/ddi_api/services/pubmedbert_predictor.py -> web -> molecular-ai -> DDI_PROJECTV2-FRONTEND

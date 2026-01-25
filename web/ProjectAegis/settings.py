@@ -24,7 +24,7 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-k5a8aa$4z4zprc
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'True') == 'True'
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.run.app', '*']
 
 
 # Application definition
@@ -59,8 +59,9 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
-    "http://localhost:3000",
+    "https://aegis-frontend-667446742007.us-central1.run.app",
 ]
+CORS_ALLOW_ALL_ORIGINS = True # Temporary for MVP to ensure it works
 CORS_ALLOW_CREDENTIALS = True
 
 # REST Framework Configuration
@@ -73,14 +74,11 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Redis Cache Configuration
+# Redis Cache Configuration - Switched to LocMem for MVP (No Redis needed)
 CACHES = {
     "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": os.environ.get('REDIS_URL', "redis://redis:6379/1"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        }
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "aegis-cache",
     }
 }
 
