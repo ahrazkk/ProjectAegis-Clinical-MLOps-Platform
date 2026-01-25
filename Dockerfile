@@ -14,14 +14,9 @@ FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx config to handle client-side routing AND proxy API
+# Nginx config to handle client-side routing - Cloud Run uses PORT 8080
 RUN echo 'server { \
-    listen 80; \
-    location /api/ { \
-    proxy_pass http://backend:8000/api/; \
-    proxy_set_header Host $host; \
-    proxy_set_header X-Real-IP $remote_addr; \
-    } \
+    listen 8080; \
     location / { \
     root /usr/share/nginx/html; \
     index index.html index.htm; \
@@ -29,6 +24,6 @@ RUN echo 'server { \
     } \
     }' > /etc/nginx/conf.d/default.conf
 
-EXPOSE 80
+EXPOSE 8080
 
 CMD ["nginx", "-g", "daemon off;"]
