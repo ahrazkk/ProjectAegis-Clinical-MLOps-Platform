@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { Terminal, X, Trash2, Activity, Server, Database, Cpu, Workflow, Zap, HardDrive, Brain, FlaskConical } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -6,6 +6,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 export default function SystemMonitor() {
     const { logs, isOpen, toggleMonitor, clearLogs } = useSystemLogs();
     const bottomRef = useRef(null);
+    const [isMobile, setIsMobile] = useState(false);
+
+    // Check for mobile
+    useEffect(() => {
+        const checkMobile = () => setIsMobile(window.innerWidth < 768);
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
 
     // Auto-scroll to bottom on new log
     useEffect(() => {
@@ -13,6 +22,9 @@ export default function SystemMonitor() {
             bottomRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [logs, isOpen]);
+
+    // Hide completely on mobile
+    if (isMobile) return null;
 
     return (
         <>

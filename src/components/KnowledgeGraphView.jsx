@@ -374,7 +374,7 @@ function NodeInfoPanel({ node, onClose }) {
   );
 }
 
-export default function KnowledgeGraphView({ drugs = [], result, polypharmacyResult }) {
+export default function KnowledgeGraphView({ drugs = [], result, polypharmacyResult, isMobile = false }) {
   const [selectedNode, setSelectedNode] = useState(null);
   const [nodePositions, setNodePositions] = useState({});
   const svgRef = useRef(null);
@@ -472,33 +472,44 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
         )}
       </AnimatePresence>
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 flex items-center gap-4">
-        <div className="flex items-center gap-3 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
-          {Object.entries(nodeTypes).slice(0, 4).map(([type, config]) => (
-            <div key={type} className="flex items-center gap-2">
-              <div
-                className="w-3 h-3 rounded-full"
-                style={{ backgroundColor: config.color }}
-              />
-              <span className="text-xs text-theme-muted capitalize">{type}</span>
-            </div>
-          ))}
+      {/* Legend - hidden on mobile */}
+      {!isMobile && (
+        <div className="absolute bottom-4 left-4 flex items-center gap-4">
+          <div className="flex items-center gap-3 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
+            {Object.entries(nodeTypes).slice(0, 4).map(([type, config]) => (
+              <div key={type} className="flex items-center gap-2">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ backgroundColor: config.color }}
+                />
+                <span className="text-xs text-theme-muted capitalize">{type}</span>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="absolute top-4 left-4 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-lg border border-theme text-xs text-theme-muted">
-        Click nodes for details • Drag to reposition
-      </div>
+      {!isMobile && (
+        <div className="absolute top-4 left-4 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-lg border border-theme text-xs text-theme-muted">
+          Click nodes for details • Drag to reposition
+        </div>
+      )}
+
+      {/* Mobile hint */}
+      {isMobile && (
+        <div className="absolute top-2 left-2 right-2 px-3 py-1.5 bg-theme-panel/90 backdrop-blur-sm rounded-lg border border-theme text-[10px] text-theme-muted text-center">
+          Tap nodes for details
+        </div>
+      )}
 
       {/* Interaction summary */}
       {result && result.severity !== 'no_interaction' && (
-        <div className="absolute bottom-4 right-4 px-4 py-3 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
+        <div className={`absolute ${isMobile ? 'bottom-2 right-2 left-2' : 'bottom-4 right-4'} px-3 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme`}>
           <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-4 h-4 text-orange-400" />
-            <span className="text-sm font-medium text-theme-primary">Interaction Detected</span>
+            <AlertTriangle className={`${isMobile ? 'w-3 h-3' : 'w-4 h-4'} text-orange-400`} />
+            <span className={`${isMobile ? 'text-xs' : 'text-sm'} font-medium text-theme-primary`}>Interaction Detected</span>
           </div>
-          <p className="text-xs text-theme-muted">
+          <p className={`${isMobile ? 'text-[10px]' : 'text-xs'} text-theme-muted`}>
             Risk Level: <span className="text-orange-400 capitalize">{result.risk_level || result.severity}</span>
           </p>
         </div>

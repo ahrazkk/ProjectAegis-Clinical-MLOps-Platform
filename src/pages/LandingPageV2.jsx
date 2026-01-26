@@ -29,53 +29,54 @@ import DrugInteractionBackground from '../components/DrugInteractionBackground';
 const features = [
   {
     icon: Brain,
-    title: 'Graph Neural Networks',
-    description: 'Advanced GNN architecture processes molecular graphs to predict interactions with 94% accuracy',
+    title: 'PubMedBERT Encoder',
+    description: 'Fine-tuned biomedical BERT model processes drug pair contexts with 92.7% AUC accuracy',
     color: 'from-cyan-500 to-blue-500'
   },
   {
     icon: Network,
     title: 'Knowledge Graph Integration',
-    description: 'Neo4j-powered knowledge graph connects drugs, proteins, pathways, and literature',
+    description: 'Neo4j-powered graph with 2,000+ drugs and 1,600+ verified interactions from DDI Corpus',
     color: 'from-purple-500 to-pink-500'
   },
   {
     icon: Shield,
-    title: 'Explainable AI',
-    description: 'GNNExplainer identifies substructures responsible for predicted interactions',
+    title: 'Evidence-Based Explanations',
+    description: 'RAG-powered citations from PubMed literature provide clinical context for predictions',
     color: 'from-emerald-500 to-teal-500'
   },
   {
     icon: Zap,
     title: 'Real-time Analysis',
-    description: 'Sub-second predictions powered by optimized PyTorch models',
+    description: 'Sub-200ms predictions powered by optimized PyTorch models on Google Cloud Run',
     color: 'from-yellow-500 to-orange-500'
   },
   {
     icon: Activity,
-    title: 'Multi-drug Analysis',
-    description: 'Analyze polypharmacy scenarios with N-way interaction detection',
+    title: 'Therapeutic Classification',
+    description: 'Automatic drug categorization with 60%+ coverage for clinical decision support',
     color: 'from-red-500 to-rose-500'
   },
   {
     icon: Database,
-    title: 'Comprehensive Database',
-    description: 'Integrated DrugBank, PubChem, and TwoSides datasets',
+    title: 'Future: Graph Neural Networks',
+    description: 'Roadmap includes GNN architecture for molecular graph processing and enhanced accuracy',
     color: 'from-indigo-500 to-violet-500'
   }
 ];
 
 const stats = [
-  { value: '500K+', label: 'Drug Pairs', suffix: '' },
-  { value: '94.2', label: 'Accuracy', suffix: '%' },
-  { value: '<100', label: 'Latency', suffix: 'ms' },
-  { value: '86+', label: 'DDI Types', suffix: '' }
+  { value: '2K+', label: 'Drugs', suffix: '' },
+  { value: '92.7', label: 'AUC Score', suffix: '%' },
+  { value: '<200', label: 'Latency', suffix: 'ms' },
+  { value: '1.6K+', label: 'Interactions', suffix: '' }
 ];
 
 // Animated counter component
 function AnimatedCounter({ value, suffix = '' }) {
   const [displayValue, setDisplayValue] = useState(0);
   const numericValue = parseFloat(value.replace(/[^0-9.]/g, ''));
+  const hasK = value.includes('K');
   
   useEffect(() => {
     const duration = 2000;
@@ -96,12 +97,13 @@ function AnimatedCounter({ value, suffix = '' }) {
     return () => clearInterval(timer);
   }, [numericValue]);
 
-  const prefix = value.includes('<') ? '<' : value.includes('+') ? '' : '';
-  const displaySuffix = value.includes('+') ? '+' : '';
+  const prefix = value.includes('<') ? '<' : '';
+  const kSuffix = hasK ? 'K' : '';
+  const plusSuffix = value.includes('+') ? '+' : '';
   
   return (
     <span>
-      {prefix}{displayValue % 1 === 0 ? Math.floor(displayValue) : displayValue.toFixed(1)}{displaySuffix}{suffix}
+      {prefix}{displayValue % 1 === 0 ? Math.floor(displayValue) : displayValue.toFixed(1)}{kSuffix}{plusSuffix}{suffix}
     </span>
   );
 }
@@ -364,17 +366,17 @@ export default function LandingPage() {
         transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
         className="fixed top-0 left-0 right-0 z-50 bg-[#0D1117]/90 backdrop-blur-xl border-b border-white/10"
       >
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between">
           <motion.div 
-            className="flex items-center gap-3"
+            className="flex items-center gap-2 sm:gap-3"
             whileHover={{ scale: 1.02 }}
           >
-            <div className="relative w-10 h-10 flex items-center justify-center">
+            <div className="relative w-8 h-8 sm:w-10 sm:h-10 flex items-center justify-center">
               <div className="absolute inset-0 bg-gradient-to-br from-cyan-500 to-purple-600 rounded-lg opacity-20"></div>
               <div className="absolute inset-[2px] bg-black rounded-lg"></div>
-              <GitBranch className="w-5 h-5 text-cyan-400 relative z-10" />
+              <GitBranch className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400 relative z-10" />
             </div>
-            <span className="text-lg font-light tracking-widest">
+            <span className="text-sm sm:text-lg font-light tracking-widest">
               <span className="text-white/80">PROJECT</span>
               <span className="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent font-normal">AEGIS</span>
             </span>
@@ -384,8 +386,8 @@ export default function LandingPage() {
             {['Features', 'Technology', 'Research'].map((item, i) => (
               <motion.a
                 key={item}
-                href={item === 'Research' ? '#' : `#${item.toLowerCase()}`}
-                onClick={item === 'Research' ? (e) => { e.preventDefault(); setShowModal(true); } : undefined}
+                href={item === 'Research' ? '/research' : `#${item.toLowerCase()}`}
+                onClick={item === 'Research' ? (e) => { e.preventDefault(); navigate('/research'); } : undefined}
                 className="text-xs text-white/50 hover:text-white transition-colors uppercase tracking-[0.2em] relative group"
                 whileHover={{ y: -2 }}
               >
@@ -399,16 +401,17 @@ export default function LandingPage() {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             onClick={() => navigate('/dashboard')}
-            className="px-6 py-2.5 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/20 text-white text-xs uppercase tracking-widest hover:border-white/40 transition-all relative overflow-hidden group"
+            className="px-3 py-1.5 sm:px-6 sm:py-2.5 bg-gradient-to-r from-cyan-500/10 to-purple-500/10 border border-white/20 text-white text-[10px] sm:text-xs uppercase tracking-wider sm:tracking-widest hover:border-white/40 transition-all relative overflow-hidden group"
           >
-            <span className="relative z-10">Launch Platform</span>
+            <span className="relative z-10 hidden sm:inline">Launch Platform</span>
+            <span className="relative z-10 sm:hidden">Launch</span>
             <div className="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
           </motion.button>
         </div>
       </motion.nav>
 
       {/* Hero Section - Split Layout */}
-      <section ref={heroRef} className="relative min-h-screen flex items-center overflow-hidden pt-20">
+      <section ref={heroRef} className="relative min-h-screen flex items-center overflow-hidden pt-16 sm:pt-20">
         {/* 3D Background */}
         <div className="absolute inset-0 z-0">
           <Canvas camera={{ position: [0, 0, 12], fov: 50 }} gl={{ alpha: true, antialias: true }}>
@@ -432,27 +435,29 @@ export default function LandingPage() {
         <div className="absolute inset-0 bg-gradient-to-b from-[#0D1117] via-transparent to-[#0D1117] pointer-events-none z-[1]" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#0D1117]/60 via-transparent to-[#0D1117]/60 pointer-events-none z-[1]" />
         
-        {/* Floating pills decoration */}
-        <FloatingPills />
+        {/* Floating pills decoration - hidden on mobile */}
+        <div className="hidden sm:block">
+          <FloatingPills />
+        </div>
 
         {/* Content - Split Layout */}
-        <div className="relative z-10 max-w-7xl mx-auto px-6 w-full">
-          <div className="grid lg:grid-cols-5 gap-8 lg:gap-16 items-center min-h-[80vh]">
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 w-full">
+          <div className="grid lg:grid-cols-5 gap-8 lg:gap-16 items-center min-h-[70vh] sm:min-h-[80vh] py-8 sm:py-0">
             {/* Left side - Hero text */}
-            <div className="lg:col-span-3 space-y-8">
+            <div className="lg:col-span-3 space-y-5 sm:space-y-8">
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.3 }}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 backdrop-blur-sm rounded-full"
+                className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 bg-white/10 border border-white/20 backdrop-blur-sm rounded-full"
               >
-                <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
-                <span className="text-xs text-white/80 uppercase tracking-widest">AI-Powered Drug Safety</span>
+                <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                <span className="text-[10px] sm:text-xs text-white/80 uppercase tracking-widest">AI-Powered Drug Safety</span>
               </motion.div>
 
-              <div className="space-y-4">
-                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-extralight leading-[1.1] tracking-tight hero-text">
-                  <span className="text-white block whitespace-nowrap">
+              <div className="space-y-2 sm:space-y-4">
+                <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl font-extralight leading-[1.1] tracking-tight hero-text">
+                  <span className="text-white block">
                     <AnimatedText text="Drug Interaction" className="" delay={0.4} />
                   </span>
                   <motion.span 
@@ -477,24 +482,24 @@ export default function LandingPage() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 1.2 }}
-                className="text-lg text-white/70 max-w-xl leading-relaxed font-light"
+                className="text-sm sm:text-base lg:text-lg text-white/70 max-w-xl leading-relaxed font-light"
               >
                 Predict drug-drug interactions with unprecedented accuracy using 
-                <span className="text-cyan-400 font-normal"> geometric deep learning</span> and 
-                <span className="text-purple-400 font-normal"> knowledge graphs</span>.
+                <span className="text-cyan-400 font-normal"> biomedical language models</span> and 
+                <span className="text-purple-400 font-normal"> Neo4j knowledge graphs</span>.
               </motion.p>
 
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1.4 }}
-                className="flex flex-wrap gap-4"
+                className="flex flex-col sm:flex-row gap-3 sm:gap-4 pb-16 sm:pb-0"
               >
                 <motion.button 
                   whileHover={{ scale: 1.02, boxShadow: '0 0 40px rgba(0, 255, 255, 0.3)' }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => navigate('/dashboard')}
-                  className="group px-8 py-4 bg-gradient-to-r from-cyan-500 to-cyan-600 text-black text-sm uppercase tracking-widest font-medium flex items-center gap-3 rounded-sm"
+                  className="group px-6 sm:px-8 py-3 sm:py-4 bg-gradient-to-r from-cyan-500 to-cyan-600 text-black text-xs sm:text-sm uppercase tracking-widest font-medium flex items-center justify-center gap-3 rounded-sm"
                 >
                   Enter Dashboard
                   <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
@@ -503,8 +508,8 @@ export default function LandingPage() {
                 <motion.button 
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => setShowModal(true)}
-                  className="px-8 py-4 border border-white/20 text-white/80 text-sm uppercase tracking-widest hover:bg-white/5 transition-all rounded-sm"
+                  onClick={() => navigate('/research')}
+                  className="px-6 sm:px-8 py-3 sm:py-4 border border-white/20 text-white/80 text-xs sm:text-sm uppercase tracking-widest hover:bg-white/5 transition-all rounded-sm text-center"
                 >
                   View Research
                 </motion.button>
@@ -519,12 +524,12 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Scroll indicator */}
+          {/* Scroll indicator - hidden on mobile */}
           <motion.div 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 2 }}
-            className="absolute bottom-8 left-1/2 -translate-x-1/2"
+            className="hidden sm:block absolute bottom-8 left-1/2 -translate-x-1/2"
           >
             <motion.div 
               animate={{ y: [0, 8, 0] }}
@@ -539,10 +544,10 @@ export default function LandingPage() {
       </section>
 
       {/* Stats Section - Animated counters */}
-      <section className="relative py-24 border-y border-white/10">
+      <section className="relative py-12 sm:py-24 border-y border-white/10">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-950/10 to-transparent"></div>
-        <div className="max-w-7xl mx-auto px-6 relative">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-8">
             {stats.map((stat, i) => (
               <motion.div
                 key={i}
@@ -554,14 +559,14 @@ export default function LandingPage() {
               >
                 <div className="relative inline-block">
                   <div 
-                    className="text-5xl md:text-6xl font-extralight bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent mb-2"
+                    className="text-3xl sm:text-5xl md:text-6xl font-extralight bg-gradient-to-b from-white to-white/70 bg-clip-text text-transparent mb-1 sm:mb-2"
                     style={{ textShadow: '0 0 40px rgba(0, 255, 255, 0.3)' }}
                   >
                     <AnimatedCounter value={stat.value} suffix={stat.suffix} />
                   </div>
                   <div className="absolute -inset-4 bg-gradient-to-r from-cyan-500/0 via-cyan-500/10 to-purple-500/0 rounded-full blur-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
                 </div>
-                <div className="text-[10px] text-white/60 uppercase tracking-[0.3em]">
+                <div className="text-[9px] sm:text-[10px] text-white/60 uppercase tracking-[0.2em] sm:tracking-[0.3em]">
                   {stat.label}
                 </div>
               </motion.div>
@@ -571,24 +576,24 @@ export default function LandingPage() {
       </section>
 
       {/* Features Section - Bento Grid */}
-      <section id="features" className="py-32 relative">
-        <div className="max-w-7xl mx-auto px-6">
+      <section id="features" className="py-16 sm:py-32 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
-            className="text-center mb-16"
+            className="text-center mb-8 sm:mb-16"
           >
-            <span className="text-xs text-cyan-400/80 uppercase tracking-[0.3em] mb-4 block">Capabilities</span>
-            <h2 className="text-4xl md:text-5xl font-extralight mb-6">
+            <span className="text-[10px] sm:text-xs text-cyan-400/80 uppercase tracking-[0.2em] sm:tracking-[0.3em] mb-3 sm:mb-4 block">Capabilities</span>
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-extralight mb-4 sm:mb-6 px-2">
               Enterprise-Grade <span className="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">DDI Analysis</span>
             </h2>
-            <p className="text-white/60 max-w-2xl mx-auto font-light">
+            <p className="text-sm sm:text-base text-white/60 max-w-2xl mx-auto font-light px-4">
               Built for clinical decision support with explainable predictions and comprehensive drug coverage
             </p>
           </motion.div>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {features.map((feature, i) => (
               <motion.div
                 key={i}
@@ -597,20 +602,20 @@ export default function LandingPage() {
                 transition={{ delay: i * 0.1 }}
                 viewport={{ once: true }}
                 whileHover={{ y: -5, transition: { duration: 0.2 } }}
-                className="group relative p-6 bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all duration-500 rounded-sm overflow-hidden"
+                className="group relative p-4 sm:p-6 bg-white/[0.03] border border-white/10 hover:border-white/20 transition-all duration-500 rounded-sm overflow-hidden"
               >
                 {/* Gradient overlay on hover */}
                 <div className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-5 transition-opacity duration-500`}></div>
                 
                 {/* Icon */}
-                <div className={`w-12 h-12 rounded-lg bg-gradient-to-br ${feature.color} p-[1px] mb-5`}>
+                <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-lg bg-gradient-to-br ${feature.color} p-[1px] mb-3 sm:mb-5`}>
                   <div className="w-full h-full bg-black rounded-lg flex items-center justify-center">
-                    <feature.icon className="w-5 h-5 text-white/90" />
+                    <feature.icon className="w-4 h-4 sm:w-5 sm:h-5 text-white/90" />
                   </div>
                 </div>
                 
-                <h3 className="text-base font-normal mb-2 text-white">{feature.title}</h3>
-                <p className="text-sm text-white/60 leading-relaxed">{feature.description}</p>
+                <h3 className="text-sm sm:text-base font-normal mb-1 sm:mb-2 text-white">{feature.title}</h3>
+                <p className="text-xs sm:text-sm text-white/60 leading-relaxed">{feature.description}</p>
                 
                 {/* Corner accent */}
                 <div className={`absolute top-0 right-0 w-16 h-16 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 blur-2xl transition-opacity duration-500`}></div>
@@ -621,31 +626,31 @@ export default function LandingPage() {
       </section>
 
       {/* Technology Section */}
-      <section id="technology" className="py-32 relative overflow-hidden">
+      <section id="technology" className="py-16 sm:py-32 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-purple-950/10 to-transparent"></div>
         
-        <div className="max-w-7xl mx-auto px-6 relative">
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 relative">
+          <div className="grid lg:grid-cols-2 gap-8 sm:gap-16 items-center">
             <motion.div
               initial={{ opacity: 0, x: -50 }}
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
             >
-              <span className="text-xs text-purple-400/80 uppercase tracking-[0.3em] mb-4 block">Technology Stack</span>
-              <h2 className="text-4xl font-extralight mb-6">
-                Cutting-Edge <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Architecture</span>
+              <span className="text-[10px] sm:text-xs text-purple-400/80 uppercase tracking-[0.2em] sm:tracking-[0.3em] mb-3 sm:mb-4 block">Technology Stack</span>
+              <h2 className="text-2xl sm:text-4xl font-extralight mb-4 sm:mb-6">
+                Production <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">Architecture</span>
               </h2>
-              <p className="text-white/60 mb-10 leading-relaxed font-light">
-                Our platform combines state-of-the-art graph neural networks with 
+              <p className="text-sm sm:text-base text-white/60 mb-6 sm:mb-10 leading-relaxed font-light">
+                Our platform combines fine-tuned biomedical language models with 
                 retrieval-augmented generation for explainable, evidence-based predictions.
               </p>
 
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {[
-                  { icon: Brain, title: 'GNN Encoder', desc: 'Message Passing Neural Networks for molecular embeddings', color: 'cyan' },
-                  { icon: Database, title: 'Knowledge Graph', desc: 'Neo4j heterogeneous graph with 1M+ relationships', color: 'purple' },
-                  { icon: Lock, title: 'GraphRAG', desc: 'LLM-powered research assistant with citation support', color: 'pink' },
-                  { icon: BarChart3, title: 'XAI Module', desc: 'GNNExplainer for interpretable predictions', color: 'emerald' }
+                  { icon: Brain, title: 'PubMedBERT', desc: 'Fine-tuned transformer for biomedical text understanding', color: 'cyan' },
+                  { icon: Database, title: 'Neo4j Graph', desc: '2,000+ drugs with verified DDI relationships', color: 'purple' },
+                  { icon: Lock, title: 'RAG Pipeline', desc: 'PubMed-powered research with literature citations', color: 'pink' },
+                  { icon: BarChart3, title: 'Cloud Deploy', desc: 'Google Cloud Run with containerized microservices', color: 'emerald' }
                 ].map((item, i) => (
                   <motion.div
                     key={i}
@@ -653,14 +658,14 @@ export default function LandingPage() {
                     whileInView={{ opacity: 1, x: 0 }}
                     transition={{ delay: i * 0.1 }}
                     viewport={{ once: true }}
-                    className="flex items-start gap-4 p-4 bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all rounded-sm group"
+                    className="flex items-start gap-3 sm:gap-4 p-3 sm:p-4 bg-white/[0.02] border border-white/5 hover:border-white/10 transition-all rounded-sm group"
                   >
-                    <div className={`w-10 h-10 rounded-lg bg-${item.color}-500/10 border border-${item.color}-500/20 flex items-center justify-center flex-shrink-0`}>
-                      <item.icon className={`w-5 h-5 text-${item.color}-400`} />
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-lg bg-${item.color}-500/10 border border-${item.color}-500/20 flex items-center justify-center flex-shrink-0`}>
+                      <item.icon className={`w-4 h-4 sm:w-5 sm:h-5 text-${item.color}-400`} />
                     </div>
                     <div>
-                      <h4 className="text-sm font-normal mb-1 text-white/90">{item.title}</h4>
-                      <p className="text-xs text-white/40">{item.desc}</p>
+                      <h4 className="text-xs sm:text-sm font-normal mb-0.5 sm:mb-1 text-white/90">{item.title}</h4>
+                      <p className="text-[10px] sm:text-xs text-white/40">{item.desc}</p>
                     </div>
                   </motion.div>
                 ))}
@@ -727,25 +732,25 @@ export default function LandingPage() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-32 relative">
+      <section className="py-16 sm:py-32 relative">
         <div className="absolute inset-0 bg-gradient-to-t from-cyan-950/20 via-transparent to-transparent"></div>
-        <div className="max-w-4xl mx-auto px-6 text-center relative">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center relative">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
           >
-            <h2 className="text-4xl md:text-5xl font-extralight mb-6">
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-extralight mb-4 sm:mb-6 px-2">
               Ready to <span className="bg-gradient-to-r from-cyan-400 to-purple-400 bg-clip-text text-transparent">Transform</span> Drug Safety?
             </h2>
-            <p className="text-white/60 mb-10 font-light text-lg">
+            <p className="text-sm sm:text-lg text-white/60 mb-6 sm:mb-10 font-light px-4">
               Start exploring our AI-powered platform for clinical decision support
             </p>
             <motion.button 
               whileHover={{ scale: 1.02, boxShadow: '0 0 60px rgba(0, 255, 255, 0.4)' }}
               whileTap={{ scale: 0.98 }}
               onClick={() => navigate('/dashboard')}
-              className="px-12 py-5 bg-gradient-to-r from-cyan-500 to-purple-500 text-black text-sm uppercase tracking-widest font-medium rounded-sm"
+              className="px-8 sm:px-12 py-3 sm:py-5 bg-gradient-to-r from-cyan-500 to-purple-500 text-black text-xs sm:text-sm uppercase tracking-widest font-medium rounded-sm"
             >
               Launch Dashboard
             </motion.button>
@@ -754,17 +759,17 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-12 border-t border-white/10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
-                <GitBranch className="w-4 h-4 text-white/70" />
+      <footer className="py-8 sm:py-12 border-t border-white/10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
+                <GitBranch className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white/70" />
               </div>
-              <span className="text-xs text-white/50 uppercase tracking-widest">Project Aegis © 2025</span>
+              <span className="text-[10px] sm:text-xs text-white/50 uppercase tracking-widest">Project Aegis © 2026</span>
             </div>
-            <div className="flex items-center gap-6">
-              <a href="#" className="text-white/50 hover:text-white transition-colors">
+            <div className="flex items-center gap-4 sm:gap-6">
+              <a href="https://github.com/ahrazkk/ProjectAegis-Clinical-MLOps-Platform" target="_blank" rel="noopener noreferrer" className="text-white/50 hover:text-white transition-colors">
                 <Github className="w-4 h-4" />
               </a>
               <a href="#" className="text-white/50 hover:text-white transition-colors">
@@ -796,7 +801,7 @@ export default function LandingPage() {
               <div className="p-6 border-b border-white/10 flex items-center justify-between">
                 <div>
                   <span className="text-xs text-cyan-400/80 uppercase tracking-[0.2em]">Technical Report</span>
-                  <h3 className="text-xl font-light mt-1">Geometric Deep Learning for DDI Prediction</h3>
+                  <h3 className="text-xl font-light mt-1">Project Aegis: DDI Prediction System</h3>
                 </div>
                 <button 
                   onClick={() => setShowModal(false)}
@@ -806,32 +811,38 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="p-6 overflow-y-auto max-h-[60vh] text-sm">
-                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">1. Introduction</h4>
+                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">1. Problem Statement</h4>
                 <p className="text-white/70 leading-relaxed mb-6">
-                  Adverse drug events from drug-drug interactions (DDIs) represent a significant challenge in 
-                  clinical pharmacology. Our system leverages Graph Neural Networks (GNNs) to model molecules 
-                  as graphs, enabling accurate prediction of novel interactions.
+                  Adverse drug events from drug-drug interactions (DDIs) cause over 195,000 hospitalizations annually
+                  in the US alone. Project Aegis provides real-time DDI prediction to support clinical decision-making.
                 </p>
                 
-                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">2. System Architecture</h4>
+                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">2. Model Architecture</h4>
                 <ul className="text-white/70 space-y-2 mb-6 list-none pl-0">
-                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Data Layer:</strong> DrugBank, PubChem, and TwoSides integration</span></li>
-                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Graph Construction:</strong> Heterogeneous knowledge graphs with drugs, proteins, and side effects</span></li>
-                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">GNN Encoder:</strong> Message Passing Neural Networks for molecular embeddings</span></li>
-                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Prediction Head:</strong> Link prediction decoder for interaction classification</span></li>
+                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Encoder:</strong> PubMedBERT (microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext)</span></li>
+                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Relation Head:</strong> Binary classification with concatenated drug embeddings</span></li>
+                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Training Data:</strong> DDI Corpus 2013 with 1,600+ annotated interactions</span></li>
+                  <li className="flex items-start gap-2"><span className="text-purple-400">→</span> <span><strong className="text-white/90">Knowledge Graph:</strong> Neo4j Aura with 2,000+ drugs</span></li>
                 </ul>
 
-                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">3. Explainability</h4>
+                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">3. Performance</h4>
                 <p className="text-white/70 leading-relaxed mb-6">
-                  We implement GNNExplainer to identify subgraphs responsible for predictions, enabling 
-                  clinicians to understand the molecular basis of flagged interactions.
-                </p>
-
-                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">4. Performance</h4>
-                <p className="text-white/70 leading-relaxed">
-                  Our model achieves <span className="text-emerald-400 font-medium">94.2%</span> accuracy on the DDI benchmark dataset with sub-<span className="text-emerald-400 font-medium">100ms</span> inference time, 
+                  Our model achieves <span className="text-emerald-400 font-medium">92.7% AUC</span> on the DDI Corpus 2013 benchmark with sub-<span className="text-emerald-400 font-medium">200ms</span> inference time, 
                   making it suitable for real-time clinical decision support.
                 </p>
+
+                <h4 className="text-cyan-400 text-xs uppercase tracking-widest mb-3">4. Future Roadmap</h4>
+                <p className="text-white/70 leading-relaxed mb-6">
+                  Planned enhancements include Graph Neural Network (GNN) integration for molecular structure analysis
+                  and multi-drug polypharmacy predictions.
+                </p>
+                
+                <button
+                  onClick={() => { setShowModal(false); navigate('/research'); }}
+                  className="w-full py-3 mt-4 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 border border-white/20 text-white text-xs uppercase tracking-widest hover:from-cyan-500/30 hover:to-purple-500/30 transition-all"
+                >
+                  View Full Research Documentation →
+                </button>
               </div>
             </motion.div>
           </motion.div>

@@ -38,7 +38,13 @@ import {
   BarChart3,
   Lightbulb,
   Sun,
-  Moon
+  Moon,
+  Menu,
+  ChevronUp,
+  ChevronDown,
+  MessageCircle,
+  Home,
+  FlaskConical
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
@@ -100,7 +106,23 @@ export default function Dashboard() {
   const [sessionId, setSessionId] = useState(null);
   const chatEndRef = useRef(null);
 
+  // Mobile State
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileView, setMobileView] = useState('drugs'); // 'drugs' | 'viz' | 'results' | 'chat'
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const [showMobileDrugPanel, setShowMobileDrugPanel] = useState(false);
+
   const debouncedSearch = useDebounce(searchQuery, 300);
+
+  // Detect mobile screen size
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Check API health on mount
   useEffect(() => {
@@ -154,9 +176,11 @@ export default function Dashboard() {
     performSearch();
   }, [debouncedSearch, apiStatus, selectedDrugs]);
 
-  // Scroll chat to bottom
+  // Scroll chat to bottom (only when there are messages)
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length > 0) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   const addDrug = async (drug) => {
@@ -325,6 +349,505 @@ export default function Dashboard() {
     return bodyMap;
   };
 
+  // Mobile Bottom Navigation Component
+  const MobileBottomNav = () => (
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-theme-primary/95 backdrop-blur-md border-t border-theme safe-area-inset-bottom">
+      <div className="flex items-center justify-around h-16">
+        {[
+          { id: 'drugs', icon: Pill, label: 'Drugs' },
+          { id: 'viz', icon: Box, label: 'Visualize' },
+          { id: 'results', icon: Activity, label: 'Results' },
+          { id: 'compare', icon: GitCompare, label: 'Compare+' },
+          { id: 'chat', icon: MessageCircle, label: 'Chat' },
+        ].map((item) => (
+          <button
+            key={item.id}
+            onClick={() => setMobileView(item.id)}
+            className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+              mobileView === item.id
+                ? 'text-theme-accent bg-theme-accent/10'
+                : 'text-theme-muted'
+            }`}
+          >
+            <item.icon className="w-5 h-5 mb-1" />
+            <span className="text-[10px] uppercase tracking-wider">{item.label}</span>
+            {item.id === 'drugs' && selectedDrugs.length > 0 && (
+              <span className="absolute top-2 right-1/2 translate-x-6 w-4 h-4 bg-theme-accent text-theme-primary text-[9px] flex items-center justify-center rounded-full">
+                {selectedDrugs.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+
+  // Mobile Drug Card Component
+  const MobileDrugCard = ({ drug, index, onRemove }) => {
+    const drugInfo = drugInfoCache[drug.name.toLowerCase()];
+    const hasSmiles = drug.has_smiles || (drug.smiles && drug.smiles.length > 5);
+    
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, x: -100 }}
+        className={`p-4 border backdrop-blur-sm ${!hasSmiles ? 'border-risk-medium/30 bg-risk-medium/10' : 'border-theme bg-theme-primary/80'}`}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 border flex items-center justify-center text-xs font-normal uppercase ${
+              !hasSmiles ? 'border-risk-high/50 text-risk-high bg-risk-high/10' : 'border-theme-accent/50 text-theme-accent'
+            }`}>
+              {hasSmiles ? drug.name.substring(0, 2).toUpperCase() : '⚠'}
+            </div>
+            <div>
+              <span className="text-sm font-normal text-theme-primary block">{drug.name}</span>
+              <span className="text-[10px] text-theme-muted uppercase tracking-widest">{drug.category || 'Drug'}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => onRemove(drug.drugbank_id || drug.name)}
+            className="p-2 border border-risk-high/30 text-risk-high"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        
+        {/* Side effects preview */}
+        {drugInfo?.side_effects?.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-theme">
+            <div className="flex flex-wrap gap-1">
+              {drugInfo.side_effects.slice(0, 3).map((effect, j) => (
+                <span key={j} className="px-2 py-1 text-[9px] border border-risk-medium/20 text-risk-medium/70 uppercase">
+                  {effect}
+                </span>
+              ))}
+              {drugInfo.side_effects.length > 3 && (
+                <span className="px-2 py-1 text-[9px] text-theme-muted">+{drugInfo.side_effects.length - 3}</span>
+              )}
+            </div>
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
+  // Mobile Results View
+  const MobileResultsView = () => (
+    <div className="p-4 pb-24 space-y-4">
+      {result ? (
+        <>
+          {/* Risk Card */}
+          <div className={`p-5 border backdrop-blur-sm ${getRiskBgColor(result.risk_level)} relative`}>
+            <div className="flex items-center gap-3 mb-4">
+              {result.severity === 'no_interaction' ? (
+                <Shield className="w-6 h-6 text-risk-low" />
+              ) : (
+                <AlertTriangle className="w-6 h-6" />
+              )}
+              <div>
+                <p className="text-base font-normal uppercase tracking-wider">
+                  {result.severity === 'no_interaction' ? 'No Significant Interaction' : `${result.risk_level || result.severity} Risk`}
+                </p>
+                <p className="text-xs opacity-70 mt-1">
+                  {result.drug_a || selectedDrugs[0]?.name} + {result.drug_b || selectedDrugs[1]?.name}
+                </p>
+              </div>
+            </div>
+            
+            {/* Risk Score Visual */}
+            {result.risk_score !== undefined && (
+              <div className="mb-4">
+                <RiskGauge score={result.risk_score} riskLevel={result.risk_level || result.severity} />
+              </div>
+            )}
+          </div>
+
+          {/* Mechanism */}
+          {result.mechanism_hypothesis && (
+            <div className="p-4 border border-theme bg-theme-primary/80 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Brain className="w-4 h-4 text-theme-accent" />
+                <span className="text-[10px] text-theme-muted uppercase tracking-widest">Mechanism</span>
+              </div>
+              <p className="text-sm text-theme-secondary leading-relaxed">{result.mechanism_hypothesis}</p>
+            </div>
+          )}
+
+          {/* Affected Systems */}
+          {result.affected_systems?.length > 0 && (
+            <div className="p-4 border border-theme bg-theme-primary/80 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-risk-high" />
+                <span className="text-[10px] text-theme-muted uppercase tracking-widest">Affected Systems</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {result.affected_systems.map((sys, i) => (
+                  <span key={i} className="px-3 py-1.5 border border-risk-high/30 bg-risk-high/10 backdrop-blur-sm text-xs text-risk-high uppercase">
+                    {sys.system || sys}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Confidence */}
+          {result.confidence && (
+            <div className="p-4 border border-theme bg-theme-primary/80 backdrop-blur-sm flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-theme-accent" />
+                <span className="text-[10px] text-theme-muted uppercase tracking-widest">Model Confidence</span>
+              </div>
+              <span className="text-lg font-normal text-theme-accent">
+                {(result.confidence * 100).toFixed(1)}%
+              </span>
+            </div>
+          )}
+
+          {/* FDA Evidence */}
+          {interactionEvidence?.faers_data && (
+            <div className="p-4 border border-theme-accent/30 bg-theme-accent/10 backdrop-blur-sm">
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-4 h-4 text-theme-accent" />
+                <span className="text-[10px] text-theme-muted uppercase tracking-widest">FDA Real-World Evidence</span>
+              </div>
+              <div className="text-center py-3">
+                <span className="text-3xl font-mono text-theme-accent">
+                  {interactionEvidence.faers_data.total_reports?.toLocaleString() || '0'}
+                </span>
+                <p className="text-[10px] text-theme-muted uppercase mt-1">Adverse Event Reports</p>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-16 text-center bg-theme-primary/80 backdrop-blur-sm border border-theme">
+          <div className="w-16 h-16 border border-theme flex items-center justify-center mb-4">
+            <Activity className="w-8 h-8 text-theme-dim" />
+          </div>
+          <p className="text-sm text-theme-muted mb-2 uppercase tracking-wider">No Analysis Yet</p>
+          <p className="text-xs text-theme-dim">Select drugs and run analysis</p>
+        </div>
+      )}
+    </div>
+  );
+
+  // Mobile Chat View - rendered inline to prevent input focus issues
+  const mobileChatContent = (
+    <div className="flex flex-col h-[calc(100vh-8rem)]">
+      {/* Under Construction Banner */}
+      <div className="mx-4 mt-4 p-3 border border-risk-medium/40 bg-risk-medium/10 backdrop-blur-sm flex items-center gap-3">
+        <AlertTriangle className="w-5 h-5 text-risk-medium flex-shrink-0" />
+        <div>
+          <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Under Construction</p>
+          <p className="text-[10px] text-theme-muted">AI Chat is still being developed and may not respond correctly</p>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center bg-theme-primary/80 backdrop-blur-sm border border-theme p-6">
+            <Sparkles className="w-8 h-8 text-theme-dim mb-3" />
+            <p className="text-sm text-theme-muted">Ask about drug interactions</p>
+            <p className="text-xs text-theme-dim mt-1">I can help with mechanisms, alternatives, and more</p>
+          </div>
+        ) : (
+          messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[85%] p-3 text-sm leading-relaxed break-words overflow-hidden backdrop-blur-sm ${
+                msg.role === 'user'
+                  ? 'border border-theme-accent/50 bg-theme-accent/10'
+                  : msg.isError
+                    ? 'border border-risk-high/30 bg-risk-high/10 text-risk-high'
+                    : 'border border-theme bg-theme-primary/80'
+              }`}>
+                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+              </div>
+            </div>
+          ))
+        )}
+        {isChatLoading && (
+          <div className="flex justify-start">
+            <div className="border border-theme bg-theme-primary/80 backdrop-blur-sm p-3">
+              <Loader2 className="w-5 h-5 text-theme-accent animate-spin" />
+            </div>
+          </div>
+        )}
+        <div ref={chatEndRef} />
+      </div>
+
+      <form onSubmit={handleChatSubmit} className="fixed bottom-16 left-0 right-0 p-3 border-t border-theme bg-theme-primary/95 backdrop-blur-md z-40">
+        <div className="relative">
+          <input
+            type="text"
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            placeholder="Ask about interactions..."
+            disabled={apiStatus !== 'online' || isChatLoading}
+            className="w-full bg-theme-secondary border border-theme py-3 pl-4 pr-12 text-base font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50"
+          />
+          <button
+            type="submit"
+            disabled={!chatInput.trim() || apiStatus !== 'online' || isChatLoading}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 border border-theme-accent/50 text-theme-accent bg-theme-primary disabled:opacity-30"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+
+  // MOBILE RENDER
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-theme-primary text-theme-primary font-mono">
+        {/* Mobile Header */}
+        <header className="h-14 border-b border-theme bg-theme-primary/95 sticky top-0 z-50 backdrop-blur-md">
+          <div className="h-full px-3 flex items-center justify-between">
+            <button onClick={() => navigate('/')} className="p-2 border border-theme">
+              <ChevronLeft className="w-4 h-4 text-theme-muted" />
+            </button>
+            
+            <div className="flex items-center gap-2">
+              <GitBranch className="w-4 h-4 text-theme-muted" />
+              <span className="text-xs uppercase tracking-widest">DDI Analysis</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${apiStatus === 'online' ? 'bg-risk-low' : 'bg-risk-high'}`} />
+              <button 
+                onClick={() => setViewMode(viewMode === 'stats' ? 'analysis' : 'stats')} 
+                className={`p-2 border ${viewMode === 'stats' ? 'border-theme-accent text-theme-accent' : 'border-theme text-theme-muted'}`}
+              >
+                <BarChart3 className="w-4 h-4" />
+              </button>
+              <button onClick={toggleTheme} className="p-2 border border-theme">
+                {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Mobile Content */}
+        <div className="pb-20">
+          {/* Drugs View */}
+          {mobileView === 'drugs' && (
+            <div className="p-4 space-y-4">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search drugs..."
+                  className="w-full bg-theme-secondary border border-theme py-3 pl-12 pr-4 text-base font-mono placeholder:text-theme-dim focus:outline-none focus:border-theme-accent/50"
+                  disabled={apiStatus !== 'online'}
+                />
+                {isSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-accent animate-spin" />}
+              </div>
+
+              {/* Search Results */}
+              <AnimatePresence>
+                {searchResults.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="border border-theme bg-theme-primary/90 backdrop-blur-md divide-y divide-theme max-h-64 overflow-y-auto"
+                  >
+                    {searchResults.map((drug, i) => (
+                      <button
+                        key={drug.drugbank_id || i}
+                        onClick={() => addDrug(drug)}
+                        disabled={selectedDrugs.length >= 2}
+                        className="w-full flex items-center justify-between p-4 hover:bg-theme-secondary transition-colors disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 border border-theme bg-theme-primary/80 backdrop-blur-sm flex items-center justify-center">
+                            <Pill className="w-5 h-5 text-theme-accent" />
+                          </div>
+                          <div className="text-left">
+                            <span className="text-sm text-theme-primary block">{drug.name}</span>
+                            <span className="text-[10px] text-theme-muted uppercase">{drug.drugbank_id || drug.category}</span>
+                          </div>
+                        </div>
+                        <Plus className="w-5 h-5 text-theme-accent" />
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Selected Drugs Header */}
+              <div className="flex items-center justify-between pt-4">
+                <h2 className="text-[10px] text-theme-muted uppercase tracking-widest">Selected Drugs ({selectedDrugs.length}/2)</h2>
+                {selectedDrugs.length >= 2 && (
+                  <button
+                    onClick={runAnalysis}
+                    disabled={isAnalyzing || apiStatus !== 'online'}
+                    className={`flex items-center gap-2 px-4 py-2 border text-xs uppercase tracking-widest backdrop-blur-sm ${
+                      isAnalyzing ? 'border-theme-accent/50 text-theme-accent bg-theme-accent/10 animate-pulse' : 'border-theme-accent text-theme-accent bg-theme-accent/5'
+                    }`}
+                  >
+                    {isAnalyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                    {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+                  </button>
+                )}
+              </div>
+
+              {/* Warning for 2 drug limit */}
+              {selectedDrugs.length >= 2 && (
+                <div className="p-3 border border-risk-medium/30 bg-risk-medium/10 backdrop-blur-sm">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-risk-medium">Analysis limited to 2 drugs</p>
+                      <p className="text-[10px] text-theme-muted mt-1">For 3+ drugs, use the <span className="text-theme-accent">Compare+</span> tab in the bottom navigation</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Selected Drugs List */}
+              {selectedDrugs.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-theme bg-theme-primary/60 backdrop-blur-sm">
+                  <Beaker className="w-10 h-10 text-theme-dim mb-4" />
+                  <p className="text-sm text-theme-muted uppercase tracking-wider">No drugs selected</p>
+                  <p className="text-xs text-theme-dim mt-1">Search and add drugs above</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <AnimatePresence mode="popLayout">
+                    {selectedDrugs.map((drug, i) => (
+                      <MobileDrugCard key={drug.drugbank_id || drug.name} drug={drug} index={i} onRemove={removeDrug} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+
+              {selectedDrugs.length === 1 && (
+                <div className="p-4 border border-theme-accent/30 bg-theme-accent/10 backdrop-blur-sm text-center">
+                  <p className="text-xs text-theme-accent">Add 1 more drug to analyze interactions</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Visualization View */}
+          {mobileView === 'viz' && (
+            <div className="h-[calc(100vh-8rem)] overflow-hidden">
+              {/* Mobile Viz Tabs */}
+              <div className="flex border-b border-theme bg-theme-primary/90 backdrop-blur-md overflow-x-auto scrollbar-hide">
+                {[
+                  { id: 'molecules2d', label: '2D', icon: Hexagon },
+                  { id: 'molecules', label: '3D', icon: Box },
+                  { id: 'graph', label: 'Graph', icon: Network },
+                  { id: 'body', label: 'Body', icon: Heart },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-4 py-3 text-[10px] uppercase tracking-widest whitespace-nowrap ${
+                      activeTab === tab.id ? 'text-theme-accent border-b-2 border-theme-accent bg-theme-accent/10' : 'text-theme-muted'
+                    }`}
+                  >
+                    <tab.icon className="w-4 h-4" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Viz Content */}
+              <div className="h-[calc(100%-3rem)] overflow-hidden">
+                {selectedDrugs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-theme-primary/80 backdrop-blur-sm m-4 border border-theme">
+                    <Microscope className="w-12 h-12 text-theme-dim mb-4" />
+                    <p className="text-sm text-theme-muted uppercase tracking-wider">No Molecules</p>
+                    <p className="text-xs text-theme-dim mt-1">Add drugs to visualize structures</p>
+                  </div>
+                ) : (
+                  <div className="h-full w-full overflow-hidden">
+                    {activeTab === 'molecules2d' && <MoleculeViewer2D drugs={selectedDrugs} result={result} isMobile={true} />}
+                    {activeTab === 'molecules' && (
+                      <div className="h-full relative">
+                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">3D Viewer Under Construction</p>
+                        </div>
+                        <MoleculeViewer drugs={selectedDrugs} result={result} isMobile={true} />
+                      </div>
+                    )}
+                    {activeTab === 'graph' && (
+                      <div className="h-full relative">
+                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">Knowledge Graph Under Construction</p>
+                        </div>
+                        <KnowledgeGraphView drugs={selectedDrugs} result={result} polypharmacyResult={polypharmacyResult} isMobile={true} />
+                      </div>
+                    )}
+                    {activeTab === 'body' && (
+                      <div className="h-full relative">
+                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">Body Map Under Construction</p>
+                        </div>
+                        <BodyMapVisualization affectedSystems={getBodyMapData()} result={result} isMobile={true} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Results View */}
+          {mobileView === 'results' && <MobileResultsView />}
+
+          {/* Compare View */}
+          {mobileView === 'compare' && (
+            <div className="p-4 pb-24">
+              {selectedDrugs.length >= 2 ? (
+                <DrugComparison drugs={selectedDrugs} drugInfoCache={drugInfoCache} isMobile={true} />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <GitCompare className="w-12 h-12 text-theme-dim mb-4" />
+                  <p className="text-sm text-theme-muted uppercase tracking-wider">Compare Drugs</p>
+                  <p className="text-xs text-theme-dim mt-1">Select 2+ drugs to compare properties</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Stats View (accessible from header button) */}
+          {viewMode === 'stats' && (
+            <div className="fixed inset-0 z-40 bg-theme-primary/95 backdrop-blur-md pt-14 pb-20 overflow-y-auto">
+              <div className="p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-sm uppercase tracking-widest">System Statistics</h2>
+                  <button onClick={() => setViewMode('analysis')} className="p-2 border border-theme">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <StatsDashboard />
+              </div>
+            </div>
+          )}
+
+          {/* Chat View */}
+          {mobileView === 'chat' && mobileChatContent}
+        </div>
+
+        {/* Mobile Bottom Navigation */}
+        <MobileBottomNav />
+      </div>
+    );
+  }
+
+  // DESKTOP RENDER
   return (
     <div className="min-h-screen bg-theme-primary text-theme-primary font-mono relative transition-colors duration-300">
       {/* Top Navigation */}
@@ -442,17 +965,19 @@ export default function Dashboard() {
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute left-4 right-4 mt-2 bg-theme-primary border border-theme shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto"
+                  className="absolute left-4 right-4 mt-2 bg-theme-primary/95 backdrop-blur-md border border-theme shadow-2xl overflow-hidden z-50 max-h-64 overflow-y-auto"
                 >
                   {searchResults.map((drug, i) => {
                     const hasSmiles = drug.has_smiles || (drug.smiles && drug.smiles.length > 5);
+                    const canAdd = selectedDrugs.length < 2;
                     return (
                     <button
                       key={drug.drugbank_id || i}
-                      onClick={() => addDrug(drug)}
-                      className={`w-full flex items-center justify-between p-3 hover:bg-theme-secondary transition-colors border-b border-theme last:border-0 ${
+                      onClick={() => canAdd && addDrug(drug)}
+                      disabled={!canAdd}
+                      className={`w-full flex items-center justify-between p-3 transition-colors border-b border-theme last:border-0 ${
                         !hasSmiles ? 'opacity-70' : ''
-                      }`}
+                      } ${canAdd ? 'hover:bg-theme-secondary cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 border flex items-center justify-center ${
@@ -480,7 +1005,11 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </div>
-                      <Plus className={`w-4 h-4 ${hasSmiles ? 'text-theme-accent' : 'text-theme-muted'}`} />
+                      {canAdd ? (
+                        <Plus className={`w-4 h-4 ${hasSmiles ? 'text-theme-accent' : 'text-theme-muted'}`} />
+                      ) : (
+                        <span className="text-[8px] text-risk-medium uppercase">Limit</span>
+                      )}
                     </button>
                   )})}
                 </motion.div>
@@ -499,13 +1028,32 @@ export default function Dashboard() {
                 API offline - search unavailable
               </div>
             )}
+
+            {/* 2-Drug Limit Warning */}
+            {selectedDrugs.length >= 2 && (
+              <div className="mt-3 p-3 bg-theme-primary/90 backdrop-blur-sm border border-risk-medium/40 text-center">
+                <div className="flex items-center justify-center gap-2 text-risk-medium mb-1">
+                  <AlertTriangle className="w-4 h-4" />
+                  <span className="text-xs font-medium uppercase tracking-wider">Analysis Limited to 2 Drugs</span>
+                </div>
+                <p className="text-[10px] text-theme-muted">
+                  For 3+ drugs, use the{' '}
+                  <button 
+                    onClick={() => setActiveSection('compare')}
+                    className="text-theme-accent hover:underline"
+                  >
+                    Compare+ tab
+                  </button>
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Selected Drugs */}
           <div className="flex-1 overflow-y-auto p-4 space-y-2">
             {selectedDrugs.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                <div className="w-14 h-14 border border-theme flex items-center justify-center mb-4">
+              <div className="flex flex-col items-center justify-center h-full text-center p-6 bg-theme-panel/60 backdrop-blur-sm">
+                <div className="w-14 h-14 border border-theme bg-theme-panel/80 backdrop-blur-sm flex items-center justify-center mb-4">
                   <Beaker className="w-6 h-6 text-theme-dim" />
                 </div>
                 <p className="text-xs text-theme-muted mb-2 uppercase tracking-wider">No drugs selected</p>
@@ -523,8 +1071,8 @@ export default function Dashboard() {
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  className={`group p-3 border transition-all hover:border-theme-highlight relative ${
-                    !hasSmiles ? 'border-risk-medium/30 bg-risk-medium/5' : 'border-theme'
+                  className={`group p-3 border transition-all hover:border-theme-highlight relative bg-theme-panel/80 backdrop-blur-sm ${
+                    !hasSmiles ? 'border-risk-medium/30' : 'border-theme'
                   }`}
                 >
                   <div className={`absolute -top-px -left-px w-2 h-2 border-t border-l ${!hasSmiles ? 'border-risk-medium' : 'border-theme'}`}></div>
@@ -693,7 +1241,7 @@ export default function Dashboard() {
                 </p>
               </div>
             ) : (
-              <>
+              <>  
                 {activeTab === 'molecules2d' && (
                   <MoleculeViewer2D
                     drugs={selectedDrugs}
@@ -701,23 +1249,50 @@ export default function Dashboard() {
                   />
                 )}
                 {activeTab === 'molecules' && (
-                  <MoleculeViewer
-                    drugs={selectedDrugs}
-                    result={result}
-                  />
+                  <div className="h-full relative">
+                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
+                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">3D Viewer Under Construction</p>
+                        <p className="text-[10px] text-theme-muted">Molecular structures may not render correctly</p>
+                      </div>
+                    </div>
+                    <MoleculeViewer
+                      drugs={selectedDrugs}
+                      result={result}
+                    />
+                  </div>
                 )}
                 {activeTab === 'graph' && (
-                  <KnowledgeGraphView
-                    drugs={selectedDrugs}
-                    result={result}
-                    polypharmacyResult={polypharmacyResult}
-                  />
+                  <div className="h-full relative">
+                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
+                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Knowledge Graph Under Construction</p>
+                        <p className="text-[10px] text-theme-muted">Graph visualization is still being developed</p>
+                      </div>
+                    </div>
+                    <KnowledgeGraphView
+                      drugs={selectedDrugs}
+                      result={result}
+                      polypharmacyResult={polypharmacyResult}
+                    />
+                  </div>
                 )}
                 {activeTab === 'body' && (
-                  <BodyMapVisualization
-                    affectedSystems={getBodyMapData()}
-                    result={result}
-                  />
+                  <div className="h-full relative">
+                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
+                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
+                      <div>
+                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Body Map Under Construction</p>
+                        <p className="text-[10px] text-theme-muted">Body visualization is still being developed</p>
+                      </div>
+                    </div>
+                    <BodyMapVisualization
+                      affectedSystems={getBodyMapData()}
+                      result={result}
+                    />
+                  </div>
                 )}
               </>
             )}
@@ -1106,7 +1681,10 @@ export default function Dashboard() {
           {/* Chat Section */}
           <div className="h-80 border-t border-theme flex flex-col">
             <div className="p-3 border-b border-theme flex items-center justify-between">
-              <h3 className="text-[10px] font-normal text-theme-muted uppercase tracking-widest">// Research Assistant</h3>
+              <div className="flex items-center gap-3">
+                <h3 className="text-[10px] font-normal text-theme-muted uppercase tracking-widest">// Research Assistant</h3>
+                <span className="px-2 py-0.5 border border-risk-medium/40 bg-risk-medium/10 text-risk-medium text-[8px] uppercase tracking-wider">Under Construction</span>
+              </div>
               {messages.length > 0 && (
                 <button
                   onClick={() => setMessages([])}

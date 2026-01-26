@@ -202,7 +202,7 @@ function InfoPanel({ system, data, severity }) {
   );
 }
 
-export default function BodyMapVisualization({ affectedSystems = {}, result }) {
+export default function BodyMapVisualization({ affectedSystems = {}, result, isMobile = false }) {
   const [hoveredSystem, setHoveredSystem] = useState(null);
 
   const hasAnyAffectedSystem = Object.values(affectedSystems).some(v => v > 0);
@@ -216,7 +216,7 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
       <div className="relative">
         <svg
           viewBox="0 0 200 500"
-          className="w-auto h-[70vh] max-h-[600px]"
+          className={`w-auto ${isMobile ? 'h-[50vh] max-h-[400px]' : 'h-[70vh] max-h-[600px]'}`}
           style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.5))' }}
         >
           {/* Definitions for gradients and filters */}
@@ -274,24 +274,24 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
         </AnimatePresence>
       </div>
 
-      {/* Legend */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-6">
-        <div className="flex items-center gap-4 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-slate-500" />
-            <span className="text-xs text-theme-muted">Normal</span>
+      {/* Legend - simplified for mobile */}
+      <div className={`absolute ${isMobile ? 'bottom-2 left-2 right-2' : 'bottom-6 left-1/2 -translate-x-1/2'} flex items-center justify-center`}>
+        <div className={`flex items-center ${isMobile ? 'gap-2' : 'gap-4'} px-3 py-1.5 bg-theme-panel backdrop-blur-sm rounded-xl border border-theme`}>
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-slate-500" />
+            <span className={`${isMobile ? 'text-[9px]' : 'text-xs'} text-theme-muted`}>Normal</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-yellow-500" />
-            <span className="text-xs text-theme-muted">Mild</span>
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-yellow-500" />
+            <span className={`${isMobile ? 'text-[9px]' : 'text-xs'} text-theme-muted`}>Mild</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-orange-500" />
-            <span className="text-xs text-theme-muted">Moderate</span>
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-orange-500" />
+            <span className={`${isMobile ? 'text-[9px]' : 'text-xs'} text-theme-muted`}>Mod</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs text-theme-muted">Severe</span>
+          <div className="flex items-center gap-1">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className={`${isMobile ? 'text-[9px]' : 'text-xs'} text-theme-muted`}>Severe</span>
           </div>
         </div>
       </div>
@@ -300,8 +300,8 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
       {!hasAnyAffectedSystem && !result && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center">
-            <Info className="w-12 h-12 text-theme-dim mx-auto mb-4" />
-            <p className="text-sm text-theme-muted">Run analysis to see affected body systems</p>
+            <Info className={`${isMobile ? 'w-8 h-8' : 'w-12 h-12'} text-theme-dim mx-auto mb-4`} />
+            <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-theme-muted`}>Run analysis to see affected body systems</p>
           </div>
         </div>
       )}
@@ -309,22 +309,29 @@ export default function BodyMapVisualization({ affectedSystems = {}, result }) {
       {/* No interaction overlay */}
       {result?.severity === 'no_interaction' && (
         <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center px-6 py-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
-            <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className={`text-center px-4 py-3 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl ${isMobile ? 'mx-4' : ''}`}>
+            <div className={`${isMobile ? 'w-10 h-10' : 'w-12 h-12'} rounded-full bg-emerald-500/20 flex items-center justify-center mx-auto mb-3`}>
+              <svg className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-emerald-500`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <p className="text-sm text-emerald-600 font-medium">No Significant Effects</p>
-            <p className="text-xs text-theme-muted mt-1">No organ systems are expected to be affected</p>
+            <p className={`${isMobile ? 'text-xs' : 'text-sm'} text-emerald-600 font-medium`}>No Significant Effects</p>
+            <p className={`${isMobile ? 'text-[10px]' : 'text-xs'} text-theme-muted mt-1`}>No organ systems are expected to be affected</p>
           </div>
         </div>
       )}
 
       {/* Hover instruction */}
-      {hasAnyAffectedSystem && (
+      {hasAnyAffectedSystem && !isMobile && (
         <div className="absolute top-6 left-1/2 -translate-x-1/2 px-4 py-2 bg-theme-panel backdrop-blur-sm rounded-lg border border-theme text-xs text-theme-muted">
           Hover over highlighted organs for details
+        </div>
+      )}
+
+      {/* Mobile tap instruction */}
+      {hasAnyAffectedSystem && isMobile && (
+        <div className="absolute top-2 left-2 right-2 px-3 py-1.5 bg-theme-panel/90 backdrop-blur-sm rounded-lg border border-theme text-[10px] text-theme-muted text-center">
+          Tap organs for details
         </div>
       )}
     </div>

@@ -220,7 +220,7 @@ const InteractionArrow = ({ riskLevel, className = '' }) => {
 };
 
 // Main 2D Viewer Component
-export default function MoleculeViewer2D({ drugs = [], result }) {
+export default function MoleculeViewer2D({ drugs = [], result, isMobile = false }) {
   const hasResult = result && result.severity !== 'no_interaction';
   const riskLevel = result?.risk_level || 'low';
 
@@ -245,15 +245,15 @@ export default function MoleculeViewer2D({ drugs = [], result }) {
     );
   }
 
-  // Calculate canvas size based on number of drugs
-  const canvasWidth = drugs.length === 1 ? 400 : 320;
-  const canvasHeight = 280;
+  // Mobile-responsive canvas sizes
+  const canvasWidth = isMobile ? (drugs.length === 1 ? 280 : 160) : (drugs.length === 1 ? 400 : 320);
+  const canvasHeight = isMobile ? 200 : 280;
 
   return (
-    <div className="w-full h-full relative flex flex-col">
+    <div className="w-full h-full relative flex flex-col overflow-hidden">
       {/* Main visualization area */}
-      <div className="flex-1 flex items-center justify-center p-8">
-        <div className={`flex items-center justify-center gap-4 ${drugs.length > 2 ? 'flex-wrap' : ''}`}>
+      <div className={`flex-1 flex items-center justify-center ${isMobile ? 'p-2' : 'p-8'} overflow-hidden`}>
+        <div className={`flex items-center justify-center ${isMobile ? 'gap-1 flex-wrap' : 'gap-4'} ${drugs.length > 2 ? 'flex-wrap' : ''}`}>
           {drugs.map((drug, index) => (
             <React.Fragment key={drug.drugbank_id || drug.name || index}>
               <MoleculeCanvas
@@ -269,7 +269,7 @@ export default function MoleculeViewer2D({ drugs = [], result }) {
               {index < drugs.length - 1 && drugs.length === 2 && (
                 <InteractionArrow
                   riskLevel={hasResult ? riskLevel : 'low'}
-                  className={hasResult ? 'opacity-100' : 'opacity-30'}
+                  className={`${hasResult ? 'opacity-100' : 'opacity-30'} ${isMobile ? 'scale-75' : ''}`}
                 />
               )}
             </React.Fragment>
@@ -278,7 +278,7 @@ export default function MoleculeViewer2D({ drugs = [], result }) {
       </div>
 
       {/* Polypharmacy grid for 3+ drugs */}
-      {drugs.length > 2 && hasResult && (
+      {drugs.length > 2 && hasResult && !isMobile && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2">
           <div className="px-4 py-2 bg-slate-800/80 backdrop-blur-sm rounded-xl border border-white/10">
             <p className="text-sm text-slate-300 text-center">
@@ -289,31 +289,33 @@ export default function MoleculeViewer2D({ drugs = [], result }) {
         </div>
       )}
 
-      {/* Legend */}
-      <div className="absolute bottom-4 left-4 flex items-center gap-2.5">
-        {[
-          { color: '#F87171', label: 'Oxygen (O)' },
-          { color: '#60A5FA', label: 'Nitrogen (N)' },
-          { color: '#FBBF24', label: 'Sulfur (S)' },
-        ].map(({ color, label }) => (
-          <div
-            key={label}
-            className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
-          >
-            <span className="text-sm font-bold" style={{ color }}>{label.split(' ')[1]}</span>
-            <span className="text-xs text-slate-500">{label.split(' ')[0]}</span>
+      {/* Legend - hidden on mobile */}
+      {!isMobile && (
+        <div className="absolute bottom-4 left-4 flex items-center gap-2.5">
+          {[
+            { color: '#F87171', label: 'Oxygen (O)' },
+            { color: '#60A5FA', label: 'Nitrogen (N)' },
+            { color: '#FBBF24', label: 'Sulfur (S)' },
+          ].map(({ color, label }) => (
+            <div
+              key={label}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
+            >
+              <span className="text-sm font-bold" style={{ color }}>{label.split(' ')[1]}</span>
+              <span className="text-xs text-slate-500">{label.split(' ')[0]}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5">
+            <span className="text-sm text-slate-400">—</span>
+            <span className="text-xs text-slate-500">C-C bonds (carbons hidden)</span>
           </div>
-        ))}
-        <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5">
-          <span className="text-sm text-slate-400">—</span>
-          <span className="text-xs text-slate-500">C-C bonds (carbons hidden)</span>
         </div>
-      </div>
+      )}
 
       {/* View mode indicator */}
-      <div className="absolute top-4 right-4 px-3 py-1.5 bg-blue-500/10 backdrop-blur-sm rounded-lg border border-blue-500/20">
-        <p className="text-xs text-blue-400 font-medium flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className={`absolute ${isMobile ? 'top-2 right-2' : 'top-4 right-4'} px-2 py-1 bg-blue-500/10 backdrop-blur-sm rounded-lg border border-blue-500/20`}>
+        <p className={`${isMobile ? 'text-[10px]' : 'text-xs'} text-blue-400 font-medium flex items-center gap-1`}>
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
             />
@@ -322,10 +324,10 @@ export default function MoleculeViewer2D({ drugs = [], result }) {
         </p>
       </div>
 
-      {/* Controls hint */}
-      <div className="absolute bottom-4 right-4 px-4 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5">
-        <p className="text-xs text-slate-500">
-          Standard organic chemistry notation • Hydrogens implicit
+      {/* Controls hint - simplified for mobile */}
+      <div className={`absolute ${isMobile ? 'bottom-2 right-2 left-2' : 'bottom-4 right-4'} px-3 py-1.5 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5`}>
+        <p className={`${isMobile ? 'text-[9px] text-center' : 'text-xs'} text-slate-500`}>
+          {isMobile ? 'Organic chemistry notation' : 'Standard organic chemistry notation • Hydrogens implicit'}
         </p>
       </div>
     </div>

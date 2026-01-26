@@ -151,7 +151,7 @@ function DrugInfoCard({ drug, onRemove, index }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ delay: index * 0.05, duration: 0.3 }}
-      className={`relative overflow-hidden bg-theme-panel border ${color.border}`}
+      className={`relative overflow-hidden bg-theme-panel/90 backdrop-blur-sm border ${color.border}`}
     >
       {/* Accent line top */}
       <div className={`h-0.5 ${color.accent}`} />
@@ -251,7 +251,7 @@ function InteractionDetail({ interaction, index }) {
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05 }}
-      className={`p-3 bg-theme-secondary border ${config.border}`}
+      className={`p-3 bg-theme-secondary/90 backdrop-blur-sm border ${config.border}`}
     >
       <div className="flex items-center gap-3 mb-2">
         <div className="flex items-center gap-2 flex-1">
@@ -304,7 +304,7 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-full mt-1 left-0 right-0 max-h-60 overflow-y-auto bg-theme-panel border border-theme z-50"
+            className="absolute top-full mt-1 left-0 right-0 max-h-60 overflow-y-auto bg-theme-panel/95 backdrop-blur-md border border-theme z-50"
           >
             {results.map((drug, i) => (
               <button
@@ -333,8 +333,10 @@ function SearchInput({ value, onChange, onSelect, results, isSearching, onClose 
 }
 
 // Main Drug Comparison Component
-export default function DrugComparison({ initialDrugs = [], onClose }) {
-  const [selectedDrugs, setSelectedDrugs] = useState(initialDrugs.map(d => d.name || d));
+export default function DrugComparison({ initialDrugs = [], onClose, drugs = [], drugInfoCache = {}, isMobile = false }) {
+  // Use passed drugs if initialDrugs not provided
+  const startingDrugs = initialDrugs.length > 0 ? initialDrugs : drugs;
+  const [selectedDrugs, setSelectedDrugs] = useState(startingDrugs.map(d => d.name || d));
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -524,7 +526,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="p-4 bg-theme-panel border border-theme"
+              className="p-4 bg-theme-panel/90 backdrop-blur-sm border border-theme"
             >
               <div className="flex items-center gap-2 mb-4">
                 <Layers size={14} className="text-fui-accent-purple" />
@@ -601,7 +603,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="p-4 bg-theme-panel border border-theme"
+              className="p-4 bg-theme-panel/90 backdrop-blur-sm border border-theme"
             >
               <div className="flex items-center gap-2 mb-4">
                 <AlertTriangle size={14} className="text-fui-accent-orange" />
@@ -626,7 +628,7 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="p-6 bg-fui-accent-green/10 border border-fui-accent-green/30 text-center"
+              className="p-6 bg-fui-accent-green/10 backdrop-blur-sm border border-fui-accent-green/30 text-center"
             >
               <CheckCircle className="text-fui-accent-green mx-auto mb-3" size={36} strokeWidth={1.5} />
               <h3 className="text-sm font-medium text-theme-primary mb-1 uppercase tracking-widest">No Interactions Detected</h3>
@@ -643,9 +645,9 @@ export default function DrugComparison({ initialDrugs = [], onClose }) {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="text-center py-12"
+          className="text-center py-12 bg-theme-panel/60 backdrop-blur-sm"
         >
-          <div className="w-16 h-16 mx-auto mb-4 border border-fui-gray-500/30 flex items-center justify-center">
+          <div className="w-16 h-16 mx-auto mb-4 border border-fui-gray-500/30 bg-theme-panel/80 backdrop-blur-sm flex items-center justify-center">
             <GitCompare size={32} className="text-fui-gray-600" strokeWidth={1.5} />
           </div>
           <h3 className="text-sm font-medium text-fui-gray-300 mb-1 uppercase tracking-widest">Select drugs to compare</h3>

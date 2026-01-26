@@ -196,41 +196,41 @@ const FracturedGlassOverlay = ({ mousePos, isActive }) => {
 const features = [
   {
     icon: Brain,
-    title: 'Graph Neural Networks',
-    description: 'Advanced GNN architecture processes molecular graphs to predict interactions with 94% accuracy'
+    title: 'PubMedBERT Encoder',
+    description: 'Fine-tuned biomedical BERT model processes drug pair contexts with 92.7% AUC on DDI prediction'
   },
   {
     icon: Network,
     title: 'Knowledge Graph Integration',
-    description: 'Neo4j-powered knowledge graph connects drugs, proteins, pathways, and literature'
+    description: 'Neo4j-powered graph with 2,000+ drugs and 1,600+ verified interactions from DDI Corpus 2013'
   },
   {
     icon: Shield,
-    title: 'Explainable AI',
-    description: 'GNNExplainer identifies substructures responsible for predicted interactions'
+    title: 'Evidence-Based Explanations',
+    description: 'RAG-powered citations from PubMed literature provide clinical context for predictions'
   },
   {
     icon: Zap,
     title: 'Real-time Analysis',
-    description: 'Sub-second predictions powered by optimized PyTorch models'
+    description: 'Sub-second predictions powered by optimized PyTorch models deployed on Google Cloud Run'
   },
   {
     icon: Activity,
-    title: 'Multi-drug Analysis',
-    description: 'Analyze polypharmacy scenarios with N-way interaction detection'
+    title: 'Therapeutic Classification',
+    description: 'Automatic drug categorization with 60%+ coverage for clinical decision support'
   },
   {
     icon: Database,
-    title: 'Comprehensive Database',
-    description: 'Integrated DrugBank, PubChem, and TwoSides datasets'
+    title: 'Future: Graph Neural Networks',
+    description: 'Roadmap includes GNN architecture for molecular graph processing and enhanced accuracy'
   }
 ];
 
 const stats = [
-  { value: '500K+', label: 'Drug Pairs Analyzed' },
-  { value: '94.2%', label: 'Model Accuracy' },
-  { value: '<100ms', label: 'Prediction Time' },
-  { value: '86+', label: 'Interaction Types' }
+  { value: '2,000+', label: 'Drugs in Database' },
+  { value: '92.7%', label: 'Model AUC Score' },
+  { value: '<200ms', label: 'Prediction Time' },
+  { value: '1,600+', label: 'Verified Interactions' }
 ];
 
 export default function LandingPage() {
@@ -336,7 +336,7 @@ export default function LandingPage() {
           >
             <div className="inline-flex items-center gap-2 px-4 py-2 border border-fui-gray-500/50 mb-8">
               <Sparkles className="w-4 h-4 text-fui-gray-400" />
-              <span className="text-xs text-fui-gray-400 uppercase tracking-widest">Powered by Graph Neural Networks</span>
+              <span className="text-xs text-fui-gray-400 uppercase tracking-widest">Powered by PubMedBERT & Knowledge Graphs</span>
             </div>
 
             <h1 className="text-4xl md:text-6xl font-light leading-tight mb-6 tracking-wide">
@@ -350,8 +350,8 @@ export default function LandingPage() {
             </h1>
 
             <p className="text-sm text-fui-gray-400 max-w-2xl mx-auto mb-10 leading-relaxed tracking-wide">
-              Advanced AI-powered platform for predicting drug-drug interactions using 
-              geometric deep learning and heterogeneous knowledge graphs.
+              AI-powered platform for predicting drug-drug interactions using 
+              fine-tuned biomedical language models and Neo4j knowledge graphs.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -479,19 +479,19 @@ export default function LandingPage() {
             >
               <span className="text-[10px] text-fui-accent-cyan uppercase tracking-[0.3em] mb-4 block">// Technology Stack</span>
               <h2 className="text-3xl font-light mb-6 tracking-wide">
-                Cutting-Edge Architecture
+                Production Architecture
               </h2>
               <p className="text-sm text-fui-gray-400 mb-8 leading-relaxed tracking-wide">
-                Our platform combines state-of-the-art graph neural networks with 
+                Our platform combines fine-tuned biomedical language models with 
                 retrieval-augmented generation for explainable, evidence-based predictions.
               </p>
 
               <div className="space-y-3">
                 {[
-                  { icon: Brain, title: 'GNN Encoder', desc: 'Message Passing Neural Networks for molecular embeddings' },
-                  { icon: Database, title: 'Knowledge Graph', desc: 'Neo4j heterogeneous graph with 1M+ relationships' },
-                  { icon: Lock, title: 'GraphRAG', desc: 'LLM-powered research assistant with citation support' },
-                  { icon: BarChart3, title: 'XAI Module', desc: 'GNNExplainer for interpretable predictions' }
+                  { icon: Brain, title: 'PubMedBERT', desc: 'Fine-tuned transformer model for biomedical text understanding' },
+                  { icon: Database, title: 'Neo4j Knowledge Graph', desc: 'Graph database with 2,000+ drugs and verified DDI relationships' },
+                  { icon: Lock, title: 'RAG Pipeline', desc: 'PubMed-powered research assistant with literature citations' },
+                  { icon: BarChart3, title: 'Cloud Deployment', desc: 'Google Cloud Run with containerized microservices' }
                 ].map((item, i) => (
                   <motion.div
                     key={i}
@@ -538,7 +538,7 @@ export default function LandingPage() {
                   <span className="text-[10px] font-normal text-fui-gray-400 uppercase tracking-wider">Drug B</span>
                 </div>
                 <div className="absolute bottom-1/3 left-1/2 -translate-x-1/2 w-20 h-20 border border-fui-accent-cyan/50 flex items-center justify-center bg-black" style={{ boxShadow: '0 0 20px rgba(0,255,255,0.1)' }}>
-                  <span className="text-[10px] font-normal text-fui-accent-cyan text-center uppercase tracking-wider">GNN<br/>Model</span>
+                  <span className="text-[10px] font-normal text-fui-accent-cyan text-center uppercase tracking-wider">BERT<br/>Model</span>
                 </div>
                 <div className="absolute bottom-[15%] left-1/2 -translate-x-1/2 px-4 py-2 border border-fui-accent-green/50 bg-black" style={{ boxShadow: '0 0 15px rgba(0,255,136,0.1)' }}>
                   <span className="text-[10px] font-normal text-fui-accent-green uppercase tracking-wider">Prediction</span>
@@ -591,7 +591,7 @@ export default function LandingPage() {
               <div className="w-8 h-8 border border-fui-gray-500 flex items-center justify-center">
                 <GitBranch className="w-4 h-4 text-fui-gray-400" />
               </div>
-              <span className="text-xs text-fui-gray-500 uppercase tracking-widest">Project Aegis © 2025</span>
+              <span className="text-xs text-fui-gray-500 uppercase tracking-widest">Project Aegis © 2026</span>
             </div>
             <div className="flex items-center gap-6">
               <a href="#" className="text-fui-gray-500 hover:text-fui-accent-cyan transition-colors">
@@ -630,7 +630,7 @@ export default function LandingPage() {
               <div className="p-6 border-b border-fui-gray-500/30 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] text-fui-accent-cyan uppercase tracking-[0.2em]">// Technical Report</span>
-                  <h3 className="text-lg font-normal mt-1 tracking-wide">Geometric Deep Learning for DDI Prediction</h3>
+                  <h3 className="text-lg font-normal mt-1 tracking-wide">Project Aegis: DDI Prediction System</h3>
                 </div>
                 <button 
                   onClick={() => setShowModal(false)}
@@ -640,31 +640,61 @@ export default function LandingPage() {
                 </button>
               </div>
               <div className="p-6 overflow-y-auto max-h-[60vh] prose-invert text-sm">
-                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">1. Introduction</h4>
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">1. Problem Statement</h4>
                 <p className="text-fui-gray-400 leading-relaxed mb-6">
-                  Adverse drug events from drug-drug interactions (DDIs) represent a significant challenge in 
-                  clinical pharmacology. Our system leverages Graph Neural Networks (GNNs) to model molecules 
-                  as graphs, enabling accurate prediction of novel interactions.
+                  Adverse drug events from drug-drug interactions (DDIs) cause over 195,000 hospitalizations annually 
+                  in the US alone. Project Aegis provides real-time DDI prediction to support clinical decision-making 
+                  using state-of-the-art NLP and knowledge graph technologies.
                 </p>
                 
-                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">2. System Architecture</h4>
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">2. Model Architecture</h4>
                 <ul className="text-fui-gray-400 space-y-2 mb-6 list-none pl-0">
-                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Data Layer:</strong> DrugBank, PubChem, and TwoSides integration</span></li>
-                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Graph Construction:</strong> Heterogeneous knowledge graphs with drugs, proteins, and side effects</span></li>
-                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">GNN Encoder:</strong> Message Passing Neural Networks for molecular embeddings</span></li>
-                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Prediction Head:</strong> Link prediction decoder for interaction classification</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Encoder:</strong> PubMedBERT (microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext)</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Relation Head:</strong> Binary classification with concatenated drug embeddings</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Auxiliary Task:</strong> Named Entity Recognition (NER) for regularization</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Training Data:</strong> DDI Corpus 2013 with 1,600+ annotated interactions</span></li>
                 </ul>
 
-                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">3. Explainability</h4>
-                <p className="text-fui-gray-400 leading-relaxed mb-6">
-                  We implement GNNExplainer to identify subgraphs responsible for predictions, enabling 
-                  clinicians to understand the molecular basis of flagged interactions.
-                </p>
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">3. Knowledge Graph</h4>
+                <ul className="text-fui-gray-400 space-y-2 mb-6 list-none pl-0">
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Database:</strong> Neo4j Aura (Cloud-hosted graph database)</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Nodes:</strong> 2,000+ drugs with SMILES structures and therapeutic classes</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Edges:</strong> INTERACTS_WITH relationships with severity and type metadata</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Enrichment:</strong> PubChem API for SMILES, RxNorm API for classifications</span></li>
+                </ul>
 
-                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">4. Performance</h4>
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">4. Deployment Architecture</h4>
+                <ul className="text-fui-gray-400 space-y-2 mb-6 list-none pl-0">
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Frontend:</strong> React + Vite, deployed on Google Cloud Run</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Backend:</strong> Django REST API with PyTorch inference</span></li>
+                  <li className="flex items-start gap-2"><span className="text-fui-gray-500">→</span> <span><strong className="text-fui-gray-100">Infrastructure:</strong> Containerized with Docker, CI/CD via Cloud Build</span></li>
+                </ul>
+
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3">5. Performance Metrics</h4>
+                <p className="text-fui-gray-400 leading-relaxed mb-4">
+                  Our model achieves <span className="text-fui-accent-green">92.7% AUC</span> on the DDI Corpus 2013 benchmark with 
+                  sub-<span className="text-fui-accent-green">200ms</span> inference time, making it suitable for real-time clinical decision support.
+                </p>
+                
+                <div className="grid grid-cols-3 gap-4 mt-6">
+                  <div className="border border-fui-gray-500/30 p-4 text-center">
+                    <div className="text-2xl text-fui-accent-cyan">92.7%</div>
+                    <div className="text-[10px] text-fui-gray-500 uppercase tracking-widest mt-1">AUC Score</div>
+                  </div>
+                  <div className="border border-fui-gray-500/30 p-4 text-center">
+                    <div className="text-2xl text-fui-accent-cyan">2,080</div>
+                    <div className="text-[10px] text-fui-gray-500 uppercase tracking-widest mt-1">Drugs</div>
+                  </div>
+                  <div className="border border-fui-gray-500/30 p-4 text-center">
+                    <div className="text-2xl text-fui-accent-cyan">1,651</div>
+                    <div className="text-[10px] text-fui-gray-500 uppercase tracking-widest mt-1">Interactions</div>
+                  </div>
+                </div>
+
+                <h4 className="text-fui-accent-cyan text-xs uppercase tracking-widest mb-3 mt-8">6. Future Roadmap</h4>
                 <p className="text-fui-gray-400 leading-relaxed">
-                  Our model achieves <span className="text-fui-accent-green">94.2%</span> accuracy on the DDI benchmark dataset with sub-<span className="text-fui-accent-green">100ms</span> inference time, 
-                  making it suitable for real-time clinical decision support.
+                  Planned enhancements include Graph Neural Network (GNN) integration for molecular structure analysis, 
+                  multi-drug polypharmacy predictions, and integration with clinical EHR systems.
                 </p>
               </div>
             </motion.div>

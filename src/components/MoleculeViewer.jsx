@@ -455,54 +455,56 @@ function EmptyState() {
 }
 
 // Main export
-export default function MoleculeViewer({ drugs = [], result }) {
+export default function MoleculeViewer({ drugs = [], result, isMobile = false }) {
   if (drugs.length === 0) {
     return <EmptyState />;
   }
 
   return (
-    <div className="w-full h-full relative">
+    <div className="w-full h-full relative overflow-hidden">
       <Canvas
-        camera={{ position: [0, 2, 14], fov: 45 }}
+        camera={{ position: [0, 2, isMobile ? 16 : 14], fov: 45 }}
         gl={{ antialias: true, alpha: true }}
         dpr={[1, 1.5]}
       >
         <Scene drugs={drugs} result={result} />
       </Canvas>
 
-      {/* Enhanced Legend */}
-      <div className="absolute bottom-4 left-4 flex items-center gap-2.5">
-        {[
-          { color: '#6B7280', label: 'Carbon' },
-          { color: '#60A5FA', label: 'Nitrogen' },
-          { color: '#F87171', label: 'Oxygen' },
-          { color: '#FBBF24', label: 'Sulfur' },
-        ].map(({ color, label }) => (
-          <div
-            key={label}
-            className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
-          >
+      {/* Enhanced Legend - hidden on mobile */}
+      {!isMobile && (
+        <div className="absolute bottom-4 left-4 flex items-center gap-2.5">
+          {[
+            { color: '#6B7280', label: 'Carbon' },
+            { color: '#60A5FA', label: 'Nitrogen' },
+            { color: '#F87171', label: 'Oxygen' },
+            { color: '#FBBF24', label: 'Sulfur' },
+          ].map(({ color, label }) => (
             <div
-              className="w-3 h-3 rounded-full shadow-lg"
-              style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}50` }}
-            />
-            <span className="text-xs text-slate-400 font-medium">{label}</span>
-          </div>
-        ))}
-      </div>
+              key={label}
+              className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
+            >
+              <div
+                className="w-3 h-3 rounded-full shadow-lg"
+                style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}50` }}
+              />
+              <span className="text-xs text-slate-400 font-medium">{label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Controls hint */}
-      <div className="absolute bottom-4 right-4 px-4 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5">
-        <p className="text-xs text-slate-500">
-          <span className="text-slate-400">Drag</span> to rotate • <span className="text-slate-400">Scroll</span> to zoom
+      <div className={`absolute ${isMobile ? 'bottom-2 left-2 right-2' : 'bottom-4 right-4'} px-3 py-1.5 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5`}>
+        <p className={`${isMobile ? 'text-[10px] text-center' : 'text-xs'} text-slate-500`}>
+          {isMobile ? 'Drag to rotate • Pinch to zoom' : <><span className="text-slate-400">Drag</span> to rotate • <span className="text-slate-400">Scroll</span> to zoom</>}
         </p>
       </div>
 
       {/* Data source indicator */}
-      <div className="absolute top-4 right-4 px-3 py-1.5 bg-emerald-500/10 backdrop-blur-sm rounded-lg border border-emerald-500/20">
-        <p className="text-xs text-emerald-400 font-medium flex items-center gap-2">
+      <div className={`absolute ${isMobile ? 'top-2 right-2' : 'top-4 right-4'} px-2 py-1 bg-emerald-500/10 backdrop-blur-sm rounded-lg border border-emerald-500/20`}>
+        <p className={`${isMobile ? 'text-[9px]' : 'text-xs'} text-emerald-400 font-medium flex items-center gap-1`}>
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Live Data from Knowledge Graph
+          {isMobile ? '3D Model' : 'Live Data from Knowledge Graph'}
         </p>
       </div>
     </div>
