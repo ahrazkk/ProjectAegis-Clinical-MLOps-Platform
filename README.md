@@ -215,6 +215,10 @@ cd project-aegis/molecular-ai
 # Start all services
 docker-compose up -d --build
 
+
+# GCP deployment
+gcloud run deploy aegis-frontend --source . --region us-central1 --allow-unauthenticated --project project-aegis-485017 --port 8080
+
 # Wait for services to initialize (~30 seconds)
 # Then open http://localhost in your browser
 ```
@@ -1320,6 +1324,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Project Aegis** - Making Drug Safety Smarter
 
-[Report Bug](https://github.com/your-org/project-aegis/issues) • [Request Feature](https://github.com/your-org/project-aegis/issues)
+[Report Bug](https://github.com/ahrazkk/ProjectAegis-Clinical-MLOps-Platform/issues) 
+[Request Feature](https://github.com/ahrazkk/ProjectAegis-Clinical-MLOps-Platform/issues)
 
 </div>
