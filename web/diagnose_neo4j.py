@@ -9,13 +9,13 @@ This script helps you:
 3. Populate data from drug_db.json and curated interactions
 
 Usage:
-    Set environment variables, then run:
+    Set environment variables in .env file, then run:
     python diagnose_neo4j.py
 
-Environment Variables Needed:
-    NEO4J_URI=neo4j+s://ca47aebc.databases.neo4j.io
+Environment Variables Needed (set in .env file):
+    NEO4J_URI=neo4j+s://your-database-id.databases.neo4j.io
     NEO4J_USER=neo4j
-    NEO4J_PASSWORD=BYKmHWoR2DeEiiiwO6qBAET273OIaaGv1ZatYpU_vtM
+    NEO4J_PASSWORD=your-password-here
 """
 
 import os

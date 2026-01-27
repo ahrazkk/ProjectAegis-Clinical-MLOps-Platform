@@ -2,11 +2,18 @@
 """Script to run enrichment against Neo4j Aura cloud instance."""
 import os
 import sys
+from dotenv import load_dotenv
 
-# Set environment variables for Neo4j Aura
-os.environ['NEO4J_URI'] = 'neo4j+s://ca47aebc.databases.neo4j.io'
-os.environ['NEO4J_USER'] = 'neo4j'
-os.environ['NEO4J_PASSWORD'] = 'BYKmHWoR2DeEiiiwO6qBAET273OIaaGv1ZatYpU_vtM'
+# Load environment variables from .env file
+load_dotenv()
+
+# Verify required environment variables are set
+required_vars = ['NEO4J_URI', 'NEO4J_USER', 'NEO4J_PASSWORD']
+for var in required_vars:
+    if not os.environ.get(var):
+        print(f"ERROR: {var} environment variable is not set.")
+        print("Please set it in your .env file or environment.")
+        sys.exit(1)
 
 # Change to the web directory
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
