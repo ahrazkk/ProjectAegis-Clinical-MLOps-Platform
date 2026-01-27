@@ -22,9 +22,12 @@ import {
   Linkedin,
   AlertTriangle,
   CheckCircle2,
-  Pill
+  Pill,
+  Loader2,
+  Server
 } from 'lucide-react';
 import DrugInteractionBackground from '../components/DrugInteractionBackground';
+import { checkHealth } from '../services/api';
 
 const features = [
   {
@@ -342,6 +345,37 @@ export default function LandingPage() {
   const [scrollY, setScrollY] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const heroRef = useRef(null);
+  
+  // Backend warm-up status
+  const [backendStatus, setBackendStatus] = useState('connecting'); // 'connecting' | 'ready' | 'error'
+  const [connectionTime, setConnectionTime] = useState(0);
+
+  // Warm up backend on landing page load
+  useEffect(() => {
+    const startTime = Date.now();
+    let timer;
+    
+    // Update elapsed time every second while connecting
+    timer = setInterval(() => {
+      if (backendStatus === 'connecting') {
+        setConnectionTime(Math.floor((Date.now() - startTime) / 1000));
+      }
+    }, 1000);
+    
+    // Silent ping to warm up backend
+    checkHealth()
+      .then(() => {
+        setBackendStatus('ready');
+        setConnectionTime(Math.floor((Date.now() - startTime) / 1000));
+        clearInterval(timer);
+      })
+      .catch(() => {
+        setBackendStatus('error');
+        clearInterval(timer);
+      });
+    
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => setScrollY(window.scrollY);
@@ -493,7 +527,7 @@ export default function LandingPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1.4 }}
-                className="flex flex-col sm:flex-row gap-3 sm:gap-4 pb-16 sm:pb-0"
+                className="flex flex-col sm:flex-row gap-3 sm:gap-4"
               >
                 <motion.button 
                   whileHover={{ scale: 1.02, boxShadow: '0 0 40px rgba(0, 255, 255, 0.3)' }}
@@ -513,6 +547,79 @@ export default function LandingPage() {
                 >
                   View Research
                 </motion.button>
+              </motion.div>
+
+              {/* Backend Status Indicator */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.6 }}
+                className="pb-16 sm:pb-0"
+              >
+                <AnimatePresence mode="wait">
+                  {backendStatus === 'connecting' && (
+                    <motion.div
+                      key="connecting"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="flex items-start gap-3 p-3 sm:p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-sm max-w-xl"
+                    >
+                      <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 animate-spin flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-xs sm:text-sm text-yellow-400 font-medium">
+                          Warming up AI Backend... ({connectionTime}s)
+                        </p>
+                        <p className="text-[10px] sm:text-xs text-white/50 mt-1">
+                          Feel free to explore the page while the ML models load. This may take 15-25 seconds on first visit.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                  
+                  {backendStatus === 'ready' && (
+                    <motion.div
+                      key="ready"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="flex items-center gap-3 p-3 sm:p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-sm max-w-xl"
+                    >
+                      <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5 text-emerald-400 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs sm:text-sm text-emerald-400 font-medium">
+                          AI Backend Ready! 
+                          <span className="text-white/50 font-normal ml-2">
+                            (loaded in {connectionTime}s)
+                          </span>
+                        </p>
+                        <p className="text-[10px] sm:text-xs text-white/50 mt-1">
+                          The platform is fully operational. Enter the dashboard to analyze drug interactions.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                  
+                  {backendStatus === 'error' && (
+                    <motion.div
+                      key="error"
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -10 }}
+                      className="flex items-center gap-3 p-3 sm:p-4 bg-red-500/10 border border-red-500/30 rounded-sm max-w-xl"
+                    >
+                      <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 flex-shrink-0" />
+                      <div>
+                        <p className="text-xs sm:text-sm text-red-400 font-medium">
+                          Backend Unavailable
+                        </p>
+                        <p className="text-[10px] sm:text-xs text-white/50 mt-1">
+                          The AI backend is currently offline. Some features may be limited.
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.div>
             </div>
 
