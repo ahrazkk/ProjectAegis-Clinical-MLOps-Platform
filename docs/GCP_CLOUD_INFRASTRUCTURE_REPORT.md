@@ -277,10 +277,10 @@ gcloud dns record-sets create aegishealth.dev. \
 | Property | Value |
 |----------|-------|
 | Instance Name | Drug-Drug Database |
-| Instance ID | 39312fd4 |
+| Instance ID | [REDACTED] |
 | Type | AuraDB Free |
 | Version | 2026.01 |
-| Connection URI | neo4j+s://39312fd4.databases.neo4j.io |
+| Connection URI | neo4j+s://[instance-id].databases.neo4j.io |
 | Username | neo4j |
 | Nodes | 2,080 (Drug entities) |
 | Relationships | 1,693 (Drug interactions) |
@@ -529,19 +529,43 @@ From log analysis (January 27, 2026):
 
 ### Student A: Literature Review & Dataset Preprocessing
 
-**GCP/Cloud Relevance:** Low direct involvement, but work enables cloud deployment.
+**GCP/Cloud Relevance:** Low direct involvement, but foundational work enables cloud deployment.
+
+#### Detailed Contribution
+
+Student A conducted an extensive literature review of existing drug-drug interaction prediction systems, surveying over 50 academic papers from journals including the Journal of Biomedical Informatics, PLOS ONE, and conference proceedings from ACL and EMNLP. This research identified PubMedBERT as the optimal pretrained model for biomedical named entity recognition and relation extraction tasks, directly influencing the model architecture selection.
+
+The DDI Corpus 2013 benchmark dataset required substantial preprocessing before training. Student A developed Python scripts to parse the original XML annotation format, extract drug entity mentions, normalize drug names using RxNorm and DrugBank identifiers, and structure the data into training/validation/test splits with stratified sampling to ensure balanced representation across all five interaction types (mechanism, effect, advice, int, and negative).
+
+Additionally, Student A compiled the comprehensive drug database containing 2,080+ pharmaceutical compounds with associated metadata including therapeutic classifications, mechanisms of action, and pharmacokinetic properties. This data was sourced from DrugBank, PubChem, and FDA drug labels, then standardized into a unified JSON schema suitable for import into the Neo4j Aura knowledge graph. The quality and completeness of this dataset directly impacts the platform's ability to provide accurate predictions in production.
+
+Student A also researched cloud-native database options for knowledge graphs, evaluating Neo4j Aura, Amazon Neptune, and Azure Cosmos DB with Gremlin API, ultimately recommending Neo4j Aura for its Cypher query language, free tier availability, and native graph traversal performance.
 
 | Work Item | Description | Cloud Impact |
 |-----------|-------------|--------------|
 | DDI Corpus 2013 preprocessing | Prepared training data for PubMedBERT | Data stored locally, model deployed to Cloud Run |
 | Drug database creation | Compiled 2,080+ drug entities | Data imported into Neo4j Aura cloud database |
 | Literature review | Researched biomedical NLP approaches | Informed architecture decisions |
+| Data format standardization | Unified JSON schema for drugs | Enables efficient Neo4j import |
+| Cloud database research | Evaluated graph database options | Selected Neo4j Aura (free tier) |
 
 ---
 
 ### Student B: AI Model Development & Fine-tuning
 
-**GCP/Cloud Relevance:** Medium - Model runs on cloud infrastructure.
+**GCP/Cloud Relevance:** Medium - Model architecture directly impacts cloud resource requirements.
+
+#### Detailed Contribution
+
+Student B led the development and fine-tuning of the core AI model for drug-drug interaction prediction. After evaluating multiple pretrained language models including BioBERT, SciBERT, ClinicalBERT, and PubMedBERT, extensive experimentation demonstrated that PubMedBERT achieved superior performance on biomedical relation extraction tasks due to its pretraining on PubMed abstracts and PMC full-text articles.
+
+The fine-tuning process involved adapting PubMedBERT for multi-class sequence classification across five DDI types: mechanism (describing pharmacokinetic interactions), effect (describing pharmacodynamic outcomes), advice (clinical recommendations), int (general interactions), and negative (no interaction). Student B implemented a custom classification head with dropout regularization and experimented with various hyperparameter configurations including learning rates (1e-5 to 5e-5), batch sizes (16, 32), and training epochs (3-10), ultimately achieving 92.7% AUC on the held-out test set.
+
+A significant contribution was designing the RAG (Retrieval-Augmented Generation) integration that queries the Neo4j knowledge graph during inference. When a drug pair is submitted, the system first retrieves known interactions and related drug properties from the graph database, then concatenates this contextual information with the input to provide evidence-grounded predictions. This hybrid approach improves both accuracy and explainability.
+
+Student B also focused on model optimization for production deployment. Techniques explored included model quantization (INT8), knowledge distillation, and ONNX export for faster inference. The final model achieves sub-200ms inference latency when the backend container is warm, though the 4GB memory requirement for loading the full PubMedBERT model creates a 15-25 second cold start delay that the team addressed through frontend warm-up strategies.
+
+The model was packaged with all dependencies into a Docker container, ensuring consistent behavior between local development and cloud deployment on Google Cloud Run.
 
 | Work Item | Description | Cloud Impact |
 |-----------|-------------|--------------|
@@ -549,20 +573,39 @@ From log analysis (January 27, 2026):
 | Multi-class classification | 5 interaction types | Inference runs on 2 vCPU, 4GB Cloud Run instance |
 | RAG integration | Knowledge graph retrieval | Queries Neo4j Aura via backend API |
 | Model optimization | Reduced inference latency | Enables sub-200ms P95 latency target |
+| Hyperparameter tuning | Learning rate, batch size, epochs | Optimized for accuracy/speed tradeoff |
+| Docker containerization | Packaged model with dependencies | Enables reproducible cloud deployment |
 
 **Cloud Configuration for ML:**
 ```
 Cloud Run Backend:
 - CPU: 2 vCPU (required for model loading)
-- Memory: 4 GB (PubMedBERT model size)
-- Cold start: 15-25 seconds (model loading)
+- Memory: 4 GB (PubMedBERT model size ~1.2GB + PyTorch overhead)
+- Cold start: 15-25 seconds (model loading into GPU/CPU memory)
+- Inference latency: ~150-200ms (warm container)
 ```
 
 ---
 
 ### Student C: Infrastructure Setup (Model Training & Inference)
 
-**GCP/Cloud Relevance:** High - Primary cloud infrastructure owner.
+**GCP/Cloud Relevance:** High - Primary cloud infrastructure owner and DevOps lead.
+
+#### Detailed Contribution
+
+Student C served as the primary infrastructure engineer, responsible for all cloud architecture decisions, deployment automation, and operational concerns. This role required extensive research into Google Cloud Platform services, cost optimization strategies, and DevOps best practices.
+
+The initial infrastructure planning phase involved evaluating multiple deployment options including Google Kubernetes Engine (GKE), Google App Engine, Cloud Functions, and Cloud Run. After analyzing the project's requirements—containerized ML workloads, variable traffic patterns, and budget constraints—Cloud Run was selected for its serverless scaling model, Docker container support, and generous free tier (2 million requests/month, 360,000 GB-seconds of compute).
+
+Student C designed and implemented the complete CI/CD pipeline using Cloud Build for automated container builds triggered by Git pushes. The frontend uses a multi-stage Dockerfile that builds the React application with Vite, then copies the static assets to an Nginx container for production serving. The backend Dockerfile installs Python dependencies including PyTorch and the Hugging Face Transformers library, totaling approximately 2GB in container size.
+
+A critical contribution was the domain and DNS configuration. Student C registered the custom domain (aegishealth.dev) through Google Cloud Domains, configured Cloud DNS with appropriate A and AAAA records pointing to Cloud Run's anycast IPs, and set up domain mapping with automatic SSL/TLS certificate provisioning. This required troubleshooting certificate issuance delays and understanding DNS propagation timing.
+
+Student C also established the database infrastructure by provisioning a Neo4j Aura Free instance for the knowledge graph, configuring secure credential management through Cloud Run environment variables, and implementing the data import pipeline using Django management commands.
+
+Cost optimization was a major focus area. By configuring scale-to-zero (minimum instances = 0), the infrastructure achieves near-zero costs during idle periods. Student C calculated that keeping one backend instance always running would cost approximately $150/month, validating the serverless approach. To mitigate cold start latency, Student C implemented a frontend warm-up ping that triggers backend initialization when users visit the landing page.
+
+Security hardening included removing hardcoded credentials from source code, implementing environment variable-based secrets management, and conducting a security audit that identified and remediated a credential exposure incident.
 
 #### C.1 Cloud Run Deployment
 
@@ -612,7 +655,23 @@ Cloud Run Backend:
 
 ### Student D: Evaluation, Testing & Documentation
 
-**GCP/Cloud Relevance:** Medium - Testing cloud deployment, security audit, documentation.
+**GCP/Cloud Relevance:** Medium - Quality assurance, security validation, and comprehensive documentation.
+
+#### Detailed Contribution
+
+Student D owned the evaluation, testing, and documentation responsibilities, ensuring the system met quality standards and was thoroughly documented for future maintenance and academic presentation.
+
+The evaluation framework included both model-level and system-level testing. For the AI model, Student D designed test cases covering edge cases such as drug pairs with no known interactions, drugs with multiple possible interactions, and novel drug combinations not present in the training data. Evaluation metrics tracked included AUC-ROC, precision, recall, F1-score across all five interaction classes, and confusion matrix analysis to identify systematic prediction errors.
+
+System-level testing encompassed API endpoint validation, load testing to verify Cloud Run autoscaling behavior, and end-to-end integration tests that exercise the full pipeline from frontend input through backend prediction to Neo4j knowledge graph retrieval. Student D used tools including Postman for API testing, Lighthouse for frontend performance auditing, and manual testing across multiple browsers and devices.
+
+A significant contribution was the comprehensive security audit conducted on the cloud deployment. Student D systematically reviewed the codebase for hardcoded secrets, analyzed Cloud Run service configurations for security misconfigurations, evaluated CORS policies, and assessed authentication requirements. This audit identified a critical vulnerability where Neo4j database credentials were exposed in source files committed to the public GitHub repository. Student D coordinated the incident response, including credential rotation and documentation of the remediation process.
+
+Performance testing revealed the cold start latency issue (15-25 seconds for backend initialization), leading to the implementation of the frontend warm-up strategy. Student D measured and documented P50, P95, and P99 latency percentiles under various load conditions, validating that the sub-200ms P95 target was achieved for warm container requests.
+
+Documentation efforts included creating this GCP Cloud Infrastructure Report, the Security Audit document, deployment guides with step-by-step instructions, and inline code documentation. Student D also set up Cloud Logging queries and monitoring dashboards to enable ongoing operational visibility.
+
+User acceptance testing involved recruiting five volunteer testers (pharmacy students and healthcare professionals) to evaluate the platform's usability, accuracy, and clinical relevance. Feedback was collected and prioritized for future iterations.
 
 #### D.1 Security Audit & Testing
 
