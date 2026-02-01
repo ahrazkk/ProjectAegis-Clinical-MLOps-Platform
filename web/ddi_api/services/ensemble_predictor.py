@@ -490,7 +490,7 @@ class EnsembleDDIPredictor:
                 type_counts[pred.interaction_type] = type_counts.get(pred.interaction_type, 0) + pred.confidence
         
         if type_counts:
-            final_type = max(type_counts, key=type_counts.get)
+            final_type = max(type_counts, key=lambda x: type_counts[x])
         else:
             final_type = 'no_interaction'
         
@@ -610,7 +610,8 @@ class EnsembleDDIPredictor:
         if use_all_sources:
             predictions.append(self._get_gnn_prediction(drug1, drug2, smiles1, smiles2))
             predictions.append(self._get_kg_prediction(drug1, drug2))
-            # OpenFDA can be slow, use conditionally
+            # Note: OpenFDA API can be slow (rate-limited) so it's disabled by default.
+            # Uncomment the line below to enable real-time FAERS data (may add latency):
             # predictions.append(self._get_openfda_prediction(drug1, drug2))
         
         return self._combine_predictions(predictions, drug1, drug2)

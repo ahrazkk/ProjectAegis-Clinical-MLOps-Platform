@@ -58,10 +58,10 @@ class PatientProfile:
             return 1.8  # Very high risk
         elif self.age >= 65:
             return 1.5  # High risk (geriatric)
-        elif self.age <= 12:
-            return 1.4  # Pediatric considerations
         elif self.age <= 2:
             return 1.6  # Neonatal/infant
+        elif self.age <= 12:
+            return 1.4  # Pediatric considerations
         else:
             return 1.0  # Adult baseline
     
@@ -176,7 +176,12 @@ class PolypharmacyRiskScorer:
     """
     
     def __init__(self):
-        """Initialize the risk scorer."""
+        """
+        Initialize the risk scorer.
+        
+        Uses lazy loading for dependencies (CYP450 database, PubMedBERT predictor, 
+        GNN predictor) to improve startup performance.
+        """
         self._cyp450_db = None
         self._predictor = None
         self._gnn_predictor = None

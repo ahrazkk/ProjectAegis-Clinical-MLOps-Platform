@@ -103,7 +103,7 @@ CYP_DRUG_DATABASE: Dict[str, Dict[str, List[str]]] = {
         "CYP1A2": ["inducer"],
         "CYP2B6": ["inducer"],
         "CYP2C9": ["inducer", "substrate"],
-        "CYP2C19": ["inducer"],
+        "CYP2C19": ["inducer", "substrate"],
         "CYP3A4": ["inducer"]
     },
     "phenobarbital": {
@@ -115,7 +115,7 @@ CYP_DRUG_DATABASE: Dict[str, Dict[str, List[str]]] = {
     
     # === CYP2C9 Substrates ===
     "warfarin": {"CYP2C9": ["substrate"], "CYP3A4": ["substrate"]},
-    "phenytoin": {"CYP2C9": ["substrate"], "CYP2C19": ["substrate"]},
+    # Note: phenytoin is defined above with complete CYP profile (inducer + substrate)
     "celecoxib": {"CYP2C9": ["substrate"]},
     "fluvastatin": {"CYP2C9": ["substrate"]},
     "glipizide": {"CYP2C9": ["substrate"]},

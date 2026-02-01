@@ -435,7 +435,7 @@ class GNNDDIPredictor:
         
         severity, _ = self.SEVERITY_MAP.get(interaction_type, ('unknown', 0.5))
         
-        mechanism = f"Structural analysis indicates {similarity:.1%} molecular similarity. " if similarity else ""
+        mechanism = f"Structural analysis indicates {similarity * 100:.1f}% molecular similarity. " if similarity is not None else ""
         mechanism += "Prediction based on heuristic analysis - verify with clinical data."
         
         return GNNPrediction(

@@ -590,7 +590,8 @@ class EnhancedDataIngestion:
                     smiles = None
                     if 'props' in compound:
                         for prop in compound['props']:
-                            if prop.get('urn', {}).get('label') == 'SMILES' and prop.get('urn', {}).get('name') == 'Canonical':
+                            urn = prop.get('urn', {})
+                            if urn.get('label') == 'SMILES' and urn.get('name') == 'Canonical':
                                 smiles = prop.get('value', {}).get('sval')
                                 break
                     
