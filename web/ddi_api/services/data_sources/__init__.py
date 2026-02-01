@@ -3,22 +3,51 @@ Data Sources for Project Aegis Drug Database Expansion
 
 This module provides data ingestion from multiple pharmaceutical databases:
 - RxNorm (NIH) - Drug names, NDC codes, relationships
-- OpenFDA - Drug labels, NDC info, adverse events
-- DrugBank Open - Drug properties, interactions
+- OpenFDA - Drug labels, adverse events
+- DrugBank Open - Drug properties, interactions (requires XML download)
 - PubChem - Molecular structures, properties
-- KEGG Drug - Pathways, targets
+
+Usage:
+    from ddi_api.services.data_sources import (
+        RxNormClient,
+        OpenFDAClient,
+        PubChemClient,
+        DrugBankParser,
+        DrugDataAggregator,
+        create_aggregator
+    )
+    
+    # Create individual clients
+    rxnorm = RxNormClient()
+    drugs = rxnorm.search("metformin")
+    
+    # Or use the aggregator for unified data
+    aggregator = create_aggregator()
+    drug = aggregator.fetch_drug("aspirin")
 """
 
-from .rxnorm import RxNormClient
-from .openfda import OpenFDAClient
-from .drugbank import DrugBankParser
-from .pubchem import PubChemClient
-from .aggregator import DrugDataAggregator
+from .rxnorm import RxNormClient, RxNormDrug
+from .openfda import OpenFDAClient, OpenFDADrug, AdverseEvent
+from .pubchem import PubChemClient, PubChemCompound
+from .drugbank import DrugBankParser, DrugBankDrug
+from .aggregator import DrugDataAggregator, UnifiedDrug, create_aggregator
 
 __all__ = [
+    # Clients
     'RxNormClient',
     'OpenFDAClient', 
-    'DrugBankParser',
     'PubChemClient',
-    'DrugDataAggregator'
+    'DrugBankParser',
+    'DrugDataAggregator',
+    
+    # Data classes
+    'RxNormDrug',
+    'OpenFDADrug',
+    'AdverseEvent',
+    'PubChemCompound',
+    'DrugBankDrug',
+    'UnifiedDrug',
+    
+    # Utilities
+    'create_aggregator',
 ]
