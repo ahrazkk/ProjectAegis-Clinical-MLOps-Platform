@@ -259,24 +259,40 @@ class Command(BaseCommand):
         """Update database with fetched drug data."""
         updated = 0
         created = 0
+        interactions_count = 0
+        
+        # First pass: Create/Update all drugs
+        drug_map = {} # Cache for interaction linking
         
         for unified_drug in drugs:
             try:
-                drug, was_created = Drug.objects.update_or_create(
-                    name__iexact=unified_drug.name,
-                    defaults={
-                        'name': unified_drug.name,
-                        'drugbank_id': unified_drug.drugbank_id,
-                        'molecular_formula': unified_drug.molecular_formula,
-                        'molecular_weight': unified_drug.molecular_weight,
-                        'smiles': unified_drug.smiles,
-                        'description': unified_drug.description,
-                        'therapeutic_class': (
-                            unified_drug.therapeutic_classes[0]
-                            if unified_drug.therapeutic_classes else None
-                        ),
-                    }
-                )
+                # Use drugbank_id as primary key if available, else name
+                defaults = {
+                    'name': unified_drug.name,
+                    'molecular_formula': unified_drug.molecular_formula,
+                    'molecular_weight': unified_drug.molecular_weight,
+                    'smiles': unified_drug.smiles,
+                    'description': unified_drug.description,
+                    'drug_class': (
+                        unified_drug.therapeutic_classes[0] 
+                        if unified_drug.therapeutic_classes else None
+                    ),
+                }
+                
+                # Handle lookup - prioritize drugbank_id if we have it
+                if unified_drug.drugbank_id:
+                    drug, was_created = Drug.objects.update_or_create(
+                        drugbank_id=unified_drug.drugbank_id,
+                        defaults=defaults
+                    )
+                else:
+                    # Fallback to name-based lookup (update if exists)
+                    drug, was_created = Drug.objects.update_or_create(
+                        name__iexact=unified_drug.name,
+                        defaults={**defaults, 'drugbank_id': f"TEMP_{unified_drug.name[:10]}"}
+                    )
+                
+                drug_map[unified_drug.name.lower()] = drug
                 
                 if was_created:
                     created += 1
@@ -284,10 +300,61 @@ class Command(BaseCommand):
                     updated += 1
                     
             except Exception as e:
-                logger.warning(f"Failed to update {unified_drug.name}: {e}")
+                logger.warning(f"Failed to update drug {unified_drug.name}: {e}")
+
+        # Second pass: Link interactions
+        from ddi_api.models import DrugDrugInteraction
         
+        for unified_drug in drugs:
+            if not unified_drug.drug_interactions:
+                continue
+                
+            drug_a = drug_map.get(unified_drug.name.lower())
+            if not drug_a:
+                continue
+                
+            for interaction in unified_drug.drug_interactions:
+                other_name = interaction.get('drug_name')
+                if not other_name:
+                    continue
+                    
+                # Try to find the other drug in our map or DB
+                drug_b = drug_map.get(other_name.lower())
+                if not drug_b:
+                    # Try DB lookup by name
+                    drug_b = Drug.objects.filter(name__iexact=other_name).first()
+                
+                # If drug_b exists and isn't drug_a
+                if drug_b and drug_b != drug_a:
+                    try:
+                        # Ensure A < B for uniqueness (simple lexical sort)
+                        if drug_a.id > drug_b.id:
+                            d1, d2 = drug_b, drug_a
+                        else:
+                            d1, d2 = drug_a, drug_b
+                            
+                        # Map severity text to choices
+                        severity_text = interaction.get('severity', 'moderate').lower()
+                        valid_severities = ['minor', 'moderate', 'major', 'contraindicated']
+                        severity = severity_text if severity_text in valid_severities else 'moderate'
+                        
+                        DrugDrugInteraction.objects.update_or_create(
+                            drug_a=d1,
+                            drug_b=d2,
+                            defaults={
+                                'severity': severity,
+                                'description': interaction.get('description', ''),
+                                'source': interaction.get('source', 'Aggregator')
+                            }
+                        )
+                        interactions_count += 1
+                    except Exception as e:
+                        # Ignore duplicates or validation errors
+                        pass
+
         self.stdout.write(
             self.style.SUCCESS(
-                f"Database updated: {created} created, {updated} updated"
+                f"Database updated: {created} created, {updated} updated, "
+                f"{interactions_count} interactions linked"
             )
         )
