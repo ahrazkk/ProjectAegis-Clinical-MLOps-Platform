@@ -408,8 +408,77 @@ class DDITrainer:
 # Main Training Script
 # ============================================================================
 
+def prepare_offline_training_data():
+    """
+    Prepare training data from offline curated database.
+    No external APIs or databases required.
+    """
+    try:
+        from ddi_api.services.offline_training_data import (
+            get_all_drugs, get_all_interactions, get_training_statistics
+        )
+    except ImportError:
+        logger.warning("Offline training data not available, falling back to sample data")
+        return prepare_sample_training_data()
+    
+    logger.info("Using offline curated training data (no API required)")
+    
+    # Get all drugs and compute features
+    drugs = get_all_drugs()
+    drug_features = {}
+    
+    for drug in drugs:
+        if drug.smiles:
+            fp = smiles_to_fingerprint(drug.smiles)
+            drug_features[drug.drugbank_id] = fp
+    
+    # Get all interactions
+    interactions_records = get_all_interactions()
+    interactions = []
+    
+    for inter in interactions_records:
+        interactions.append({
+            'drug1': inter.drug1_id,
+            'drug2': inter.drug2_id,
+            'severity': inter.severity
+        })
+    
+    # Generate negative samples (non-interacting pairs)
+    drug_ids = list(drug_features.keys())
+    interacting_pairs = set((i['drug1'], i['drug2']) for i in interactions)
+    interacting_pairs.update((i['drug2'], i['drug1']) for i in interactions)
+    
+    negative_samples = []
+    for i, d1 in enumerate(drug_ids):
+        for d2 in drug_ids[i+1:]:
+            if (d1, d2) not in interacting_pairs:
+                negative_samples.append({
+                    'drug1': d1,
+                    'drug2': d2,
+                    'severity': 'none'
+                })
+    
+    # Balance dataset (2:1 negative to positive ratio)
+    n_positives = len(interactions)
+    negative_samples = negative_samples[:n_positives * 2]
+    
+    all_pairs = interactions + negative_samples
+    
+    stats = get_training_statistics()
+    logger.info(f"Offline data: {stats['total_drugs']} drugs, {stats['total_interactions']} interactions")
+    logger.info(f"Training pairs: {len(interactions)} positive, {len(negative_samples)} negative")
+    
+    return all_pairs, drug_features
+
+
 def prepare_training_data():
-    """Prepare training data from Neo4j knowledge graph"""
+    """Prepare training data - prefers offline data over Neo4j/APIs"""
+    # First try offline training data (no API required)
+    try:
+        return prepare_offline_training_data()
+    except Exception as e:
+        logger.warning(f"Offline data failed: {e}, trying Neo4j")
+    
     kg = KnowledgeGraphService
     
     if not kg.is_connected():

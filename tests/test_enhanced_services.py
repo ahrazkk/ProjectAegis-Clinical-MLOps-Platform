@@ -393,5 +393,108 @@ class TestPatientProfile:
         assert factor > 1.0
 
 
+class TestOfflineTrainingData:
+    """Tests for offline training data module."""
+    
+    @pytest.fixture
+    def offline_data(self):
+        """Import offline training data module."""
+        from ddi_api.services.offline_training_data import (
+            get_all_drugs, get_all_interactions, get_drug_by_id,
+            get_drug_by_name, get_interaction, get_training_statistics
+        )
+        return {
+            'get_all_drugs': get_all_drugs,
+            'get_all_interactions': get_all_interactions,
+            'get_drug_by_id': get_drug_by_id,
+            'get_drug_by_name': get_drug_by_name,
+            'get_interaction': get_interaction,
+            'get_training_statistics': get_training_statistics
+        }
+    
+    def test_get_all_drugs(self, offline_data):
+        """Test getting all drugs from offline database."""
+        drugs = offline_data['get_all_drugs']()
+        
+        assert len(drugs) > 30  # We have 40+ drugs
+        assert all(hasattr(d, 'drugbank_id') for d in drugs)
+        assert all(hasattr(d, 'smiles') for d in drugs)
+    
+    def test_get_all_interactions(self, offline_data):
+        """Test getting all interactions."""
+        interactions = offline_data['get_all_interactions']()
+        
+        assert len(interactions) > 30  # We have 40+ interactions
+        assert all(hasattr(i, 'drug1_id') for i in interactions)
+        assert all(hasattr(i, 'severity') for i in interactions)
+    
+    def test_get_drug_by_id(self, offline_data):
+        """Test getting drug by DrugBank ID."""
+        drug = offline_data['get_drug_by_id']("DB00682")  # Warfarin
+        
+        assert drug is not None
+        assert drug.name == "Warfarin"
+        assert drug.smiles is not None
+    
+    def test_get_drug_by_name(self, offline_data):
+        """Test getting drug by name."""
+        drug = offline_data['get_drug_by_name']("Warfarin")
+        
+        assert drug is not None
+        assert drug.drugbank_id == "DB00682"
+    
+    def test_get_drug_by_name_case_insensitive(self, offline_data):
+        """Test drug name lookup is case-insensitive."""
+        drug1 = offline_data['get_drug_by_name']("warfarin")
+        drug2 = offline_data['get_drug_by_name']("WARFARIN")
+        
+        assert drug1 is not None
+        assert drug2 is not None
+        assert drug1.drugbank_id == drug2.drugbank_id
+    
+    def test_get_interaction(self, offline_data):
+        """Test getting interaction between two drugs."""
+        interaction = offline_data['get_interaction']("DB00682", "DB00945")  # Warfarin-Aspirin
+        
+        assert interaction is not None
+        assert interaction.severity == "severe"
+    
+    def test_get_interaction_reversed(self, offline_data):
+        """Test interaction lookup works in both directions."""
+        int1 = offline_data['get_interaction']("DB00682", "DB00945")
+        int2 = offline_data['get_interaction']("DB00945", "DB00682")
+        
+        assert int1 is not None
+        assert int2 is not None
+        assert int1.severity == int2.severity
+    
+    def test_get_training_statistics(self, offline_data):
+        """Test getting training data statistics."""
+        stats = offline_data['get_training_statistics']()
+        
+        assert 'total_drugs' in stats
+        assert 'total_interactions' in stats
+        assert 'severity_distribution' in stats
+        assert stats['total_drugs'] > 30
+        assert stats['total_interactions'] > 30
+    
+    def test_drugs_have_smiles(self, offline_data):
+        """Test that all drugs have SMILES structures."""
+        drugs = offline_data['get_all_drugs']()
+        drugs_with_smiles = [d for d in drugs if d.smiles]
+        
+        # All drugs should have SMILES for training
+        assert len(drugs_with_smiles) == len(drugs)
+    
+    def test_severity_distribution(self, offline_data):
+        """Test severity distribution in interactions."""
+        stats = offline_data['get_training_statistics']()
+        severity_dist = stats['severity_distribution']
+        
+        assert 'severe' in severity_dist
+        assert 'major' in severity_dist
+        assert severity_dist['severe'] > 0
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v', '--tb=short'])
