@@ -24,7 +24,9 @@ import {
   CheckCircle2,
   Pill,
   Loader2,
-  Server
+  Server,
+  Mail,
+  Users
 } from 'lucide-react';
 import DrugInteractionBackground from '../components/DrugInteractionBackground';
 import { checkHealth } from '../services/api';
@@ -571,7 +573,7 @@ export default function LandingPage() {
                           Warming up AI Backend... ({connectionTime}s)
                         </p>
                         <p className="text-[10px] sm:text-xs text-white/50 mt-1">
-                          Feel free to explore the page while the ML models load. This may take 15-25 seconds on first visit.
+                          This may take 25-35 seconds on first visit. If it fails (turns red), simply refresh the page. In the meantime, <span className="text-yellow-400/80 font-medium">explore the research section below!</span>
                         </p>
                       </div>
                     </motion.div>
@@ -866,8 +868,43 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="py-8 sm:py-12 border-t border-white/10">
+      <footer className="py-12 sm:py-16 border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          {/* Team Section */}
+          <div className="mb-10 pb-10 border-b border-white/10">
+            <div className="flex items-center gap-3 mb-6">
+              <Users className="w-5 h-5 text-cyan-400" />
+              <h3 className="text-sm uppercase tracking-widest text-white/80">Research Team</h3>
+            </div>
+            <div className="flex flex-wrap justify-center gap-6 sm:gap-10">
+              {['Taha Ghori', 'Ahraz Kibria', 'Raidah Nazimuddin', 'Kartike Chaudhari'].map((name, i) => (
+                <div key={name} className="text-center">
+                  <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto mb-2 rounded-full bg-gradient-to-br from-cyan-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center">
+                    <span className="text-lg font-light text-white/70">{name.charAt(0)}</span>
+                  </div>
+                  <p className="text-xs sm:text-sm text-white/70 font-light">{name}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Contact Section */}
+          <div className="mb-10 pb-10 border-b border-white/10">
+            <div className="flex items-center gap-3 mb-4">
+              <Mail className="w-5 h-5 text-purple-400" />
+              <h3 className="text-sm uppercase tracking-widest text-white/80">Contact Us</h3>
+            </div>
+            <p className="text-xs text-white/50 mb-3">For questions, feedback, or collaboration opportunities:</p>
+            <a 
+              href="mailto:1kibriaahr@gmail.com" 
+              className="inline-flex items-center gap-2 text-sm text-cyan-400 hover:text-cyan-300 transition-colors group"
+            >
+              <span>1kibriaahr@gmail.com</span>
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+            </a>
+          </div>
+
+          {/* Bottom Bar */}
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-purple-500/20 flex items-center justify-center">
@@ -878,6 +915,9 @@ export default function LandingPage() {
             <div className="flex items-center gap-4 sm:gap-6">
               <a href="https://github.com/ahrazkk/ProjectAegis-Clinical-MLOps-Platform" target="_blank" rel="noopener noreferrer" className="text-white/50 hover:text-white transition-colors">
                 <Github className="w-4 h-4" />
+              </a>
+              <a href="mailto:1kibriaahr@gmail.com" className="text-white/50 hover:text-white transition-colors">
+                <Mail className="w-4 h-4" />
               </a>
               <a href="#" className="text-white/50 hover:text-white transition-colors">
                 <Linkedin className="w-4 h-4" />

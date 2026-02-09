@@ -48,7 +48,7 @@ import {
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
-import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo } from '../services/api';
+import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats } from '../services/api';
 import MoleculeViewer from '../components/MoleculeViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
@@ -112,6 +112,10 @@ export default function Dashboard() {
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [showMobileDrugPanel, setShowMobileDrugPanel] = useState(false);
 
+  // Database status
+  const [showDbWarning, setShowDbWarning] = useState(false);
+  const [dbDrugCount, setDbDrugCount] = useState(null);
+
   const debouncedSearch = useDebounce(searchQuery, 300);
 
   // Detect mobile screen size
@@ -132,6 +136,19 @@ export default function Dashboard() {
         await checkHealth();
         setApiStatus('online');
         addLog('Backend services online', 'success', 'API');
+        
+        // Check database drug count
+        try {
+          const stats = await getDatabaseStats();
+          const drugCount = stats?.total_drugs || stats?.drugs_count || 0;
+          setDbDrugCount(drugCount);
+          if (drugCount < 10) {
+            setShowDbWarning(true);
+            addLog(`Warning: Only ${drugCount} drugs in database - Neo4j may be inactive`, 'warning', 'DATABASE');
+          }
+        } catch (statsErr) {
+          console.warn('Could not fetch database stats:', statsErr);
+        }
       } catch (err) {
         console.error('API check failed:', err);
         setApiStatus('offline');
@@ -1764,6 +1781,60 @@ export default function Dashboard() {
         </>
         )}
       </div>
+
+      {/* Neo4j Database Warning Modal */}
+      <AnimatePresence>
+        {showDbWarning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+            onClick={() => setShowDbWarning(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              onClick={e => e.stopPropagation()}
+              className="bg-theme-primary border border-risk-high/50 p-6 max-w-md w-full"
+            >
+              <div className="flex items-start gap-4">
+                <div className="p-2 bg-risk-high/20 border border-risk-high/30">
+                  <AlertTriangle className="w-6 h-6 text-risk-high" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-risk-high uppercase tracking-widest mb-2">
+                    Database Inactive
+                  </h3>
+                  <p className="text-xs text-theme-muted leading-relaxed mb-4">
+                    Only <span className="text-risk-high font-medium">{dbDrugCount}</span> drugs found in the database. 
+                    This usually means our Neo4j Aura database has become inactive after 3 days of no activity.
+                  </p>
+                  <p className="text-xs text-theme-muted leading-relaxed mb-4">
+                    Please <span className="text-theme-accent font-medium">refresh the page</span> or try again in a few minutes. 
+                    If the issue persists, contact us at <a href="mailto:1kibriaahr@gmail.com" className="text-theme-accent hover:underline">1kibriaahr@gmail.com</a>
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="flex-1 py-2 px-4 text-xs uppercase tracking-widest bg-theme-accent/20 border border-theme-accent/50 text-theme-accent hover:bg-theme-accent/30 transition-colors"
+                    >
+                      Refresh Page
+                    </button>
+                    <button
+                      onClick={() => setShowDbWarning(false)}
+                      className="py-2 px-4 text-xs uppercase tracking-widest border border-theme text-theme-muted hover:border-theme-highlight transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
