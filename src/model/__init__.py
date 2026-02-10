@@ -3,16 +3,24 @@ Drug-Drug Interaction (DDI) Clinical Decision Support System
 Model Package Initialization
 
 Architecture based on MCR III Model Specification:
-- Encoder: PubMedBERT (microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext)
+- PubMedBERT Encoder: Text-based DDI prediction
+- GNN Encoder: Structure-based DDI prediction from molecular graphs (SMILES)
 - Relation Head: DDI classification (binary or multi-class)
 - Auxiliary Head: NER for entity boundary learning
 - Risk Scoring: Temperature-calibrated severity-weighted scores
 """
 
-# Core model components
+# Core model components (PubMedBERT)
 from .ddi_model import DDIModel
 from .relation_head import RelationHead
 from .auxiliary_head import AuxiliaryHead
+
+# GNN model components (Molecular Graph)
+from .gnn_model import DDIGraphModel, MolecularGNNEncoder, DDIInteractionHead
+from .gnn_featurizer import MolecularGraphFeaturizer
+from .gnn_dataset import DDIGraphDataset, create_graph_data_loaders
+from .gnn_trainer import GNNTrainer, GNNTrainingConfig
+from .gnn_inference import GNNPredictor
 
 # Risk scoring and calibration
 from .risk_scorer import RiskScorer, TemperatureScaling
@@ -49,10 +57,21 @@ from .hyperparameter_config import (
 from .inference import DDIPredictor, DDIPrediction
 
 __all__ = [
-    # Core model
+    # Core model (PubMedBERT)
     'DDIModel',
     'RelationHead',
     'AuxiliaryHead',
+
+    # GNN model (Molecular Graph)
+    'DDIGraphModel',
+    'MolecularGNNEncoder',
+    'DDIInteractionHead',
+    'MolecularGraphFeaturizer',
+    'DDIGraphDataset',
+    'create_graph_data_loaders',
+    'GNNTrainer',
+    'GNNTrainingConfig',
+    'GNNPredictor',
 
     # Risk scoring
     'RiskScorer',
@@ -86,8 +105,8 @@ __all__ = [
 
     # Inference
     'DDIPredictor',
-    'DDIPrediction'
+    'DDIPrediction',
+    'GNNPredictor',
 ]
 
-__version__ = '1.0.0'
-
+__version__ = '1.1.0'

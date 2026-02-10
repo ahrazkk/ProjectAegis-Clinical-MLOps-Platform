@@ -149,6 +149,8 @@ tmp/
 temp/
 *.tmp
 .cache/
+tmpclaude*
+
 # Python/Django
 __pycache__/
 *.pyc
