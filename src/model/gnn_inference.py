@@ -8,14 +8,30 @@ Reference: MCR III - GNN Model inference pipeline
 import torch
 from typing import Dict, List, Optional
 from pathlib import Path
+from dataclasses import dataclass
 import logging
 
 from .gnn_model import DDIGraphModel
 from .gnn_featurizer import MolecularGraphFeaturizer, ATOM_FEATURE_DIM, EDGE_FEATURE_DIM
 from .risk_scorer import RiskScorer, TemperatureScaling
-from .inference import DDIPrediction
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DDIPrediction:
+    """
+    Result of a DDI prediction (shared by all model types)
+    """
+    drug1: str
+    drug2: str
+    has_interaction: bool
+    interaction_type: Optional[str]
+    raw_probability: float
+    calibrated_probability: float
+    risk_score: float
+    risk_category: str
+    confidence: float
 
 
 # Common drug name → SMILES lookup for convenience

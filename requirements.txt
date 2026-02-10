@@ -1,12 +1,8 @@
 # DDI Model Dependencies
-# Based on MCR III Model Specification
+# Based on MCR III Model Specification (GNN Architecture)
 
 # Core ML Framework
 torch>=2.0.0
-transformers>=4.30.0
-
-# Hugging Face PubMedBERT specific
-sentencepiece>=0.1.99
 
 # Cheminformatics (GNN molecular graph featurization)
 rdkit-pypi>=2022.9.1
