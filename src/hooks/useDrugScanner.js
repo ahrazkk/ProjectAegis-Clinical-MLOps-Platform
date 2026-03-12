@@ -4,7 +4,7 @@
  * Core logic for multi-modal drug detection:
  * 1. Barcode/NDC scanning (QuaggaJS)
  * 2. OCR text recognition (Tesseract.js)
- * 3. Visual pill identification (TensorFlow.js)
+ * 3. Visual pill identification (TensorFlow.js + CV pipeline)
  * 
  * @author OpenClaw Bot for Project Aegis
  */
@@ -13,6 +13,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import Quagga from '@ericblade/quagga2';
 import Tesseract from 'tesseract.js';
 import * as tf from '@tensorflow/tfjs';
+import { analyzePill, pillModel, searchPillByFeatures, uploadPillImage } from '../services/pillDetection';
 
 // API base URL
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
@@ -303,31 +304,118 @@ export function useDrugScanner() {
     return results.sort((a, b) => b.confidence - a.confidence);
   };
 
-  // Pill visual identification
+  // Initialize pill detection model on mount
+  useEffect(() => {
+    pillModel.loadModel();
+    return () => {
+      pillModel.dispose();
+    };
+  }, []);
+
+  // Pill visual identification - full CV + model pipeline
   const scanPill = useCallback(async (imageSrc) => {
     setIsProcessing(true);
     setError(null);
 
     try {
-      // For now, we'll use a color/shape analysis approach
-      // In production, this would use a trained model on pill images
-      
-      const pillFeatures = await analyzePillImage(imageSrc);
+      // Step 1: Run full CV analysis (segmentation, color, shape)
+      console.log('Running pill CV analysis...');
+      const pillFeatures = await analyzePill(imageSrc);
       console.log('Pill features:', pillFeatures);
 
-      // Search by pill characteristics
-      const results = await searchByPillFeatures(pillFeatures);
+      // Step 2: Try imprint OCR on the preprocessed pill region
+      let imprint = null;
+      if (pillFeatures.imprintRegionDataUrl && tesseractWorkerRef.current) {
+        try {
+          console.log('Running imprint OCR...');
+          const { data: { text } } = await tesseractWorkerRef.current.recognize(
+            pillFeatures.imprintRegionDataUrl
+          );
 
-      if (results.length > 0) {
-        const drugsWithMethod = results.map(drug => ({
+          // Extract alphanumeric characters that look like pill imprints
+          const imprintText = text
+            .replace(/[^A-Za-z0-9\-\/]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .toUpperCase();
+
+          if (imprintText.length >= 1 && imprintText.length <= 30) {
+            imprint = imprintText;
+            console.log('Detected imprint:', imprint);
+          }
+        } catch (ocrErr) {
+          console.warn('Imprint OCR failed:', ocrErr);
+        }
+      }
+
+      // Step 3: Build search features
+      const searchFeatures = {
+        color: pillFeatures.color,
+        shape: pillFeatures.shape,
+        imprint: imprint,
+        colorSecondary: pillFeatures.colorSecondary,
+        aspectRatio: pillFeatures.aspectRatio,
+        circularity: pillFeatures.features?.circularity
+      };
+
+      // Step 4: If model made a prediction, use it as primary
+      let results = [];
+      if (pillFeatures.modelPrediction && pillFeatures.modelPrediction.length > 0) {
+        const topPred = pillFeatures.modelPrediction[0];
+        if (topPred.confidence > 0.5) {
+          // Model-based result - look up the predicted drug
+          const modelResults = await lookupByName(topPred.label);
+          if (modelResults && modelResults.length > 0) {
+            results = modelResults.map(drug => ({
+              ...drug,
+              detectionMethod: 'pill_model',
+              confidence: topPred.confidence,
+              pillFeatures: searchFeatures
+            }));
+          }
+        }
+      }
+
+      // Step 5: Search by visual features (API)
+      if (results.length === 0) {
+        const featureResults = await searchPillByFeatures(searchFeatures);
+        results = featureResults.map(drug => ({
           ...drug,
           detectionMethod: 'pill',
-          confidence: drug.confidence || 0.7
+          confidence: calculatePillConfidence(drug, searchFeatures),
+          pillFeatures: searchFeatures
         }));
-        setDetectedDrugs(drugsWithMethod);
-        return drugsWithMethod;
+      }
+
+      // Step 6: Try backend image upload as fallback
+      if (results.length === 0) {
+        const uploadResult = await uploadPillImage(imageSrc);
+        if (uploadResult && uploadResult.results) {
+          results = uploadResult.results.map(drug => ({
+            ...drug,
+            detectionMethod: 'pill_upload',
+            confidence: drug.confidence || 0.6,
+            pillFeatures: searchFeatures
+          }));
+        }
+      }
+
+      if (results.length > 0) {
+        setDetectedDrugs(results);
+        return results;
       } else {
-        setError('Could not identify pill. Try barcode or label scan.');
+        // Return features so user can see what was detected even if no match
+        const featureDescription = [
+          searchFeatures.color && `Color: ${searchFeatures.color}`,
+          searchFeatures.colorSecondary && `Secondary: ${searchFeatures.colorSecondary}`,
+          searchFeatures.shape && `Shape: ${searchFeatures.shape}`,
+          imprint && `Imprint: ${imprint}`
+        ].filter(Boolean).join(', ');
+
+        setError(
+          `No exact match found. Detected: ${featureDescription || 'insufficient features'}. ` +
+          'Try barcode or label scan for better results.'
+        );
         return [];
       }
     } catch (err) {
@@ -339,119 +427,28 @@ export function useDrugScanner() {
     }
   }, []);
 
-  // Analyze pill image for features (color, shape)
-  const analyzePillImage = async (imageSrc) => {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const size = 100; // Analyze at fixed size
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        
-        // Draw and scale image
-        ctx.drawImage(img, 0, 0, size, size);
-        const imageData = ctx.getImageData(0, 0, size, size);
-        const data = imageData.data;
+  /**
+   * Calculate overall confidence for a pill match based on feature agreement.
+   */
+  const calculatePillConfidence = (drug, features) => {
+    let score = 0.3; // Base score
+    let factors = 0;
 
-        // Calculate dominant color
-        let r = 0, g = 0, b = 0, count = 0;
-        
-        for (let i = 0; i < data.length; i += 4) {
-          // Skip very dark (background) and very light pixels
-          const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
-          if (brightness > 30 && brightness < 240) {
-            r += data[i];
-            g += data[i + 1];
-            b += data[i + 2];
-            count++;
-          }
-        }
-
-        if (count > 0) {
-          r = Math.round(r / count);
-          g = Math.round(g / count);
-          b = Math.round(b / count);
-        }
-
-        // Classify color
-        const color = classifyColor(r, g, b);
-
-        // Detect shape (simplified - just aspect ratio for now)
-        const shape = 'round'; // Would need edge detection for real shape analysis
-
-        resolve({
-          color,
-          colorRGB: { r, g, b },
-          shape,
-          // Would include imprint detection here with real model
-          imprint: null
-        });
-      };
-
-      img.onerror = () => {
-        resolve({ color: 'unknown', shape: 'unknown', imprint: null });
-      };
-
-      img.src = imageSrc;
-    });
-  };
-
-  // Classify RGB to color name
-  const classifyColor = (r, g, b) => {
-    const colors = {
-      white: { r: 255, g: 255, b: 255 },
-      pink: { r: 255, g: 182, b: 193 },
-      red: { r: 255, g: 0, b: 0 },
-      orange: { r: 255, g: 165, b: 0 },
-      yellow: { r: 255, g: 255, b: 0 },
-      green: { r: 0, g: 128, b: 0 },
-      blue: { r: 0, g: 0, b: 255 },
-      purple: { r: 128, g: 0, b: 128 },
-      brown: { r: 139, g: 69, b: 19 },
-      gray: { r: 128, g: 128, b: 128 }
-    };
-
-    let closestColor = 'unknown';
-    let minDistance = Infinity;
-
-    for (const [name, rgb] of Object.entries(colors)) {
-      const distance = Math.sqrt(
-        Math.pow(r - rgb.r, 2) +
-        Math.pow(g - rgb.g, 2) +
-        Math.pow(b - rgb.b, 2)
-      );
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestColor = name;
-      }
+    if (features.color && drug.pill_color) {
+      factors++;
+      if (drug.pill_color.toLowerCase() === features.color.toLowerCase()) score += 0.25;
+    }
+    if (features.shape && drug.pill_shape) {
+      factors++;
+      if (drug.pill_shape.toLowerCase() === features.shape.toLowerCase()) score += 0.2;
+    }
+    if (features.imprint && drug.pill_imprint) {
+      factors++;
+      if (drug.pill_imprint.toUpperCase().includes(features.imprint)) score += 0.35;
+      else if (features.imprint.includes(drug.pill_imprint.toUpperCase())) score += 0.2;
     }
 
-    return closestColor;
-  };
-
-  // Search by pill features (would call backend API)
-  const searchByPillFeatures = async (features) => {
-    try {
-      const params = new URLSearchParams();
-      if (features.color) params.append('color', features.color);
-      if (features.shape) params.append('shape', features.shape);
-      if (features.imprint) params.append('imprint', features.imprint);
-
-      const response = await fetch(`${API_BASE}/drugs/pill-search/?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        return data.results || data || [];
-      }
-    } catch (err) {
-      console.warn('Pill search API failed:', err);
-    }
-
-    // Fallback: suggest user try other methods
-    return [];
+    return Math.min(score, 0.95);
   };
 
   // Auto scan - tries all methods

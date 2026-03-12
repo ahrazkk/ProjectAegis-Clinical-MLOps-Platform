@@ -554,3 +554,99 @@ def validate_barcode(request):
         }
     
     return Response(result)
+
+
+# ============== Pill Image Analysis ==============
+
+@api_view(['POST'])
+def analyze_pill_image(request):
+    """
+    Analyze an uploaded pill image server-side.
+    
+    Accepts a pill image and returns:
+    - Detected color, shape, imprint from the image
+    - Matching drugs from the database
+    
+    Request Body (multipart/form-data):
+        image: Pill image file
+        color (optional): Pre-detected color from client CV
+        shape (optional): Pre-detected shape from client CV
+        imprint (optional): Pre-detected imprint from client OCR
+        
+    Returns:
+        Detected features + matching drug results
+    """
+    image = request.FILES.get('image')
+    
+    # Also accept client-side detected features as hints
+    client_color = request.data.get('color', '').lower().strip()
+    client_shape = request.data.get('shape', '').lower().strip()
+    client_imprint = request.data.get('imprint', '').upper().strip()
+    
+    # Use client-detected features (client CV pipeline is primary)
+    color = client_color or None
+    shape = client_shape or None
+    imprint = client_imprint or None
+    
+    if not any([color, shape, imprint, image]):
+        return Response(
+            {'error': 'At least one of: image, color, shape, or imprint required'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Build query based on detected features
+    results = []
+    queryset = Drug.objects.all()
+    
+    if color:
+        queryset = queryset.filter(
+            Q(pill_color__iexact=color) |
+            Q(pill_color__icontains=color)
+        )
+    
+    if shape:
+        queryset = queryset.filter(
+            Q(pill_shape__iexact=shape) |
+            Q(pill_shape__icontains=shape)
+        )
+    
+    if imprint:
+        queryset = queryset.filter(
+            Q(pill_imprint__iexact=imprint) |
+            Q(pill_imprint__icontains=imprint)
+        )
+    
+    drugs = queryset[:20]
+    
+    if drugs:
+        serializer = DrugSerializer(drugs, many=True)
+        results = serializer.data
+        
+        for result in results:
+            confidence = 0.3
+            if color and result.get('pill_color', '').lower() == color:
+                confidence += 0.25
+            if shape and result.get('pill_shape', '').lower() == shape:
+                confidence += 0.2
+            if imprint and imprint in (result.get('pill_imprint') or '').upper():
+                confidence += 0.3
+            result['confidence'] = min(confidence, 0.95)
+        
+        results.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+    
+    # Try external APIs if no local results
+    if not results:
+        external = search_pill_external(color or '', shape or '', imprint or '')
+        if external:
+            results = external
+    
+    return Response({
+        'detected_features': {
+            'color': color,
+            'shape': shape,
+            'imprint': imprint,
+        },
+        'results': results,
+        'count': len(results),
+        'source': 'database' if drugs else 'external'
+    })
