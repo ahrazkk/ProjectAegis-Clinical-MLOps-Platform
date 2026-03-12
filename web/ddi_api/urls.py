@@ -31,6 +31,15 @@ from .views import (
     DrugComparisonView,
 )
 
+# Scanner endpoints
+from .views_scanner import (
+    lookup_by_ndc,
+    pill_search,
+    enhanced_drug_search,
+    validate_barcode,
+    analyze_pill_image,
+)
+
 # Create router for ViewSets
 router = DefaultRouter()
 router.register(r'drugs', DrugViewSet, basename='drug')
@@ -57,6 +66,13 @@ urlpatterns = [
     
     # Health check
     path('health/', HealthCheckView.as_view(), name='health-check'),
+    
+    # Drug Scanner endpoints
+    path('drugs/ndc/<str:ndc_code>/', lookup_by_ndc, name='ndc-lookup'),
+    path('drugs/pill-search/', pill_search, name='pill-search'),
+    path('drugs/enhanced-search/', enhanced_drug_search, name='enhanced-search'),
+    path('scanner/validate-barcode/', validate_barcode, name='validate-barcode'),
+    path('scanner/analyze-pill/', analyze_pill_image, name='analyze-pill'),
     
     # ViewSet routes
     path('', include(router.urls)),

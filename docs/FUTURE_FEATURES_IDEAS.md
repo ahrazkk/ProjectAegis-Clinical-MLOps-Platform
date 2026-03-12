@@ -145,7 +145,7 @@ Input Image → Preprocessing → CNN Feature Extraction → Classification → 
 │              │                     │
 │    ┌─────────▼──────────┐          │
 │    │ Metformin 500mg    │          │
-│    │ ⚠️ Interaction with │          │
+│    │ ⚠️ Interaction with │         │
 │    │    Lisinopril      │          │
 │    │ [View Details]     │          │
 │    └────────────────────┘          │

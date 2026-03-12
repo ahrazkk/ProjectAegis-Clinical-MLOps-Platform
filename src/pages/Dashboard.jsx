@@ -44,7 +44,9 @@ import {
   ChevronDown,
   MessageCircle,
   Home,
-  FlaskConical
+  FlaskConical,
+  Camera,
+  ScanLine
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
@@ -57,6 +59,7 @@ import RiskGauge from '../components/RiskGauge';
 import StatsDashboard from '../components/StatsDashboard';
 import DrugComparison from '../components/DrugComparison';
 import TherapeuticAlternatives from '../components/TherapeuticAlternatives';
+import { DrugScanner } from '../components/DrugScanner';
 
 // Debounce hook
 function useDebounce(value, delay) {
@@ -98,6 +101,7 @@ export default function Dashboard() {
   const [showSearch, setShowSearch] = useState(false);
   const [viewMode, setViewMode] = useState('analysis'); // 'analysis' | 'stats' | 'compare'
   const [showAlternatives, setShowAlternatives] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
 
   // Chat State
   const [messages, setMessages] = useState([]);
@@ -230,6 +234,20 @@ export default function Dashboard() {
     setResult(null);
     setPolypharmacyResult(null);
     setInteractionEvidence(null);
+  };
+
+  // Handle drug detected from camera scanner
+  const handleScannedDrug = (drug) => {
+    // Add the detected drug
+    addDrug({
+      name: drug.name,
+      drugbank_id: drug.drugbank_id || drug.id,
+      smiles: drug.smiles,
+      ...drug
+    });
+    // Close the scanner
+    setShowScanner(false);
+    addLog(`Drug "${drug.name}" added via camera scan`, 'success', 'SCANNER');
   };
 
   const runAnalysis = async () => {
@@ -653,17 +671,28 @@ export default function Dashboard() {
           {mobileView === 'drugs' && (
             <div className="p-4 space-y-4">
               {/* Search */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-muted" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search drugs..."
-                  className="w-full bg-theme-secondary border border-theme py-3 pl-12 pr-4 text-base font-mono placeholder:text-theme-dim focus:outline-none focus:border-theme-accent/50"
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-muted" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search drugs..."
+                    className="w-full bg-theme-secondary border border-theme py-3 pl-12 pr-4 text-base font-mono placeholder:text-theme-dim focus:outline-none focus:border-theme-accent/50"
+                    disabled={apiStatus !== 'online'}
+                  />
+                  {isSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-accent animate-spin" />}
+                </div>
+                {/* Camera Scanner Button */}
+                <button
+                  onClick={() => setShowScanner(true)}
                   disabled={apiStatus !== 'online'}
-                />
-                {isSearching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-theme-accent animate-spin" />}
+                  className="px-4 py-3 border border-theme-accent bg-theme-accent/10 hover:bg-theme-accent/20 transition-colors disabled:opacity-50"
+                  title="Scan drug with camera"
+                >
+                  <Camera className="w-5 h-5 text-theme-accent" />
+                </button>
               </div>
 
               {/* Search Results */}
@@ -959,20 +988,31 @@ export default function Dashboard() {
             </div>
 
             {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => setShowSearch(true)}
-                placeholder="Search drugs..."
-                className="w-full bg-theme-secondary border border-theme py-2.5 pl-10 pr-4 text-sm font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50 transition-all"
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-muted" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => setShowSearch(true)}
+                  placeholder="Search drugs..."
+                  className="w-full bg-theme-secondary border border-theme py-2.5 pl-10 pr-4 text-sm font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50 transition-all"
+                  disabled={apiStatus !== 'online'}
+                />
+                {isSearching && (
+                  <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-accent animate-spin" />
+                )}
+              </div>
+              {/* Camera Scanner Button */}
+              <button
+                onClick={() => setShowScanner(true)}
                 disabled={apiStatus !== 'online'}
-              />
-              {isSearching && (
-                <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-accent animate-spin" />
-              )}
+                className="px-3 py-2.5 border border-theme-accent bg-theme-accent/10 hover:bg-theme-accent/20 transition-colors disabled:opacity-50 group"
+                title="Scan drug with camera"
+              >
+                <Camera className="w-4 h-4 text-theme-accent group-hover:scale-110 transition-transform" />
+              </button>
             </div>
 
             {/* Search Results Dropdown */}
@@ -1833,6 +1873,16 @@ export default function Dashboard() {
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Drug Scanner Modal */}
+      <AnimatePresence>
+        {showScanner && (
+          <DrugScanner
+            onDrugDetected={handleScannedDrug}
+            onClose={() => setShowScanner(false)}
+          />
         )}
       </AnimatePresence>
     </div>

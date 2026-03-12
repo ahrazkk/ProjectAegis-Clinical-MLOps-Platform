@@ -16,6 +16,8 @@ class Drug(models.Model):
     """
     drugbank_id = models.CharField(max_length=20, unique=True, db_index=True)
     name = models.CharField(max_length=255)
+    generic_name = models.CharField(max_length=255, blank=True, null=True)
+    brand_names = models.JSONField(default=list, blank=True, help_text="List of brand names")
     smiles = models.TextField(blank=True, null=True, help_text="SMILES molecular notation")
     description = models.TextField(blank=True, null=True)
     
@@ -25,7 +27,20 @@ class Drug(models.Model):
     
     # Classification
     drug_class = models.CharField(max_length=255, blank=True, null=True)
+    therapeutic_class = models.CharField(max_length=255, blank=True, null=True)
     atc_code = models.CharField(max_length=50, blank=True, null=True)
+    
+    # Identification codes
+    ndc_code = models.CharField(max_length=20, blank=True, null=True, db_index=True, help_text="National Drug Code")
+    rxcui = models.CharField(max_length=20, blank=True, null=True, help_text="RxNorm Concept Unique Identifier")
+    
+    # Pill identification (for camera scanning)
+    pill_color = models.CharField(max_length=50, blank=True, null=True, help_text="e.g., white, pink, blue")
+    pill_shape = models.CharField(max_length=50, blank=True, null=True, help_text="e.g., round, oval, capsule")
+    pill_imprint = models.CharField(max_length=100, blank=True, null=True, help_text="Text/numbers on pill")
+    pill_image_url = models.URLField(blank=True, null=True, help_text="URL to pill image")
+    dosage_form = models.CharField(max_length=100, blank=True, null=True, help_text="e.g., tablet, capsule, injection")
+    strength = models.CharField(max_length=100, blank=True, null=True, help_text="e.g., 500mg, 10mg/ml")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

@@ -132,8 +132,12 @@ class DrugSerializer(serializers.ModelSerializer):
     class Meta:
         model = Drug
         fields = [
-            'id', 'drugbank_id', 'name', 'smiles', 'description',
-            'molecular_weight', 'molecular_formula', 'drug_class', 'atc_code'
+            'id', 'drugbank_id', 'name', 'generic_name', 'brand_names',
+            'smiles', 'description', 'molecular_weight', 'molecular_formula',
+            'drug_class', 'therapeutic_class', 'atc_code',
+            'ndc_code', 'rxcui',
+            'pill_color', 'pill_shape', 'pill_imprint', 'pill_image_url',
+            'dosage_form', 'strength'
         ]
 
 
