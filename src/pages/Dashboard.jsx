@@ -261,7 +261,7 @@ export default function Dashboard() {
     try {
       if (selectedDrugs.length === 2) {
         // Two-drug prediction
-        addLog('Querying PubMedBERT model...', 'info', 'AI');
+        addLog('Querying Macroscopic GraphSAGE model...', 'info', 'AI');
         const start = performance.now();
         const response = await predictDDI(
           { name: selectedDrugs[0].name, smiles: selectedDrugs[0].smiles },

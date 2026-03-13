@@ -34,6 +34,7 @@ from .serializers import (
 )
 from .services.ddi_predictor import get_ddi_service, DDIPrediction
 from .services.knowledge_graph import KnowledgeGraphService
+from .services.gnn_predictor import get_gnn_predictor
 from .services.pubmedbert_predictor import get_pubmedbert_predictor
 
 logger = logging.getLogger(__name__)
@@ -369,77 +370,32 @@ class DDIPredictionView(APIView):
                 'source': 'knowledge_graph'
             }
         else:
-            # Use PubMedBERT model for text-based DDI prediction
-            # This model was trained on ~19,000 DDI Corpus sentences
-            pubmedbert = get_pubmedbert_predictor()
-            
-            if pubmedbert.is_loaded:
-                # Use PubMedBERT for prediction (primary method)
-                prediction = pubmedbert.predict(drug_a['name'], drug_b['name'])
-                
-                # Map interaction type to affected systems
-                affected_systems_map = {
-                    'mechanism': ['liver', 'metabolic'],
-                    'effect': ['cardiovascular', 'hematologic'],
-                    'advise': ['general'],
-                    'int': ['general'],
-                    'no_interaction': []
-                }
-                affected = affected_systems_map.get(prediction.interaction_type, [])
-                
-                response_data = {
-                    'drug_a': prediction.drug_a,
-                    'drug_b': prediction.drug_b,
-                    'risk_score': prediction.risk_score,
-                    'risk_level': get_risk_level(prediction.risk_score),
-                    'severity': prediction.severity,
-                    'confidence': prediction.confidence,
-                    'mechanism_hypothesis': pubmedbert.get_mechanism_description(
-                        prediction.interaction_type, 
-                        prediction.drug_a, 
-                        prediction.drug_b,
-                        prediction.confidence
-                    ),
-                    'affected_systems': [
-                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                        for sys in affected
-                    ],
-                    'inference_time_ms': (time.time() - start_time) * 1000,
-                    'source': 'pubmedbert',
-                    'interaction_type': prediction.interaction_type,
-                    'all_probabilities': prediction.all_probabilities,
-                    # Context sentence information for transparency
-                    'context_sentence': prediction.context_sentence,
-                    'context_source': prediction.context_source,
-                    'template_category': prediction.template_category
-                }
-            else:
-                # Fallback to molecular structure-based model
-                logger.warning("PubMedBERT not loaded, falling back to GNN model")
-                service = get_ddi_service()
-                prediction = service.predict(
-                    drug_a.get('smiles', ''),
-                    drug_b.get('smiles', ''),
-                    drug_a['name'],
-                    drug_b['name']
-                )
-                
-                response_data = {
-                    'drug_a': prediction.drug_a,
-                    'drug_b': prediction.drug_b,
-                    'risk_score': prediction.risk_score,
-                    'risk_level': get_risk_level(prediction.risk_score),
-                    'severity': prediction.severity,
-                    'confidence': prediction.confidence,
-                    'mechanism_hypothesis': prediction.mechanism_hypothesis,
-                    'affected_systems': [
-                        {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                        for sys in prediction.affected_systems
-                    ],
-                    'inference_time_ms': (time.time() - start_time) * 1000,
-                    'source': 'ai_model'
-                }
-        
+            # Use Macroscopic GraphSAGE model for prediction
+            logger.info("Using Macroscopic GraphSAGE model for DDI prediction")
+            gnn_service = get_gnn_predictor()
+            prediction = gnn_service.predict(
+                drug_a['name'],
+                drug_b['name'],
+                drug_a.get('smiles', ''),
+                drug_b.get('smiles', '')
+            )
+
+            # Map our new robust model format to the frontend interface pattern seamlessly
+            response_data = {
+                'drug_a': prediction.drug_a,
+                'drug_b': prediction.drug_b,
+                'risk_score': prediction.risk_score,
+                'risk_level': prediction.risk_level,
+                'severity': prediction.severity,
+                'confidence': prediction.confidence,
+                'mechanism_hypothesis': prediction.mechanism_hypothesis,
+                'affected_systems': [
+                    {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
+                    for sys in prediction.affected_systems
+                ],
+                'inference_time_ms': (time.time() - start_time) * 1000,
+                'source': 'macroscopic_gnn'
+            }
         inference_time = response_data['inference_time_ms']
         
         # Include explanation if requested
@@ -484,8 +440,7 @@ class PolypharmacyView(APIView):
         drugs = [lookup_drug(d) for d in data['drugs']]
         
         # Get prediction service
-        service = get_ddi_service()
-        
+        service = get_gnn_predictor()
         # Analyze polypharmacy
         result = service.predict_polypharmacy(drugs)
         
@@ -708,9 +663,11 @@ class HealthCheckView(APIView):
         
         # Check AI model
         try:
-            service = get_ddi_service()
+            service = get_gnn_predictor()
             if service.model is None:
                 health['services']['ai_model'] = 'not_loaded'
+            else:
+                health['services']['ai_model'] = 'online'
         except Exception as e:
             health['services']['ai_model'] = f'error: {str(e)}'
             health['status'] = 'degraded'

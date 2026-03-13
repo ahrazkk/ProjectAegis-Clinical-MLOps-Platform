@@ -10,10 +10,16 @@ import requests
 import time
 import re
 
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
 # Neo4j Aura connection
-URI = 'neo4j+s://ca47aebc.databases.neo4j.io'
-USER = 'neo4j'
-PASSWORD = 'BYKmHWoR2DeEiiiwO6qBAET273OIaaGv1ZatYpU_vtM'
+URI = os.getenv('NEO4J_URI')
+USER = os.getenv('NEO4J_USER', os.getenv('NEO4J_USERNAME'))
+PASSWORD = os.getenv('NEO4J_PASSWORD')
 
 # RxNorm API base
 RXNORM_BASE = "https://rxnav.nlm.nih.gov/REST"

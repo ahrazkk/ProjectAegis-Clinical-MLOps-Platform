@@ -40,7 +40,8 @@ except ImportError:
 
 class ModelType(str, Enum):
     """Available GNN model architectures."""
-    TRAINED_GNN = "trained_gnn"  # Our trained Edge-Conditioned GIN model
+    MACROSCOPIC_GNN = "macroscopic_gnn" # V2 Model: Dense GraphSAGE
+    TRAINED_GNN = "trained_gnn"  # V1 Model: Trained Edge-Conditioned GIN
     DEEPDDI = "deepddi"
     MHCADDI = "mhcaddi"
     SSIDDI = "ssiddi"
@@ -290,7 +291,7 @@ class GNNDDIPredictor:
         'mechanism': ('severe', 0.85),
     }
     
-    def __init__(self, model_type: ModelType = ModelType.TRAINED_GNN):
+    def __init__(self, model_type: ModelType = ModelType.MACROSCOPIC_GNN):
         """
         Initialize the GNN DDI predictor.
         
@@ -301,6 +302,11 @@ class GNNDDIPredictor:
         self.feature_extractor = MolecularFeatureExtractor()
         self.model = None
         self.graph_featurizer = None
+        
+        # Specific for MACROSCOPIC_GNN
+        self.macro_graph_data = None
+        self.name_to_idx = {}
+        
         self.is_loaded = False
         
         if TORCH_AVAILABLE:
@@ -309,7 +315,13 @@ class GNNDDIPredictor:
     def _initialize_model(self):
         """Initialize the neural network model."""
         try:
-            # First try loading the trained GNN model
+            # V2: Macroscopic Model (The new state-of-the-art framework)
+            if self.model_type == ModelType.MACROSCOPIC_GNN:
+                self._load_macroscopic_gnn()
+                if self.is_loaded:
+                    return
+
+            # First try loading the trained GNN model (V1)
             if self.model_type == ModelType.TRAINED_GNN:
                 self._load_trained_gnn()
                 if self.is_loaded:
@@ -337,6 +349,51 @@ class GNNDDIPredictor:
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
             self.is_loaded = False
+
+    def _load_macroscopic_gnn(self):
+        """Load the V2 Macroscopic GraphSAGE Model and Tensor Space."""
+        import sys
+        import pandas as pd
+        model_src = Path(__file__).parent.parent.parent.parent / 'src' / 'model'
+        if str(model_src) not in sys.path:
+            sys.path.insert(0, str(model_src))
+            
+        data_dir = Path(__file__).parent.parent.parent / 'data'
+            
+        try:
+            from macroscopic_ddi_gnn import MacroscopicDDIGNN
+            
+            dataset_path = data_dir / "neo4j_gnn_dataset.pt"
+            mapping_path = data_dir / "node_mapping.csv"
+            weights_path = data_dir / "macroscopic_gnn_weights.pth"
+            
+            if not dataset_path.exists() or not mapping_path.exists() or not weights_path.exists():
+                logger.warning("Macroscopic GNN assets missing. Ensure extract_graph_dataset.py and train_macroscopic_model.py have been executed.")
+                return
+                
+            self.macro_graph_data = torch.load(dataset_path, weights_only=False)
+            mapping_df = pd.read_csv(mapping_path)
+            
+            for _, row in mapping_df.iterrows():
+                if pd.notna(row['name']):
+                    self.name_to_idx[str(row['name']).strip().lower()] = row['pyg_id']
+                    
+            self.model = MacroscopicDDIGNN(
+                in_channels=self.macro_graph_data.num_features, 
+                hidden_channels=256, 
+                out_channels=128, 
+                num_layers=3
+            )
+            self.model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
+            self.model.eval()
+            
+            self.model_type = ModelType.MACROSCOPIC_GNN
+            self.is_loaded = True
+            logger.info("Successfully loaded V2 Macroscopic GNN Predictor (~98.6% AUC).")
+            
+        except Exception as e:
+            logger.error(f"Failed to load Macroscopic GNN Predictor: {e}")
+            self.model = None
 
     def _load_trained_gnn(self):
         """Load the trained Edge-Conditioned GIN model from checkpoint."""
@@ -452,7 +509,11 @@ class GNNDDIPredictor:
         if smiles1 and smiles2:
             similarity = self.feature_extractor.calculate_tanimoto_similarity(smiles1, smiles2)
 
-        # Use trained GNN model if available
+        # Use Macroscopic GraphSAGE Engine (V2)
+        if self.is_loaded and self.model_type == ModelType.MACROSCOPIC_GNN:
+            return self._predict_with_macroscopic_model(drug1, drug2, smiles1, smiles2, similarity)
+
+        # Use legacy trained GNN model if available
         if (self.is_loaded and self.model_type == ModelType.TRAINED_GNN 
                 and self.graph_featurizer is not None
                 and smiles1 and smiles2):
@@ -507,6 +568,83 @@ class GNNDDIPredictor:
             
         except Exception as e:
             logger.error(f"Model inference failed: {e}")
+            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+
+    def _predict_with_macroscopic_model(
+        self,
+        drug1: str,
+        drug2: str,
+        smiles1: Optional[str],
+        smiles2: Optional[str],
+        similarity: Optional[float]
+    ) -> GNNPrediction:
+        """Run prediction using the V2 Macroscopic GraphSAGE Model."""
+        try:
+            d1_clean = drug1.strip().lower()
+            d2_clean = drug2.strip().lower()
+            
+            # Helper to find close matches if exact isn't in graph
+            def _get_idx(name):
+                if name in self.name_to_idx:
+                    return name, self.name_to_idx[name]
+                matches = get_close_matches(name, self.name_to_idx.keys(), n=1, cutoff=0.7)
+                if matches:
+                    return matches[0], self.name_to_idx[matches[0]]
+                return None, None
+                
+            actual_d1, idx1 = _get_idx(d1_clean)
+            actual_d2, idx2 = _get_idx(d2_clean)
+
+            # If either drug is entirely foreign to the graph, fallback to heuristics
+            if idx1 is None or idx2 is None:
+                logger.info(f"Macroscopic model fallback: {drug1} or {drug2} not mapped in graph space.")
+                return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+
+            # Create testing tensor array
+            edge_label_index = torch.tensor([[idx1], [idx2]], dtype=torch.long)
+            
+            with torch.no_grad():
+                out = self.model(self.macro_graph_data, edge_label_index)
+                prob = torch.sigmoid(out).item()
+
+            # Map Macroscopic Probability to Severity
+            if prob < 0.3:
+                interaction_type = 'no_interaction'
+                severity = 'none'
+            elif prob < 0.6:
+                interaction_type = 'advise'
+                severity = 'minor'
+            elif prob < 0.85:
+                interaction_type = 'effect'
+                severity = 'moderate'
+            else:
+                interaction_type = 'mechanism'
+                severity = 'severe'
+
+            # Calculate confidence curve (confident when very high or very low)
+            confidence = abs(prob - 0.5) * 2  
+
+            mechanism = self._generate_mechanism_hypothesis(
+                actual_d1.title(), actual_d2.title(), smiles1, smiles2, similarity, interaction_type
+            )
+            mechanism = f"[Macroscopic Tensor DB Match] {mechanism}"
+
+            return GNNPrediction(
+                drug1=drug1,
+                drug2=drug2,
+                interaction_probability=float(prob),
+                interaction_type=interaction_type,
+                confidence=float(confidence),
+                severity=severity,
+                model_used='macroscopic_gnn',
+                smiles1=smiles1,
+                smiles2=smiles2,
+                fingerprint_similarity=similarity,
+                mechanism_hypothesis=mechanism
+            )
+
+        except Exception as e:
+            logger.error(f"Macroscopic GNN inference failed: {e}")
             return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
 
     def _predict_with_trained_gnn(
@@ -658,6 +796,43 @@ class GNNDDIPredictor:
         
         return base_hypothesis
     
+    def predict_polypharmacy(self, drugs: List[Dict[str, str]]) -> Dict:
+        """
+        Predict interactions for multiple drugs (N-way) natively on Macroscopic model.
+        """
+        n = len(drugs)
+        interactions = []
+        max_risk = 0.0
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                pred = self.predict(
+                    drugs[i]["name"],
+                    drugs[j]["name"],
+                    drugs[i].get("smiles", ""),
+                    drugs[j].get("smiles", "")
+                )
+                
+                if pred.risk_score > 0.3:
+                    interactions.append({
+                        "drug_a": pred.drug_a,
+                        "drug_b": pred.drug_b,
+                        "risk_score": pred.risk_score,
+                        "risk_level": pred.risk_level,
+                        "severity": pred.severity,
+                        "mechanism": pred.mechanism_hypothesis,
+                        "affected_systems": list(pred.affected_systems)
+                    })
+                    max_risk = max(max_risk, pred.risk_score)
+                    
+        return {
+            "max_risk_score": max_risk,
+            "risk_level": "severe" if max_risk > 0.7 else "moderate" if max_risk > 0.4 else "minor" if max_risk > 0.2 else "none",
+            "interactions": sorted(interactions, key=lambda x: x["risk_score"], reverse=True),
+            "drugs_analyzed": n
+        }
+
+
     def batch_predict(
         self,
         drug_pairs: List[Tuple[str, str, Optional[str], Optional[str]]]
@@ -681,7 +856,7 @@ class GNNDDIPredictor:
 _gnn_predictor: Optional[GNNDDIPredictor] = None
 
 
-def get_gnn_predictor(model_type: ModelType = ModelType.TRAINED_GNN) -> GNNDDIPredictor:
+def get_gnn_predictor(model_type: ModelType = ModelType.MACROSCOPIC_GNN) -> GNNDDIPredictor:
     """Get or create the GNN DDI predictor singleton."""
     global _gnn_predictor
     if _gnn_predictor is None or _gnn_predictor.model_type != model_type:

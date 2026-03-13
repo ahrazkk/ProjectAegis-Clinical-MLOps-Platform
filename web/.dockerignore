@@ -1,0 +1,14 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+node_modules
+data/pill_eval_data/
+pill_eval_data/
+data/gnn_training/
+DDI_Model_Final/
+molecular-ai.worktrees/
+*.pt
+*.safetensors
+db.sqlite3
