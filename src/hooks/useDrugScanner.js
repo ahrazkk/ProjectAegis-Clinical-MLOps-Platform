@@ -13,7 +13,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import Quagga from '@ericblade/quagga2';
 import Tesseract from 'tesseract.js';
 import * as tf from '@tensorflow/tfjs';
-import { analyzePill, pillModel, searchPillByFeatures, uploadPillImage } from '../services/pillDetection';
+import { analyzePill, pillModel, getPillModelStatus, identifyPillMultimodal, searchPillByFeatures, uploadPillImage } from '../services/pillDetection';
 
 // API base URL
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
@@ -34,6 +34,7 @@ export function useDrugScanner() {
   const [detectedDrugs, setDetectedDrugs] = useState([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
+  const [pillModelStatus, setPillModelStatus] = useState(getPillModelStatus());
   
   // TensorFlow model ref (for pill detection)
   const pillModelRef = useRef(null);
@@ -306,8 +307,18 @@ export function useDrugScanner() {
 
   // Initialize pill detection model on mount
   useEffect(() => {
-    pillModel.loadModel();
+    let mounted = true;
+    const init = async () => {
+      setPillModelStatus(getPillModelStatus());
+      await pillModel.loadModel();
+      if (mounted) {
+        setPillModelStatus(getPillModelStatus());
+      }
+    };
+
+    init();
     return () => {
+      mounted = false;
       pillModel.dispose();
     };
   }, []);
@@ -355,28 +366,82 @@ export function useDrugScanner() {
         imprint: imprint,
         colorSecondary: pillFeatures.colorSecondary,
         aspectRatio: pillFeatures.aspectRatio,
-        circularity: pillFeatures.features?.circularity
+        circularity: pillFeatures.features?.circularity,
+        overlayDataUrl: pillFeatures.overlayDataUrl,
+        boundingBox: pillFeatures.boundingBox,
       };
 
-      // Step 4: If model made a prediction, use it as primary
+      // Step 4: Multimodal backend ranking (best current path for specific pill identity)
       let results = [];
-      if (pillFeatures.modelPrediction && pillFeatures.modelPrediction.length > 0) {
-        const topPred = pillFeatures.modelPrediction[0];
-        if (topPred.confidence > 0.5) {
-          // Model-based result - look up the predicted drug
-          const modelResults = await lookupByName(topPred.label);
+      const multimodal = await identifyPillMultimodal(
+        searchFeatures,
+        pillFeatures.modelPrediction || [],
+        imageSrc,
+      );
+
+      const yoloDetections = multimodal?.detector?.detections || [];
+      const yoloTopDetection = yoloDetections.length > 0 ? yoloDetections[0] : null;
+      const multimodalDecision = multimodal?.decision || null;
+
+      if (multimodal?.results?.length) {
+        results = multimodal.results.map(drug => ({
+          ...drug,
+          detectionMethod: 'pill_multimodal',
+          confidence: drug.confidence || 0.6,
+          pillFeatures: searchFeatures,
+          overlayDataUrl: pillFeatures.overlayDataUrl,
+          yoloDetections,
+          yoloTopDetection,
+          decisionStatus: multimodalDecision?.status,
+          decisionMessage: multimodalDecision?.message,
+          isEstimate: drug.is_estimate || multimodalDecision?.status === 'uncertain',
+        }));
+      } else if (yoloTopDetection) {
+        // If multimodal ranking has no DB hits, still surface detector signal.
+        results = [{
+          id: `yolo-${Date.now()}`,
+          name: (yoloTopDetection.class_name || 'pill').replace(/_/g, ' '),
+          detectionMethod: 'pill_multimodal',
+          confidence: yoloTopDetection.confidence || 0.35,
+          pillFeatures: searchFeatures,
+          overlayDataUrl: pillFeatures.overlayDataUrl,
+          yoloDetections,
+          yoloTopDetection,
+          decisionStatus: 'uncertain',
+          decisionMessage: 'Detector found a pill type candidate, but database mapping is uncertain.',
+          isEstimate: true,
+        }];
+      }
+
+      // Step 5: Model predictions — try DB lookup but fall back to label directly
+      if (results.length === 0 && pillFeatures.modelPrediction && pillFeatures.modelPrediction.length > 0) {
+        for (const pred of pillFeatures.modelPrediction.slice(0, 3)) {
+          if (pred.confidence < 0.25) continue;
+          const modelResults = await lookupByName(pred.label);
           if (modelResults && modelResults.length > 0) {
-            results = modelResults.map(drug => ({
+            results.push(...modelResults.slice(0, 2).map(drug => ({
               ...drug,
               detectionMethod: 'pill_model',
-              confidence: topPred.confidence,
+              confidence: pred.confidence,
               pillFeatures: searchFeatures
-            }));
+            })));
+          } else {
+            // Database doesn't have it — surface the label directly
+            results.push({
+              id: `model-${pred.label}-${Date.now()}`,
+              name: pred.label.replace(/_/g, ' '),
+              detectionMethod: 'pill_model',
+              confidence: pred.confidence,
+              pillFeatures: searchFeatures,
+              overlayDataUrl: pillFeatures.overlayDataUrl,
+              isEstimate: true
+            });
           }
+          if (results.length >= 3) break;
         }
       }
 
-      // Step 5: Search by visual features (API)
+      // Step 6: Search by visual features (API, graceful fail)
       if (results.length === 0) {
         const featureResults = await searchPillByFeatures(searchFeatures);
         results = featureResults.map(drug => ({
@@ -387,7 +452,7 @@ export function useDrugScanner() {
         }));
       }
 
-      // Step 6: Try backend image upload as fallback
+      // Step 7: Backend image upload as fallback (graceful fail)
       if (results.length === 0) {
         const uploadResult = await uploadPillImage(imageSrc);
         if (uploadResult && uploadResult.results) {
@@ -403,21 +468,35 @@ export function useDrugScanner() {
       if (results.length > 0) {
         setDetectedDrugs(results);
         return results;
-      } else {
-        // Return features so user can see what was detected even if no match
-        const featureDescription = [
-          searchFeatures.color && `Color: ${searchFeatures.color}`,
-          searchFeatures.colorSecondary && `Secondary: ${searchFeatures.colorSecondary}`,
-          searchFeatures.shape && `Shape: ${searchFeatures.shape}`,
-          imprint && `Imprint: ${imprint}`
-        ].filter(Boolean).join(', ');
-
-        setError(
-          `No exact match found. Detected: ${featureDescription || 'insufficient features'}. ` +
-          'Try barcode or label scan for better results.'
-        );
-        return [];
       }
+
+      // Step 8: CV-only fallback — show detected visual properties so user knows the scan ran
+      const pillPct = (pillFeatures.pillArea || 0) * 100;
+      if (pillPct > 3 && searchFeatures.color && searchFeatures.color !== 'unknown') {
+        const visualName = [
+          searchFeatures.color,
+          searchFeatures.shape && searchFeatures.shape !== 'unknown' ? searchFeatures.shape : null,
+          'pill'
+        ].filter(Boolean).join(' ');
+        const cvResult = {
+          id: `cv-${Date.now()}`,
+          name: visualName,
+          detectionMethod: 'pill',
+          confidence: pillFeatures.colorConfidence || 0.3,
+          pillFeatures: searchFeatures,
+          overlayDataUrl: pillFeatures.overlayDataUrl,
+          imprint: imprint || undefined,
+          isEstimate: true
+        };
+        setDetectedDrugs([cvResult]);
+        return [cvResult];
+      }
+
+      setError(
+        'No pill detected. Place the pill on a plain, contrasting background and try again. ' +
+        'For best results use the Upload button to select an existing photo.'
+      );
+      return [];
     } catch (err) {
       console.error('Pill scan error:', err);
       setError('Pill identification failed');
@@ -495,7 +574,8 @@ export function useDrugScanner() {
     scanBarcode,
     scanOCR,
     scanPill,
-    clearResults
+    clearResults,
+    pillModelStatus,
   };
 }
 

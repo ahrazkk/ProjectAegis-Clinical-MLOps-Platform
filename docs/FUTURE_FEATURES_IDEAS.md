@@ -131,7 +131,8 @@ Input Image → Preprocessing → CNN Feature Extraction → Classification → 
 #### Training Data Sources
 - **NIH Pill Image Recognition Challenge** - ~4,000 reference images
 - **Drugs.com Pill Identifier** - Scrape for training (check ToS)
-- **RxImage (NLM)** - Government database of pill images
+- **DailyMed (NLM)** - Active government database of drug images & labels
+- **NIH C3PI** - Computational Photography for Pill Identification reference images
 - **Synthetic generation** - 3D render pills with augmentation
 
 #### AR Overlay Information

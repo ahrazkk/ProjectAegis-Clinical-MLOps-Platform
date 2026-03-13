@@ -162,9 +162,9 @@ class MolecularGraphFeaturizer:
         if mol is None:
             return None
 
-        # Add hydrogens for better feature extraction, then remove
+        # Add hydrogens for accurate counts, then remove
+        # (Skip 3D embedding — GNN only uses 2D topology features)
         mol = Chem.AddHs(mol)
-        AllChem.EmbedMolecule(mol, randomSeed=42, maxAttempts=100)
         mol = Chem.RemoveHs(mol)
 
         num_atoms = mol.GetNumAtoms()

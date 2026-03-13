@@ -60,6 +60,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://aegis-frontend-667446742007.us-central1.run.app",
+    "https://aegis-frontend-ivk6owqmqa-uc.a.run.app",
+    "https://aegishealth.dev",
 ]
 CORS_ALLOW_ALL_ORIGINS = True # Temporary for MVP to ensure it works
 CORS_ALLOW_CREDENTIALS = True

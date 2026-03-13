@@ -12,6 +12,11 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
+const API_TIMEOUT_MS = 30000;
+const API_MAX_RETRIES = 2;
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Generic fetch wrapper with error handling
  */
@@ -30,19 +35,70 @@ async function apiRequest(endpoint, options = {}) {
         },
     };
 
-    try {
-        const response = await fetch(url, config);
+    let lastError;
 
-        if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
+    for (let attempt = 0; attempt <= API_MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+        try {
+            const response = await fetch(url, {
+                ...config,
+                signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                let errorMessage = `HTTP error! status: ${response.status}`;
+
+                try {
+                    const contentType = response.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const errorData = await response.json();
+                        errorMessage = errorData.detail || errorData.error || errorMessage;
+                    } else {
+                        const text = await response.text();
+                        if (text) {
+                            errorMessage = text;
+                        }
+                    }
+                } catch {
+                    // Fall back to status-based message.
+                }
+
+                const httpError = new Error(errorMessage);
+                httpError.status = response.status;
+
+                // Retry only transient server-side failures.
+                if (response.status >= 500 && attempt < API_MAX_RETRIES) {
+                    await delay(400 * (attempt + 1));
+                    continue;
+                }
+
+                throw httpError;
+            }
+
+            return await response.json();
+        } catch (error) {
+            clearTimeout(timeoutId);
+            lastError = error;
+
+            const isTransientNetworkError =
+                error.name === 'AbortError' ||
+                error.name === 'TypeError' ||
+                /Failed to fetch|NetworkError|Load failed/i.test(error.message || '');
+
+            if (isTransientNetworkError && attempt < API_MAX_RETRIES) {
+                await delay(400 * (attempt + 1));
+                continue;
+            }
+
+            break;
         }
-
-        return await response.json();
-    } catch (error) {
-        console.error(`API Error [${endpoint}]:`, error);
-        throw error;
     }
+
+    console.error(`API Error [${endpoint}]:`, lastError);
+    throw lastError;
 }
 
 /**

@@ -11,6 +11,7 @@ Reference:
 """
 
 import logging
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
@@ -39,6 +40,7 @@ except ImportError:
 
 class ModelType(str, Enum):
     """Available GNN model architectures."""
+    TRAINED_GNN = "trained_gnn"  # Our trained Edge-Conditioned GIN model
     DEEPDDI = "deepddi"
     MHCADDI = "mhcaddi"
     SSIDDI = "ssiddi"
@@ -288,7 +290,7 @@ class GNNDDIPredictor:
         'mechanism': ('severe', 0.85),
     }
     
-    def __init__(self, model_type: ModelType = ModelType.SIMPLE_MLP):
+    def __init__(self, model_type: ModelType = ModelType.TRAINED_GNN):
         """
         Initialize the GNN DDI predictor.
         
@@ -298,6 +300,7 @@ class GNNDDIPredictor:
         self.model_type = model_type
         self.feature_extractor = MolecularFeatureExtractor()
         self.model = None
+        self.graph_featurizer = None
         self.is_loaded = False
         
         if TORCH_AVAILABLE:
@@ -306,7 +309,13 @@ class GNNDDIPredictor:
     def _initialize_model(self):
         """Initialize the neural network model."""
         try:
-            if self.model_type == ModelType.SIMPLE_MLP:
+            # First try loading the trained GNN model
+            if self.model_type == ModelType.TRAINED_GNN:
+                self._load_trained_gnn()
+                if self.is_loaded:
+                    return
+
+            if self.model_type == ModelType.SIMPLE_MLP or not self.is_loaded:
                 if SimpleDDIPredictor is None:
                     logger.warning("SimpleDDIPredictor not available (PyTorch not installed)")
                     self.is_loaded = False
@@ -318,17 +327,103 @@ class GNNDDIPredictor:
                     num_classes=len(self.INTERACTION_TYPES)
                 )
                 self.model.eval()
+                self.model_type = ModelType.SIMPLE_MLP
                 self.is_loaded = True
-                logger.info(f"Initialized {self.model_type.value} model")
+                logger.info(f"Initialized {self.model_type.value} model (fallback)")
             else:
-                # For other model types, would load pre-trained weights
                 logger.warning(f"Model type {self.model_type.value} not yet implemented")
                 self.is_loaded = False
                 
         except Exception as e:
             logger.error(f"Failed to initialize model: {e}")
             self.is_loaded = False
-    
+
+    def _load_trained_gnn(self):
+        """Load the trained Edge-Conditioned GIN model from checkpoint."""
+        import sys
+        model_src = Path(__file__).parent.parent.parent.parent / 'src' / 'model'
+        if str(model_src) not in sys.path:
+            sys.path.insert(0, str(model_src.parent))
+
+        try:
+            from model.gnn_model import DDIGraphModel
+            from model.gnn_featurizer import (
+                MolecularGraphFeaturizer, ATOM_FEATURE_DIM, EDGE_FEATURE_DIM
+            )
+
+            checkpoint_path = (
+                Path(__file__).parent.parent.parent / 'models' / 'gnn' / 'gnn_best_model.pt'
+            )
+            if not checkpoint_path.exists():
+                logger.warning(f"Trained GNN checkpoint not found at {checkpoint_path}")
+                return
+
+            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            config = checkpoint.get('config', {})
+
+            self.model = DDIGraphModel(
+                atom_feature_dim=ATOM_FEATURE_DIM,
+                edge_feature_dim=EDGE_FEATURE_DIM,
+                hidden_dim=config.get('hidden_dim', 256),
+                num_gnn_layers=config.get('num_gnn_layers', 3),
+                num_relation_classes=config.get('num_relation_classes', 1),
+                dropout_rate=config.get('dropout_rate', 0.1),
+                use_binary=config.get('use_binary', True),
+                use_jumping_knowledge=config.get('use_jumping_knowledge', True),
+            )
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+            self.model.eval()
+
+            self.graph_featurizer = MolecularGraphFeaturizer(
+                max_atoms=config.get('max_atoms', 128)
+            )
+
+            # Store calibration parameters
+            self._temperature = checkpoint.get('temperature', 1.0)
+            self._platt_a = checkpoint.get('platt_a', 1.0)
+            self._platt_b = checkpoint.get('platt_b', 0.0)
+
+            metrics = checkpoint.get('metrics', {})
+            logger.info(
+                f"Loaded trained GNN model (PR-AUC: {metrics.get('pr_auc', 'N/A')}, "
+                f"params: {sum(p.numel() for p in self.model.parameters()):,})"
+            )
+            self.model_type = ModelType.TRAINED_GNN
+            self.is_loaded = True
+
+        except Exception as e:
+            logger.error(f"Failed to load trained GNN: {e}")
+            self.model = None
+            self.graph_featurizer = None
+
+    def _resolve_smiles(
+        self, drug1: str, drug2: str,
+        smiles1: Optional[str], smiles2: Optional[str]
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Look up SMILES from drug_db.json for drugs missing SMILES."""
+        if smiles1 and smiles2:
+            return smiles1, smiles2
+
+        if not hasattr(self, '_drug_db'):
+            self._drug_db = {}
+            db_path = Path(__file__).parent.parent.parent / 'data' / 'drug_db.json'
+            if db_path.exists():
+                import json
+                try:
+                    with open(db_path) as f:
+                        for drug in json.load(f):
+                            name = drug.get('name', '').lower()
+                            if name and drug.get('smiles'):
+                                self._drug_db[name] = drug['smiles']
+                except Exception as e:
+                    logger.warning(f"Failed to load drug_db.json: {e}")
+
+        if not smiles1:
+            smiles1 = self._drug_db.get(drug1.lower())
+        if not smiles2:
+            smiles2 = self._drug_db.get(drug2.lower())
+        return smiles1, smiles2
+
     def predict(
         self,
         drug1: str,
@@ -348,20 +443,32 @@ class GNNDDIPredictor:
         Returns:
             GNNPrediction with interaction details
         """
-        # Get fingerprints
-        fp1 = self.feature_extractor.smiles_to_fingerprint(smiles1) if smiles1 else None
-        fp2 = self.feature_extractor.smiles_to_fingerprint(smiles2) if smiles2 else None
-        
+        # Resolve SMILES from drug_db.json if not provided
+        if not smiles1 or not smiles2:
+            smiles1, smiles2 = self._resolve_smiles(drug1, drug2, smiles1, smiles2)
+
         # Calculate similarity if both SMILES available
         similarity = None
         if smiles1 and smiles2:
             similarity = self.feature_extractor.calculate_tanimoto_similarity(smiles1, smiles2)
+
+        # Use trained GNN model if available
+        if (self.is_loaded and self.model_type == ModelType.TRAINED_GNN 
+                and self.graph_featurizer is not None
+                and smiles1 and smiles2):
+            return self._predict_with_trained_gnn(
+                drug1, drug2, smiles1, smiles2, similarity
+            )
+
+        # Get fingerprints for fallback MLP
+        fp1 = self.feature_extractor.smiles_to_fingerprint(smiles1) if smiles1 else None
+        fp2 = self.feature_extractor.smiles_to_fingerprint(smiles2) if smiles2 else None
         
         # If no SMILES or model not loaded, return heuristic prediction
         if not self.is_loaded or fp1 is None or fp2 is None:
             return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
         
-        # Run model inference
+        # Run MLP fallback inference
         try:
             import torch
             
@@ -400,6 +507,76 @@ class GNNDDIPredictor:
             
         except Exception as e:
             logger.error(f"Model inference failed: {e}")
+            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+
+    def _predict_with_trained_gnn(
+        self,
+        drug1: str,
+        drug2: str,
+        smiles1: str,
+        smiles2: str,
+        similarity: Optional[float]
+    ) -> GNNPrediction:
+        """Run prediction using the trained Edge-Conditioned GIN model."""
+        try:
+            graphs = self.graph_featurizer.smiles_pair_to_graphs(smiles1, smiles2)
+            if graphs is None:
+                return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+
+            with torch.no_grad():
+                # Add batch dimension
+                logits = self.model(
+                    graphs['drug1_node_features'].unsqueeze(0),
+                    graphs['drug1_adjacency'].unsqueeze(0),
+                    graphs['drug1_edge_features'].unsqueeze(0),
+                    graphs['drug1_node_mask'].unsqueeze(0),
+                    graphs['drug2_node_features'].unsqueeze(0),
+                    graphs['drug2_adjacency'].unsqueeze(0),
+                    graphs['drug2_edge_features'].unsqueeze(0),
+                    graphs['drug2_node_mask'].unsqueeze(0),
+                )
+
+                # Apply Platt scaling calibration: sigmoid(a * logit + b)
+                raw_logit = logits.squeeze()
+                calibrated = self._platt_a * raw_logit + self._platt_b
+                prob = torch.sigmoid(calibrated).item()
+
+            # Map binary probability to severity
+            if prob < 0.3:
+                interaction_type = 'no_interaction'
+                severity = 'none'
+            elif prob < 0.5:
+                interaction_type = 'advise'
+                severity = 'minor'
+            elif prob < 0.7:
+                interaction_type = 'effect'
+                severity = 'moderate'
+            else:
+                interaction_type = 'mechanism'
+                severity = 'severe'
+
+            confidence = abs(prob - 0.5) * 2  # 0 at 0.5, 1 at 0/1
+
+            mechanism = self._generate_mechanism_hypothesis(
+                drug1, drug2, smiles1, smiles2, similarity, interaction_type
+            )
+
+            return GNNPrediction(
+                drug1=drug1,
+                drug2=drug2,
+                interaction_probability=float(prob),
+                interaction_type=interaction_type,
+                confidence=float(confidence),
+                severity=severity,
+                model_used='trained_gnn',
+                smiles1=smiles1,
+                smiles2=smiles2,
+                fingerprint_similarity=similarity,
+                mechanism_hypothesis=mechanism
+            )
+
+        except Exception as e:
+            logger.error(f"Trained GNN inference failed: {e}")
             return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
     
     def _heuristic_prediction(
@@ -504,7 +681,7 @@ class GNNDDIPredictor:
 _gnn_predictor: Optional[GNNDDIPredictor] = None
 
 
-def get_gnn_predictor(model_type: ModelType = ModelType.SIMPLE_MLP) -> GNNDDIPredictor:
+def get_gnn_predictor(model_type: ModelType = ModelType.TRAINED_GNN) -> GNNDDIPredictor:
     """Get or create the GNN DDI predictor singleton."""
     global _gnn_predictor
     if _gnn_predictor is None or _gnn_predictor.model_type != model_type:

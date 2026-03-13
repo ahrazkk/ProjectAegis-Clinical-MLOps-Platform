@@ -1,0 +1,12 @@
+# Example YOLO dataset config for pill detection/segmentation
+# Copy to your dataset folder and update paths/names.
+
+path: ../data/pill_yolo
+train: images/train
+val: images/val
+
+# Update with your pill identity classes (one class per pill appearance/type)
+names:
+  0: acetaminophen_500_round_white
+  1: ibuprofen_200_round_brown
+  2: metformin_500_oval_white

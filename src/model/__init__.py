@@ -9,44 +9,34 @@ Architecture based on MCR III Model Specification:
 - Risk Scoring: Temperature-calibrated severity-weighted scores
 """
 
-# Core model components
-from .ddi_model import DDIModel
-from .relation_head import RelationHead
-from .auxiliary_head import AuxiliaryHead
-
-# Risk scoring and calibration
-from .risk_scorer import RiskScorer, TemperatureScaling
-
-# Tokenization
-from .tokenization import DDITokenizer
-
-# Dataset handling
-from .dataset import DDIDataset, create_data_loaders
-
-# Training
-from .trainer import DDITrainer, TrainingConfig
-
-# Evaluation
-from .evaluation import (
-    calculate_metrics,
-    calculate_pr_auc,
-    evaluate_model,
-    StratifiedKFoldValidator,
-    ErrorAnalyzer,
-    ErrorType
-)
-
-# Hyperparameter tuning
-from .hyperparameter_config import (
-    VizierStudyConfig,
-    ParameterSpec,
-    DDI_VIZIER_STUDY,
-    get_default_search_space,
-    parse_vizier_trial
-)
-
-# Inference
-from .inference import DDIPredictor, DDIPrediction
+# Core model components (requires transformers — optional for GNN-only usage)
+try:
+    from .ddi_model import DDIModel
+    from .relation_head import RelationHead
+    from .auxiliary_head import AuxiliaryHead
+    from .risk_scorer import RiskScorer, TemperatureScaling
+    from .tokenization import DDITokenizer
+    from .dataset import DDIDataset, create_data_loaders
+    from .trainer import DDITrainer, TrainingConfig
+    from .evaluation import (
+        calculate_metrics,
+        calculate_pr_auc,
+        evaluate_model,
+        StratifiedKFoldValidator,
+        ErrorAnalyzer,
+        ErrorType
+    )
+    from .hyperparameter_config import (
+        VizierStudyConfig,
+        ParameterSpec,
+        DDI_VIZIER_STUDY,
+        get_default_search_space,
+        parse_vizier_trial
+    )
+    from .inference import DDIPredictor, DDIPrediction
+except (ImportError, AttributeError):
+    # transformers/torch version mismatch — GNN modules still work
+    pass
 
 __all__ = [
     # Core model

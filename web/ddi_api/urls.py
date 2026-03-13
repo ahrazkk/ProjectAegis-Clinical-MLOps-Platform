@@ -38,6 +38,7 @@ from .views_scanner import (
     enhanced_drug_search,
     validate_barcode,
     analyze_pill_image,
+    identify_pill_multimodal,
 )
 
 # Create router for ViewSets
@@ -73,6 +74,7 @@ urlpatterns = [
     path('drugs/enhanced-search/', enhanced_drug_search, name='enhanced-search'),
     path('scanner/validate-barcode/', validate_barcode, name='validate-barcode'),
     path('scanner/analyze-pill/', analyze_pill_image, name='analyze-pill'),
+    path('scanner/identify-pill/', identify_pill_multimodal, name='identify-pill'),
     
     # ViewSet routes
     path('', include(router.urls)),

@@ -46,6 +46,9 @@ export function DrugScanner({ onDrugDetected, onClose }) {
   const [isScanning, setIsScanning] = useState(false);
   const [facingMode, setFacingMode] = useState('environment'); // back camera
   const [capturedImage, setCapturedImage] = useState(null);
+  const [cameraAvailable, setCameraAvailable] = useState(true);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
   
   const {
     detectedDrugs,
@@ -55,7 +58,8 @@ export function DrugScanner({ onDrugDetected, onClose }) {
     scanBarcode,
     scanOCR,
     scanPill,
-    clearResults
+    clearResults,
+    pillModelStatus,
   } = useDrugScanner();
 
   // Video constraints
@@ -70,19 +74,33 @@ export function DrugScanner({ onDrugDetected, onClose }) {
   const captureImage = useCallback(() => {
     if (webcamRef.current) {
       const imageSrc = webcamRef.current.getScreenshot();
-      setCapturedImage(imageSrc);
+      if (imageSrc) setCapturedImage(imageSrc);
       return imageSrc;
     }
     return null;
   }, []);
 
+  // Auto-dismiss camera error after 4 seconds
+  useEffect(() => {
+    if (cameraError) {
+      const t = setTimeout(() => setCameraError(null), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [cameraError]);
+
   // Handle scan based on mode
   const handleScan = useCallback(async () => {
+    setCameraError(null);
     setIsScanning(true);
     const imageSrc = captureImage();
-    
+
     if (!imageSrc) {
       setIsScanning(false);
+      setCameraError(
+        !cameraReady
+          ? 'Camera is still starting up—please wait a moment, then try again.'
+          : 'Could not capture image. Try moving to better lighting or tap Upload instead.'
+      );
       return;
     }
 
@@ -131,6 +149,7 @@ export function DrugScanner({ onDrugDetected, onClose }) {
 
   // Toggle camera
   const toggleCamera = useCallback(() => {
+    setCameraReady(false); // stream will restart
     setFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
   }, []);
 
@@ -163,7 +182,7 @@ export function DrugScanner({ onDrugDetected, onClose }) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 bg-[#0a0a0f]/95 backdrop-blur-xl"
+      className="fixed inset-0 z-[80] bg-[#0a0a0f]/95 backdrop-blur-xl"
     >
       <div className="h-full flex flex-col">
         {/* Header */}
@@ -176,6 +195,14 @@ export function DrugScanner({ onDrugDetected, onClose }) {
             <div>
               <h2 className="text-lg font-semibold text-white">Drug Scanner</h2>
               <p className="text-xs text-gray-400">Scan pills, labels, or barcodes</p>
+              <p className="text-[10px] mt-1">
+                {pillModelStatus?.isLoaded
+                  ? <span className="text-green-400">AI model ready</span>
+                  : pillModelStatus?.isLoading
+                    ? <span className="text-cyan-400">Loading AI model…</span>
+                    : <span className="text-amber-400">Using CV fallback mode</span>
+                }
+              </p>
             </div>
           </div>
           
@@ -193,13 +220,42 @@ export function DrugScanner({ onDrugDetected, onClose }) {
           <div className="flex-1 relative bg-black">
             {!capturedImage ? (
               <>
-                <Webcam
-                  ref={webcamRef}
-                  audio={false}
-                  screenshotFormat="image/jpeg"
-                  videoConstraints={videoConstraints}
-                  className="w-full h-full object-cover"
-                />
+                {cameraAvailable ? (
+                  <Webcam
+                    ref={webcamRef}
+                    audio={false}
+                    screenshotFormat="image/jpeg"
+                    videoConstraints={videoConstraints}
+                    onUserMedia={() => setCameraReady(true)}
+                    onUserMediaError={() => { setCameraAvailable(false); setCameraReady(false); }}
+                    playsInline
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center px-6 text-center">
+                    <div>
+                      <AlertCircle className="w-10 h-10 text-amber-400 mx-auto mb-3" />
+                      <p className="text-white text-sm mb-2">Camera access unavailable on this device/browser.</p>
+                      <p className="text-gray-400 text-xs mb-4">Use Upload to analyze a pill image instead.</p>
+                      <label
+                        htmlFor="scanner-file-upload"
+                        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-white text-sm cursor-pointer"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Upload Image
+                      </label>
+                    </div>
+                  </div>
+                )}
+                {/* Camera initialising overlay */}
+                {cameraAvailable && !cameraReady && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                    <div className="text-center">
+                      <Loader2 className="w-8 h-8 text-cyan-400 animate-spin mx-auto mb-2" />
+                      <p className="text-white text-sm">Starting camera…</p>
+                    </div>
+                  </div>
+                )}
                 <ScanOverlay mode={scanMode} isScanning={isScanning} />
               </>
             ) : (
@@ -211,6 +267,20 @@ export function DrugScanner({ onDrugDetected, onClose }) {
                 />
               </div>
             )}
+
+            {/* Camera error notification */}
+            <AnimatePresence>
+              {cameraError && (
+                <motion.div
+                  initial={{ opacity: 0, y: -16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -16 }}
+                  className="absolute top-4 left-4 right-4 z-20 bg-amber-500/20 border border-amber-500/40 rounded-xl p-3 text-sm text-amber-300"
+                >
+                  {cameraError}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Processing Overlay */}
             <AnimatePresence>
@@ -236,7 +306,10 @@ export function DrugScanner({ onDrugDetected, onClose }) {
             </AnimatePresence>
 
             {/* Camera Controls */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
+            <div
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+            >
               {capturedImage ? (
                 <button
                   onClick={resetScanner}
@@ -249,35 +322,41 @@ export function DrugScanner({ onDrugDetected, onClose }) {
                 <>
                   <button
                     onClick={toggleCamera}
+                    disabled={!cameraAvailable}
                     className="p-3 rounded-full bg-white/10 hover:bg-white/20 
-                             border border-white/20 transition-all"
+                             border border-white/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <RotateCcw className="w-5 h-5 text-white" />
                   </button>
                   
                   <button
                     onClick={handleScan}
-                    disabled={isProcessing}
+                    disabled={isProcessing || (cameraAvailable && !cameraReady)}
                     className="p-5 rounded-full bg-gradient-to-r from-cyan-500 to-purple-500 
                              hover:from-cyan-400 hover:to-purple-400 
                              disabled:opacity-50 transition-all shadow-lg shadow-cyan-500/25"
+                    title={cameraAvailable && !cameraReady ? 'Camera initialising…' : 'Scan'}
                   >
-                    <Zap className="w-8 h-8 text-white" />
+                    {cameraAvailable && !cameraReady
+                      ? <Loader2 className="w-8 h-8 text-white animate-spin" />
+                      : <Zap className="w-8 h-8 text-white" />
+                    }
                   </button>
                   
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
+                  <label
+                    htmlFor="scanner-file-upload"
                     className="p-3 rounded-full bg-white/10 hover:bg-white/20 
-                             border border-white/20 transition-all"
+                             border border-white/20 transition-all cursor-pointer"
                   >
                     <Upload className="w-5 h-5 text-white" />
-                  </button>
+                  </label>
                   <input
+                    id="scanner-file-upload"
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
                     onChange={handleFileUpload}
-                    className="hidden"
+                    className="sr-only"
                   />
                 </>
               )}

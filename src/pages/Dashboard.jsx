@@ -317,7 +317,8 @@ export default function Dashboard() {
       }
     } catch (err) {
       console.error('Analysis failed:', err);
-      setError('Failed to analyze interactions. Please check your connection and try again.');
+      const details = err?.message ? ` (${err.message})` : '';
+      setError(`Failed to analyze interactions. Please try again${details}.`);
       addLog(`Analysis process failed: ${err.message}`, 'error', 'SYSTEM');
     } finally {
       setIsAnalyzing(false);

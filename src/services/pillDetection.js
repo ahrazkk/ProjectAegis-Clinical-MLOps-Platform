@@ -46,6 +46,7 @@ class PillDetectionModel {
     this.model = null;
     this.isLoaded = false;
     this.isLoading = false;
+    this.loadError = null;
     this.labels = [];
   }
 
@@ -56,6 +57,7 @@ class PillDetectionModel {
   async loadModel() {
     if (this.isLoaded || this.isLoading) return this.isLoaded;
     this.isLoading = true;
+    this.loadError = null;
 
     try {
       // Try loading from public/models/pill-classifier/
@@ -70,8 +72,9 @@ class PillDetectionModel {
 
       this.isLoaded = true;
       console.log('Pill detection model loaded successfully');
-    } catch {
-      console.info('No trained pill model found, using CV-based detection');
+    } catch (err) {
+      this.loadError = err?.message || 'Model load failed';
+      console.info('No trained pill model found or model is incompatible, using CV-based detection');
       this.isLoaded = false;
     }
 
@@ -120,6 +123,15 @@ class PillDetectionModel {
 // Singleton instance
 export const pillModel = new PillDetectionModel();
 
+export function getPillModelStatus() {
+  return {
+    isLoaded: pillModel.isLoaded,
+    isLoading: pillModel.isLoading,
+    loadError: pillModel.loadError,
+    labelsCount: pillModel.labels?.length || 0,
+  };
+}
+
 // ============================================================
 // Computer Vision Pipeline (works without trained model)
 // ============================================================
@@ -134,6 +146,7 @@ export async function analyzePill(imageSrc) {
 
   // Step 1: Segment the pill from background
   const mask = segmentPill(ctx, width, height);
+  const bbox = computeBoundingBox(mask, width, height);
 
   // Step 2: Extract dominant colors (multi-region sampling)
   const colorResult = analyzeColor(ctx, width, height, mask);
@@ -164,6 +177,8 @@ export async function analyzePill(imageSrc) {
     imprintRegionDataUrl: imprintRegion,
     modelPrediction,
     pillArea: mask.filter(v => v > 0).length / mask.length,
+    boundingBox: bbox,
+    overlayDataUrl: createOverlayDataUrl(canvas, bbox),
     features: {
       colorHSL: colorResult.hsl,
       contourPoints: shapeResult.contourSample,
@@ -171,6 +186,59 @@ export async function analyzePill(imageSrc) {
       corners: shapeResult.corners
     }
   };
+}
+
+function computeBoundingBox(mask, w, h) {
+  let minX = w;
+  let minY = h;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (mask[y * w + x] > 0) {
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX < minX || maxY < minY) {
+    return null;
+  }
+
+  const bw = maxX - minX + 1;
+  const bh = maxY - minY + 1;
+  return {
+    x: minX,
+    y: minY,
+    width: bw,
+    height: bh,
+    xNorm: minX / w,
+    yNorm: minY / h,
+    widthNorm: bw / w,
+    heightNorm: bh / h,
+  };
+}
+
+function createOverlayDataUrl(sourceCanvas, bbox) {
+  const canvas = document.createElement('canvas');
+  canvas.width = sourceCanvas.width;
+  canvas.height = sourceCanvas.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(sourceCanvas, 0, 0);
+
+  if (bbox) {
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = '#00E5FF';
+    ctx.fillStyle = 'rgba(0,229,255,0.14)';
+    ctx.fillRect(bbox.x, bbox.y, bbox.width, bbox.height);
+    ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
+  }
+
+  return canvas.toDataURL('image/jpeg', 0.9);
 }
 
 /**
@@ -832,6 +900,47 @@ export async function uploadPillImage(imageDataUrl) {
   return null;
 }
 
+/**
+ * Ask backend to fuse multiple pill signals and rank likely medications.
+ */
+export async function identifyPillMultimodal(features, modelPredictions = [], imageDataUrl = null) {
+  try {
+    const formData = new FormData();
+    if (features?.color) formData.append('color', features.color);
+    if (features?.shape) formData.append('shape', features.shape);
+    if (features?.imprint) formData.append('imprint', features.imprint);
+    formData.append(
+      'model_predictions',
+      JSON.stringify(
+        Array.isArray(modelPredictions)
+          ? modelPredictions.slice(0, 5).map((p) => ({
+              label: p?.label,
+              confidence: p?.confidence,
+            }))
+          : []
+      )
+    );
+
+    if (imageDataUrl) {
+      const blob = dataUrlToBlob(imageDataUrl);
+      formData.append('image', blob, 'pill.jpg');
+    }
+
+    const response = await fetch(`${API_BASE}/scanner/identify-pill/`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (err) {
+    console.warn('Multimodal pill identification failed:', err);
+  }
+
+  return null;
+}
+
 function dataUrlToBlob(dataUrl) {
   const [header, base64] = dataUrl.split(',');
   const mime = header.match(/:(.*?);/)[1];
@@ -846,6 +955,7 @@ function dataUrlToBlob(dataUrl) {
 export default {
   pillModel,
   analyzePill,
+  identifyPillMultimodal,
   searchPillByFeatures,
   uploadPillImage,
   PILL_SHAPES,

@@ -12,6 +12,7 @@ Endpoints to support camera-based drug detection:
 import re
 import logging
 from typing import Optional, List, Dict
+from difflib import SequenceMatcher
 
 from django.db.models import Q
 from rest_framework import status
@@ -20,8 +21,22 @@ from rest_framework.response import Response
 
 from .models import Drug
 from .serializers import DrugSerializer
+from .pill_detector import pill_detector
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_token(value: str) -> str:
+    """Normalize free text for robust matching across OCR/model labels/DB values."""
+    if not value:
+        return ''
+    return re.sub(r'[^A-Z0-9]+', '', str(value).upper())
+
+
+def _text_similarity(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
 # ============== NDC Code Lookup ==============
@@ -587,6 +602,16 @@ def analyze_pill_image(request):
     color = client_color or None
     shape = client_shape or None
     imprint = client_imprint or None
+
+    detector_detections = []
+    detector_top_label = None
+    if image:
+        try:
+            detector_detections = pill_detector.detect_from_upload(image.read(), max_det=5)
+            if detector_detections:
+                detector_top_label = detector_detections[0].get('class_name')
+        except Exception as exc:
+            logger.warning(f'YOLO detector inference failed: {exc}')
     
     if not any([color, shape, imprint, image]):
         return Response(
@@ -645,8 +670,218 @@ def analyze_pill_image(request):
             'color': color,
             'shape': shape,
             'imprint': imprint,
+            'detector_top_label': detector_top_label,
         },
         'results': results,
         'count': len(results),
-        'source': 'database' if drugs else 'external'
+        'source': 'database' if drugs else 'external',
+        'detector': {
+            'enabled': pill_detector.is_ready,
+            'load_error': pill_detector.load_error,
+            'detections': detector_detections,
+        },
+    })
+
+
+@api_view(['POST'])
+def identify_pill_multimodal(request):
+    """
+    Rank likely pill identities using combined evidence:
+    color + shape + imprint + model label hints.
+
+    Request JSON:
+    {
+      "color": "white",
+      "shape": "round",
+      "imprint": "M367",
+      "model_predictions": [{"label": "acetaminophen", "confidence": 0.72}]
+    }
+    """
+    color = (request.data.get('color') or '').strip().lower()
+    shape = (request.data.get('shape') or '').strip().lower()
+    imprint = (request.data.get('imprint') or '').strip().upper()
+    model_predictions = request.data.get('model_predictions') or []
+    if isinstance(model_predictions, str):
+        try:
+            import json as _json
+            model_predictions = _json.loads(model_predictions)
+        except Exception:
+            model_predictions = []
+
+    image = request.FILES.get('image')
+    detector_detections = []
+    detector_top_label = None
+    detector_top_conf = 0.0
+    if image:
+        try:
+            detector_detections = pill_detector.detect_from_upload(image.read(), max_det=5)
+            if detector_detections:
+                top_det = detector_detections[0]
+                detector_top_label = (top_det.get('class_name') or '').strip()
+                detector_top_conf = float(top_det.get('confidence', 0.0) or 0.0)
+        except Exception as exc:
+            logger.warning(f'Multimodal detector inference failed: {exc}')
+
+    if not any([color, shape, imprint, model_predictions, detector_detections]):
+        return Response(
+            {'error': 'At least one signal is required: color, shape, imprint, model_predictions, image'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    top_label = None
+    top_label_conf = 0.0
+    if isinstance(model_predictions, list) and model_predictions:
+        best = max(model_predictions, key=lambda x: float(x.get('confidence', 0.0) or 0.0))
+        top_label = (best.get('label') or '').strip()
+        top_label_conf = float(best.get('confidence', 0.0) or 0.0)
+
+    # If TF/classification label is absent or weak, use YOLO class hint as primary label signal.
+    if detector_top_label and (not top_label or top_label_conf < detector_top_conf):
+        top_label = detector_top_label
+        top_label_conf = detector_top_conf
+
+    # Broad candidate retrieval; ranking is applied after.
+    queryset = Drug.objects.all()
+    if color:
+        queryset = queryset.filter(Q(pill_color__icontains=color) | Q(description__icontains=color) | Q(name__icontains=color))
+    if shape:
+        queryset = queryset.filter(Q(pill_shape__icontains=shape) | Q(dosage_form__icontains=shape) | Q(description__icontains=shape))
+    if imprint:
+        queryset = queryset.filter(Q(pill_imprint__icontains=imprint) | Q(name__icontains=imprint))
+    if top_label:
+        queryset = queryset.filter(
+            Q(name__icontains=top_label) |
+            Q(generic_name__icontains=top_label) |
+            Q(brand_names__icontains=top_label)
+        ) | queryset
+
+    candidates = queryset.distinct()[:80]
+
+    imprint_norm = _normalize_token(imprint)
+    label_norm = _normalize_token(top_label or '')
+
+    ranked = []
+    for drug in candidates:
+        serialized = DrugSerializer(drug).data
+
+        drug_color = (serialized.get('pill_color') or '').lower()
+        drug_shape = (serialized.get('pill_shape') or '').lower()
+        drug_imprint = (serialized.get('pill_imprint') or '').upper()
+        drug_imprint_norm = _normalize_token(drug_imprint)
+
+        name = serialized.get('name') or ''
+        generic_name = serialized.get('generic_name') or ''
+        brand_names = serialized.get('brand_names') or ''
+
+        score = 0.05
+        reasons = []
+
+        if color:
+            if drug_color == color:
+                score += 0.22
+                reasons.append('color_exact')
+            elif color in drug_color:
+                score += 0.12
+                reasons.append('color_partial')
+
+        if shape:
+            if drug_shape == shape:
+                score += 0.18
+                reasons.append('shape_exact')
+            elif shape in drug_shape:
+                score += 0.10
+                reasons.append('shape_partial')
+
+        if imprint_norm:
+            if drug_imprint_norm == imprint_norm:
+                score += 0.45
+                reasons.append('imprint_exact')
+            elif imprint_norm and imprint_norm in drug_imprint_norm:
+                score += 0.35
+                reasons.append('imprint_contains')
+            elif drug_imprint_norm and drug_imprint_norm in imprint_norm:
+                score += 0.25
+                reasons.append('imprint_subset')
+            else:
+                sim = _text_similarity(imprint_norm, drug_imprint_norm)
+                if sim >= 0.75:
+                    score += 0.2
+                    reasons.append('imprint_fuzzy')
+
+        if label_norm:
+            name_sim = max(
+                _text_similarity(top_label, name),
+                _text_similarity(top_label, generic_name),
+                _text_similarity(top_label, brand_names),
+            )
+            if name_sim >= 0.88:
+                score += 0.25
+                reasons.append('model_label_strong')
+            elif name_sim >= 0.70:
+                score += 0.14
+                reasons.append('model_label_soft')
+
+            score += min(max(top_label_conf, 0.0), 1.0) * 0.08
+
+        if detector_top_label:
+            detector_name_sim = max(
+                _text_similarity(detector_top_label, name),
+                _text_similarity(detector_top_label, generic_name),
+                _text_similarity(detector_top_label, brand_names),
+            )
+            if detector_name_sim >= 0.88:
+                score += 0.2
+                reasons.append('yolo_label_strong')
+            elif detector_name_sim >= 0.70:
+                score += 0.1
+                reasons.append('yolo_label_soft')
+
+            score += min(max(detector_top_conf, 0.0), 1.0) * 0.12
+
+        score = round(min(score, 0.99), 4)
+        if score >= 0.22:
+            serialized['confidence'] = score
+            serialized['match_reasons'] = reasons
+            serialized['detection_method'] = 'multimodal_ranker'
+            ranked.append(serialized)
+
+    ranked.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+
+    top_conf = float(ranked[0]['confidence']) if ranked else 0.0
+    second_conf = float(ranked[1]['confidence']) if len(ranked) > 1 else 0.0
+    confidence_margin = max(0.0, top_conf - second_conf)
+    # Conservative gate to reduce confident-but-wrong labeling.
+    is_uncertain = (top_conf < 0.46) or (len(ranked) > 1 and confidence_margin < 0.08)
+
+    for item in ranked[:12]:
+        item['is_estimate'] = is_uncertain
+
+    return Response({
+        'detected_features': {
+            'color': color or None,
+            'shape': shape or None,
+            'imprint': imprint or None,
+            'model_label': top_label or None,
+            'model_label_confidence': top_label_conf,
+            'detector_top_label': detector_top_label or None,
+            'detector_top_confidence': detector_top_conf,
+        },
+        'results': ranked[:12],
+        'count': len(ranked[:12]),
+        'source': 'multimodal_ranker',
+        'decision': {
+            'status': 'uncertain' if is_uncertain else 'confident',
+            'top_confidence': top_conf,
+            'margin': confidence_margin,
+            'message': (
+                'Low certainty: verify imprint/barcode manually.'
+                if is_uncertain else
+                'High-confidence multimodal match.'
+            ),
+        },
+        'detector': {
+            'enabled': pill_detector.is_ready,
+            'load_error': pill_detector.load_error,
+            'detections': detector_detections,
+        },
     })
