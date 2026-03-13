@@ -3,61 +3,56 @@ Drug-Drug Interaction (DDI) Clinical Decision Support System
 Model Package Initialization
 
 Architecture based on MCR III Model Specification:
-- Encoder: PubMedBERT (microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext)
-- Relation Head: DDI classification (binary or multi-class)
-- Auxiliary Head: NER for entity boundary learning
+- GNN Encoder: Structure-based DDI prediction from molecular graphs (SMILES)
+- Edge-Conditioned GIN layers for molecular message passing
 - Risk Scoring: Temperature-calibrated severity-weighted scores
 """
 
-# Core model components (requires transformers — optional for GNN-only usage)
-try:
-    from .ddi_model import DDIModel
-    from .relation_head import RelationHead
-    from .auxiliary_head import AuxiliaryHead
-    from .risk_scorer import RiskScorer, TemperatureScaling
-    from .tokenization import DDITokenizer
-    from .dataset import DDIDataset, create_data_loaders
-    from .trainer import DDITrainer, TrainingConfig
-    from .evaluation import (
-        calculate_metrics,
-        calculate_pr_auc,
-        evaluate_model,
-        StratifiedKFoldValidator,
-        ErrorAnalyzer,
-        ErrorType
-    )
-    from .hyperparameter_config import (
-        VizierStudyConfig,
-        ParameterSpec,
-        DDI_VIZIER_STUDY,
-        get_default_search_space,
-        parse_vizier_trial
-    )
-    from .inference import DDIPredictor, DDIPrediction
-except (ImportError, AttributeError):
-    # transformers/torch version mismatch — GNN modules still work
-    pass
+# GNN model components
+from .gnn_model import DDIGraphModel, MolecularGNNEncoder, DDIInteractionHead
+from .gnn_featurizer import MolecularGraphFeaturizer
+from .gnn_dataset import DDIGraphDataset, create_graph_data_loaders
+from .gnn_trainer import GNNTrainer, GNNTrainingConfig
+from .gnn_inference import GNNPredictor, DDIPrediction
+
+# Risk scoring and calibration
+from .risk_scorer import RiskScorer, TemperatureScaling
+
+# Evaluation
+from .evaluation import (
+    calculate_metrics,
+    calculate_pr_auc,
+    evaluate_model,
+    StratifiedKFoldValidator,
+    ErrorAnalyzer,
+    ErrorType
+)
+
+# Hyperparameter tuning
+from .hyperparameter_config import (
+    VizierStudyConfig,
+    ParameterSpec,
+    DDI_VIZIER_STUDY,
+    get_default_search_space,
+    parse_vizier_trial
+)
 
 __all__ = [
-    # Core model
-    'DDIModel',
-    'RelationHead',
-    'AuxiliaryHead',
+    # GNN model
+    'DDIGraphModel',
+    'MolecularGNNEncoder',
+    'DDIInteractionHead',
+    'MolecularGraphFeaturizer',
+    'DDIGraphDataset',
+    'create_graph_data_loaders',
+    'GNNTrainer',
+    'GNNTrainingConfig',
+    'GNNPredictor',
+    'DDIPrediction',
 
     # Risk scoring
     'RiskScorer',
     'TemperatureScaling',
-
-    # Tokenization
-    'DDITokenizer',
-
-    # Dataset
-    'DDIDataset',
-    'create_data_loaders',
-
-    # Training
-    'DDITrainer',
-    'TrainingConfig',
 
     # Evaluation
     'calculate_metrics',
@@ -73,11 +68,6 @@ __all__ = [
     'DDI_VIZIER_STUDY',
     'get_default_search_space',
     'parse_vizier_trial',
-
-    # Inference
-    'DDIPredictor',
-    'DDIPrediction'
 ]
 
-__version__ = '1.0.0'
-
+__version__ = '2.0.0'

@@ -1,5 +1,5 @@
 """
-Test runner script for DDI tokenizer tests
+Test runner script for GNN DDI model tests
 """
 
 import sys
@@ -7,17 +7,17 @@ import pytest
 from pathlib import Path
 
 def run_tests():
-    """Run all tokenizer tests"""
+    """Run all GNN model tests"""
     test_dir = Path(__file__).parent
 
     print("="*70)
-    print("Running DDI Tokenizer Tests")
+    print("Running GNN DDI Model Tests")
     print("="*70)
     print()
 
     # Run tests with verbose output
     exit_code = pytest.main([
-        str(test_dir / 'test_tokenization.py'),
+        str(test_dir / 'test_gnn.py'),
         '-v',
         '--tb=short',
         '--color=yes',
@@ -27,7 +27,7 @@ def run_tests():
     if exit_code == 0:
         print()
         print("="*70)
-        print("All tests passed! ✓")
+        print("All tests passed!")
         print("="*70)
     else:
         print()
