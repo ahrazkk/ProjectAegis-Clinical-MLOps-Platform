@@ -184,7 +184,6 @@ export default function ResearchPage() {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Microscope },
     { id: 'evolution', label: 'Model Evolution', icon: Activity },
-    { id: 'evolution', label: 'Model Evolution', icon: Activity },
     { id: 'gnn', label: 'GNN Research', icon: Atom },
     { id: 'scanner', label: 'Pill Scanner', icon: Camera },
     { id: 'pipeline', label: 'System Pipeline', icon: GitBranch },
@@ -439,10 +438,10 @@ new_evolution_ui = """{/* START MODEL EVOLUTION TAB */}
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-1 gap-12 relative before:absolute before:inset-0 before:ml-[23px] md:before:ml-1/2 before:-translate-x-px md:before:translate-x-0 before:w-0.5 before:bg-gradient-to-b before:from-purple-500/50 before:via-blue-500/50 before:to-cyan-400/50">
+                <div className="grid md:grid-cols-1 gap-12 relative before:absolute before:inset-0 before:ml-[23px] before:w-0.5 before:bg-gradient-to-b before:from-purple-500/50 before:via-blue-500/50 before:to-cyan-400/50">
                   
                   {/* Gen 1: NLP Baseline */}
-                  <motion.div initial={{ x: -50, opacity: 0 }} whileInView={{ x: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group border border-purple-500/20 bg-black/40 p-8 rounded-2xl hover:border-purple-500/50 transition-colors ml-12 md:ml-0 md:w-[calc(50%-3rem)] left-0">
+                  <motion.div initial={{ x: -50, opacity: 0 }} whileInView={{ x: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center group border border-purple-500/20 bg-black/40 p-8 rounded-2xl hover:border-purple-500/50 transition-colors ml-12 lg:ml-16 mr-0 w-full lg:w-[calc(100%-4rem)]">
                     <div className="absolute top-1/2 -translate-y-1/2 -left-14 md:-left-16 w-6 h-6 rounded-full bg-black border-4 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.6)] z-10" />
                     <div className="w-full">
                       <div className="text-[10px] text-purple-400 tracking-[0.2em] mb-2 font-bold">V1.0 • PUBMEDBERT NLP</div>
@@ -468,7 +467,7 @@ new_evolution_ui = """{/* START MODEL EVOLUTION TAB */}
                   </motion.div>
 
                   {/* Gen 2: Micro GNN */}
-                  <motion.div initial={{ x: 50, opacity: 0 }} whileInView={{ x: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group border border-blue-500/20 bg-black/40 p-8 rounded-2xl hover:border-blue-500/50 transition-colors ml-12 md:ml-0 md:w-[calc(50%-3rem)] md:left-1/2 md:translate-x-[3rem]">
+                  <motion.div initial={{ x: 50, opacity: 0 }} whileInView={{ x: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center group border border-blue-500/20 bg-black/40 p-8 rounded-2xl hover:border-blue-500/50 transition-colors ml-12 lg:ml-16 mr-0 w-full lg:w-[calc(100%-4rem)]">
                     <div className="absolute top-1/2 -translate-y-1/2 -left-14 md:-left-16 w-6 h-6 rounded-full bg-black border-4 border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.6)] z-10" />
                     <div className="w-full">
                       <div className="text-[10px] text-blue-400 tracking-[0.2em] mb-2 font-bold">V2.0 • MICROSCOPIC GIN</div>
@@ -494,7 +493,7 @@ new_evolution_ui = """{/* START MODEL EVOLUTION TAB */}
                   </motion.div>
 
                   {/* Gen 3: Macro GNN */}
-                  <motion.div initial={{ y: 50, opacity: 0 }} whileInView={{ y: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center justify-between md:justify-normal group border border-cyan-400/50 bg-cyan-950/10 p-8 md:p-12 rounded-2xl shadow-[0_0_40px_-10px_rgba(34,211,238,0.15)] ml-12 md:ml-0 md:w-[calc(50%-3rem)] left-0 border-l-4">
+                  <motion.div initial={{ y: 50, opacity: 0 }} whileInView={{ y: 0, opacity: 1 }} viewport={{ once: true }} className="relative flex items-center group border border-cyan-400/50 bg-cyan-950/10 p-8 md:p-12 rounded-2xl shadow-[0_0_40px_-10px_rgba(34,211,238,0.15)] ml-12 lg:ml-16 border-l-4 mr-0 w-full lg:w-[calc(100%-4rem)]">
                     <div className="absolute top-1/2 -translate-y-1/2 -left-[60px] md:-left-[68px] w-8 h-8 rounded-full bg-cyan-400 border-4 border-black shadow-[0_0_20px_rgba(34,211,238,1)] z-10 flex items-center justify-center">
                       <div className="w-2 h-2 bg-white rounded-full animate-ping" />
                     </div>

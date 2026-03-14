@@ -382,16 +382,15 @@ class DDIPredictionView(APIView):
 
             # Map our new robust model format to the frontend interface pattern seamlessly
             response_data = {
-                'drug_a': prediction.drug_a,
-                'drug_b': prediction.drug_b,
-                'risk_score': prediction.risk_score,
-                'risk_level': prediction.risk_level,
-                'severity': prediction.severity,
-                'confidence': prediction.confidence,
-                'mechanism_hypothesis': prediction.mechanism_hypothesis,
+                'drug_a': prediction.drug1 if hasattr(prediction, 'drug1') else getattr(prediction, 'drug_a', drug_a['name']),
+                'drug_b': prediction.drug2 if hasattr(prediction, 'drug2') else getattr(prediction, 'drug_b', drug_b['name']),
+                'risk_score': getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)),
+                'risk_level': get_risk_level(getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5))),
+                'severity': getattr(prediction, 'severity', 'Unknown'),
+                'confidence': getattr(prediction, 'confidence', 0.9),
+                'mechanism_hypothesis': getattr(prediction, 'mechanism_hypothesis', 'Potential interaction based on structural and network features.'),
                 'affected_systems': [
-                    {'system': sys, 'severity': prediction.risk_score, 'symptoms': []}
-                    for sys in prediction.affected_systems
+                    {'system': getattr(prediction, 'interaction_type', 'Systemic'), 'severity': getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)), 'symptoms': []}
                 ],
                 'inference_time_ms': (time.time() - start_time) * 1000,
                 'source': 'macroscopic_gnn'

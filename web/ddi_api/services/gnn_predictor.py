@@ -358,39 +358,43 @@ class GNNDDIPredictor:
         if str(model_src) not in sys.path:
             sys.path.insert(0, str(model_src))
             
-        data_dir = Path(__file__).parent.parent.parent / 'data'
+        web_dir = Path(__file__).parent.parent.parent
+        if str(web_dir) not in sys.path:
+            sys.path.insert(0, str(web_dir))
             
+        data_dir = Path(__file__).parent.parent.parent / 'data'
+        
         try:
             from macroscopic_ddi_gnn import MacroscopicDDIGNN
             
             dataset_path = data_dir / "neo4j_gnn_dataset.pt"
             mapping_path = data_dir / "node_mapping.csv"
             weights_path = data_dir / "macroscopic_gnn_weights.pth"
-            
+
             if not dataset_path.exists() or not mapping_path.exists() or not weights_path.exists():
                 logger.warning("Macroscopic GNN assets missing. Ensure extract_graph_dataset.py and train_macroscopic_model.py have been executed.")
                 return
-                
+
             self.macro_graph_data = torch.load(dataset_path, weights_only=False)
             mapping_df = pd.read_csv(mapping_path)
-            
+
             for _, row in mapping_df.iterrows():
                 if pd.notna(row['name']):
                     self.name_to_idx[str(row['name']).strip().lower()] = row['pyg_id']
                     
             self.model = MacroscopicDDIGNN(
-                in_channels=self.macro_graph_data.num_features, 
-                hidden_channels=256, 
-                out_channels=128, 
+                in_channels=self.macro_graph_data.num_features,
+                hidden_channels=256,
+                out_channels=128,
                 num_layers=3
             )
             self.model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
             self.model.eval()
-            
+
             self.model_type = ModelType.MACROSCOPIC_GNN
             self.is_loaded = True
             logger.info("Successfully loaded V2 Macroscopic GNN Predictor (~98.6% AUC).")
-            
+
         except Exception as e:
             logger.error(f"Failed to load Macroscopic GNN Predictor: {e}")
             self.model = None
