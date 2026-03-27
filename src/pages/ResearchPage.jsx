@@ -32,7 +32,7 @@ import {
   Target,
   ScanLine
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ScatterChart, Scatter, ZAxis, ReferenceLine } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ScatterChart, Scatter, ZAxis, ReferenceLine, LineChart, Line } from 'recharts';
 
 // ── Animated counter ───────────────────────────────────────────────
 const AnimatedNumber = ({ value, suffix = '', prefix = '', decimals = 0, duration = 2 }) => {
@@ -498,6 +498,64 @@ export default function ResearchPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
+              </Box>
+
+              {/* ROC and PR Curves */}
+              <Box glow="rgba(0,255,136,0.05)" className="relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+                  <Activity className="w-48 h-48 text-green-500" />
+                </div>
+                <h3 className="text-lg text-white mb-2 flex items-center gap-2"><Activity className="w-4 h-4 text-green-400"/> Model Classification Geometry</h3>
+                <p className="text-xs text-fui-gray-400 mb-8 max-w-2xl">
+                  Tracing the trajectory of Receiver Operating Characteristics (ROC) alongside Precision-Recall. The macroscopic topological clustering ensures extremely robust discrimination geometry even when battling extreme dataset imbalances.
+                </p>
+
+                <div className="grid lg:grid-cols-2 gap-8">
+                  {/* ROC Chart */}
+                  <div className="h-[300px] border border-green-500/20 bg-black/40 rounded-xl p-4 relative">
+                    <div className="absolute -top-3 left-4 bg-black px-2 text-[10px] text-green-400 tracking-widest border border-green-500/30 rounded-full z-10">ROC CURVE [AUC: 0.96]</div>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={gnnData.roc} margin={{ top: 20, right: 20, left: -10, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                        <XAxis dataKey="fpr" type="number" domain={[0, 1]} name="False Positive Rate" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickCount={6}>
+                           
+                        </XAxis>
+                        <YAxis dataKey="tpr" type="number" domain={[0, 1]} name="True Positive Rate" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickCount={6}>
+                          
+                        </YAxis>
+                        <RechartsTooltip 
+                          contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(0,255,136,0.5)', borderRadius: '8px' }}
+                          labelFormatter={(l) => `FPR: ${Number(l).toFixed(3)}`}
+                          formatter={(v) => [Number(v).toFixed(3), 'TPR']}
+                        />
+                        <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="#ffffff40" strokeDasharray="5 5" />
+                        <Line type="monotone" dataKey="tpr" stroke="#00ff88" strokeWidth={3} dot={false} activeDot={{ r: 4, fill: '#00ff88' }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* PR Chart */}
+                  <div className="h-[300px] border border-fuchsia-500/20 bg-black/40 rounded-xl p-4 relative">
+                    <div className="absolute -top-3 left-4 bg-black px-2 text-[10px] text-fuchsia-400 tracking-widest border border-fuchsia-500/30 rounded-full z-10">PRECISION-RECALL [AUC: 0.81]</div>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={gnnData.pr} margin={{ top: 20, right: 20, left: -10, bottom: 20 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
+                        <XAxis dataKey="recall" type="number" domain={[0, 1]} name="Recall" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickCount={6}>
+                          
+                        </XAxis>
+                        <YAxis dataKey="precision" type="number" domain={[0, 1]} name="Precision" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickCount={6}>
+                          
+                        </YAxis>
+                        <RechartsTooltip 
+                          contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(217,70,239,0.5)', borderRadius: '8px' }}
+                          labelFormatter={(l) => `Recall: ${Number(l).toFixed(3)}`}
+                          formatter={(v) => [Number(v).toFixed(3), 'Precision']}
+                        />
+                        <Line type="monotone" dataKey="precision" stroke="#d946ef" strokeWidth={3} dot={false} activeDot={{ r: 4, fill: '#d946ef' }} />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 </div>
               </Box>
