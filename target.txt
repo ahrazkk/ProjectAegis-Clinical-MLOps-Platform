@@ -1,0 +1,10 @@
+﻿              </div>
+            </motion.div>
+          )}
+
+          {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• GNN RESEARCH TAB â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+          {activeTab === 'gnn' && (
+            <motion.div key="gnn" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-12">
+
+              {/* GNN Header */}
+              <Box glow="rgba(0,212,255,0.06)">

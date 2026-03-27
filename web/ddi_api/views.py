@@ -291,6 +291,8 @@ def lookup_drug(drug_input: Dict) -> Dict:
         'smiles': smiles,
         'drugbank_id': drugbank_id,
         'therapeutic_class': input_t_class
+    }
+
 def get_risk_level(risk_score: float) -> str:
     """Map numerical risk score (0-1) to risk level string."""
     if risk_score >= 0.8: return 'critical'
