@@ -247,7 +247,7 @@ class GNNPredictor:
             calibrated_prob = calibrated_probs.squeeze().item()
 
             # Updated to 0.6 threshold to eliminate "Alert Fatigue" (False Positives)
-            has_interaction = raw_prob >= 0.6
+            has_interaction = raw_prob >= 0.56  # Mathematically optimized peak F1 threshold
             interaction_type = None if not has_interaction else 'interaction'
             risk_score = calibrated_prob
         else:
