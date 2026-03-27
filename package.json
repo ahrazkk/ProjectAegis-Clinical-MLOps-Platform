@@ -25,6 +25,7 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.11.0",
     "react-webcam": "^7.2.0",
+    "recharts": "^3.8.1",
     "sharp": "^0.34.5",
     "smiles-drawer": "^2.1.7",
     "tesseract.js": "^5.1.1",
