@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import gnnData from '../assets/gnn_real_data.json';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence, useInView } from 'framer-motion';
 import {
@@ -420,8 +421,8 @@ export default function ResearchPage() {
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(168,85,247,0.5)', borderRadius: '8px' }}
                         itemStyle={{ color: '#a855f7' }}
                       />
-                      <Scatter name="Low Degree (Center)" data={Array.from({length: 150}).map(() => ({ x: (Math.random() - 0.5) * 20, y: (Math.random() - 0.5) * 20, degree: 5 }))} fill="rgba(255,255,255,0.2)" />
-                      <Scatter name="High Degree Hubs (Ring)" data={Array.from({length: 100}).map(() => { const angle = Math.random() * Math.PI * 2; const radius = 50 + Math.random() * 15; return { x: Math.cos(angle)*radius, y: Math.sin(angle)*radius, degree: radius*2 } })} fill="rgba(168,85,247,0.8)" shape="cross" />
+                      <Scatter name="Low Degree (Center)" data={gnnData.tsne.filter(d => d.degree < 20)} fill="rgba(255,255,255,0.2)" />
+                      <Scatter name="High Degree Hubs (Ring)" data={gnnData.tsne.filter(d => d.degree >= 20)} fill="rgba(168,85,247,0.8)" shape="cross" />
                     </ScatterChart>
                   </ResponsiveContainer>
                 </div>
@@ -442,12 +443,7 @@ export default function ResearchPage() {
                   <div className="flex-1 h-[350px] border border-cyan-500/20 bg-black/40 rounded-xl p-4 relative">
                     <div className="absolute -top-3 left-4 bg-black px-2 text-[10px] text-cyan-400 tracking-widest border border-cyan-500/30 rounded-full z-10">PROBABILITY DENSITY</div>
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={[
-                        { prob: '0.0', neg: 95, pos: 0 }, { prob: '0.1', neg: 70, pos: 0 }, { prob: '0.2', neg: 30, pos: 1 },
-                        { prob: '0.3', neg: 15, pos: 2 }, { prob: '0.4', neg: 8, pos: 8 }, { prob: '0.5', neg: 4, pos: 15 },
-                        { prob: '0.56', neg: 2, pos: 45 }, { prob: '0.6', neg: 1, pos: 60 }, { prob: '0.7', neg: 0.5, pos: 85 },
-                        { prob: '0.8', neg: 0.1, pos: 95 }, { prob: '0.9', neg: 0, pos: 80 }, { prob: '1.0', neg: 0, pos: 40 }
-                      ]} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
+                      <AreaChart data={gnnData.probability} margin={{ top: 20, right: 10, left: -20, bottom: 0 }}>
                         <defs>
                           <linearGradient id="colorNeg" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%" stopColor="#ef4444" stopOpacity={0.5}/>
