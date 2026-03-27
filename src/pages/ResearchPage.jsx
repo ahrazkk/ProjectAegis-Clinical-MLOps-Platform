@@ -32,7 +32,7 @@ import {
   Target,
   ScanLine
 } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ScatterChart, Scatter, ZAxis } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ScatterChart, Scatter, ZAxis, ReferenceLine } from 'recharts';
 
 // ── Animated counter ───────────────────────────────────────────────
 const AnimatedNumber = ({ value, suffix = '', prefix = '', decimals = 0, duration = 2 }) => {
@@ -409,7 +409,7 @@ export default function ResearchPage() {
                   By collapsing the 128-dimensional output vectors into a 2D plane, we confirmed the neural network successfully avoided <i>Representation Collapse</i>. Unconnected drugs clustered safely in the dense center ("The Sun"), while known highly-interactive hubs were magnetically repelled into a distinct outer structural ring (0.59 correlation).
                 </p>
 
-                <div className="h-[400px] w-full border border-purple-500/20 bg-black/40 rounded-xl p-4">
+                <div className="aspect-square max-w-[100%] md:max-w-[600px] lg:max-w-[700px] mx-auto border border-purple-500/20 bg-black/40 rounded-xl p-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
@@ -421,8 +421,8 @@ export default function ResearchPage() {
                         contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(168,85,247,0.5)', borderRadius: '8px' }}
                         itemStyle={{ color: '#a855f7' }}
                       />
-                      <Scatter name="Low Degree (Center)" data={gnnData.tsne.filter(d => d.degree < 20)} fill="rgba(255,255,255,0.2)" />
-                      <Scatter name="High Degree Hubs (Ring)" data={gnnData.tsne.filter(d => d.degree >= 20)} fill="rgba(168,85,247,0.8)" shape="cross" />
+                      <Scatter name="Low Degree (Center)" data={gnnData.tsne.filter(d => d.degree < 20)} fill="rgba(255,255,255,0.25)" shape="circle" />
+                      <Scatter name="High Degree Hubs (Ring)" data={gnnData.tsne.filter(d => d.degree >= 20)} fill="rgba(168,85,247,0.85)" shape="circle" />
                     </ScatterChart>
                   </ResponsiveContainer>
                 </div>
@@ -454,20 +454,14 @@ export default function ResearchPage() {
                             <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
                           </linearGradient>
                         </defs>
-                        <XAxis dataKey="prob" stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} />
+                        <XAxis dataKey="prob" type="number" domain={[0, 1]} stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} tickCount={11} />
                         <YAxis stroke="#ffffff40" tick={{ fill: '#ffffff40', fontSize: 10 }} />
                         <RechartsTooltip contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', borderColor: '#333' }} />
+                        <ReferenceLine x={0.56} stroke="#facc15" strokeDasharray="4 4" strokeWidth={2} label={{ position: 'insideTopLeft', value: 'Optimum: 0.56', fill: '#facc15', fontSize: 12, fontWeight: 'bold', offset: 10 }} />
                         <Area type="monotone" dataKey="neg" name="True Negatives" stroke="#ef4444" fillOpacity={1} fill="url(#colorNeg)" />
                         <Area type="monotone" dataKey="pos" name="True Positives" stroke="#22d3ee" fillOpacity={1} fill="url(#colorPos)" />
                       </AreaChart>
                     </ResponsiveContainer>
-                    
-                    {/* The Threshold Line visual overlay */}
-                    <div className="absolute top-[10%] bottom-[10%] left-[54%] w-px bg-yellow-400 shadow-[0_0_10px_rgba(250,204,21,1)] z-10 hidden sm:block">
-                      <div className="absolute -top-6 -left-[2.5rem] bg-yellow-400/20 border border-yellow-400/50 text-yellow-400 px-2 py-1 text-[9px] whitespace-nowrap rounded font-bold">
-                        Optimum: 0.56
-                      </div>
-                    </div>
                   </div>
 
                   {/* F1 Metrics Upgrade Table */}
