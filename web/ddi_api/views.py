@@ -232,7 +232,8 @@ def lookup_drug(drug_input: Dict) -> Dict:
     name = drug_input.get('name', '').lower().strip()
     smiles = drug_input.get('smiles', '')
     drugbank_id = drug_input.get('drugbank_id', '')
-    
+    input_t_class = drug_input.get('therapeutic_class', '')
+
     # 1. Try Knowledge Graph (Neo4j) with normalization
     if name and not drugbank_id:
         # First try exact match, then normalized
@@ -245,13 +246,13 @@ def lookup_drug(drug_input: Dict) -> Dict:
                 'original_name': name,  # Keep original for reference
                 'smiles': kg_result.get('smiles', '') or smiles,
                 'drugbank_id': kg_result.get('id', ''),
-                'therapeutic_class': kg_result.get('therapeutic_class', ''),
+                'therapeutic_class': kg_result.get('therapeutic_class', '') or input_t_class,
                 'matched_via': kg_result.get('matched_as', 'exact')
             }
-    
+
     # 2. Try Local DrugService (JSON DB)
     drug_service = get_drug_service()
-    
+
     # Try ID lookup first
     if drugbank_id:
         found = drug_service.get_drug(drugbank_id)
@@ -259,9 +260,10 @@ def lookup_drug(drug_input: Dict) -> Dict:
             return {
                 'name': found['name'],
                 'smiles': found['smiles'] or smiles,
-                'drugbank_id': found['drugbank_id']
+                'drugbank_id': found['drugbank_id'],
+                'therapeutic_class': found.get('therapeutic_class', '') or input_t_class
             }
-            
+
     # Try Name lookup (with normalization)
     if name:
         # Try exact first
@@ -271,14 +273,15 @@ def lookup_drug(drug_input: Dict) -> Dict:
             normalized_name, _ = normalize_drug_name(name)
             if normalized_name != name.lower():
                 found = drug_service.get_drug(normalized_name)
-        
+
         if found:
             return {
                 'name': found['name'],
                 'smiles': found['smiles'] or smiles,
-                'drugbank_id': found['drugbank_id']
+                'drugbank_id': found['drugbank_id'],
+                'therapeutic_class': found.get('therapeutic_class', '') or input_t_class
             }
-            
+
     # 3. Fallback: Return what we have (even if just name)
     # Also try to get the normalized base name
     normalized_name, _ = normalize_drug_name(drug_input.get('name', 'Unknown'))
@@ -286,12 +289,8 @@ def lookup_drug(drug_input: Dict) -> Dict:
         'name': drug_input.get('name', 'Unknown'),
         'normalized_name': normalized_name,
         'smiles': smiles,
-        'drugbank_id': drugbank_id
-    }
-
-
-# ============== API Views ==============
-
+        'drugbank_id': drugbank_id,
+        'therapeutic_class': input_t_class
 def get_risk_level(risk_score: float) -> str:
     """Map numerical risk score (0-1) to risk level string."""
     if risk_score >= 0.8: return 'critical'

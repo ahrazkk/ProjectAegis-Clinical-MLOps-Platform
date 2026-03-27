@@ -185,6 +185,7 @@ export default function ResearchPage() {
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: Microscope },
+    { id: 'evolution', label: 'Model Evolution', icon: Activity },
     { id: 'gnn', label: 'GNN Research', icon: Atom },
     { id: 'scanner', label: 'Pill Scanner', icon: Camera },
     { id: 'pipeline', label: 'System Pipeline', icon: GitBranch },
@@ -375,6 +376,107 @@ export default function ResearchPage() {
               </div>
             </motion.div>
           )}
+
+            {/* •••••••••••••••• MODEL EVOLUTION TAB •••••••••••••••• */}
+            {activeTab === 'evolution' && (
+              <motion.div key="evolution" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-12">
+                <div className="space-y-4">
+                  <div className="text-[10px] text-cyan-400 uppercase tracking-[0.3em]">// AEGIS CORE ARCHITECTURE</div>
+                  <h2 className="text-2xl md:text-3xl font-light">Algorithmic Evolution</h2>
+                  <p className="text-fui-gray-400 text-sm leading-relaxed max-w-4xl">
+                    Project Aegis has undergone three distinct evolutionary phases. We started with heuristic NLP baselines (Phase 1), advanced into experimental microscopic graph structures (Phase 2), and arrived at our current state-of-the-art Macroscopic GraphSAGE topology—achieving 98.67% testing accuracy across massive multi-modal Datasets.
+                  </p>
+                </div>
+
+                <div className="grid lg:grid-cols-3 gap-6">
+                  {/* Phase 1 */}
+                  <Box className="!border-fui-gray-500/20 opacity-50 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4">
+                      <span className="text-[9px] bg-red-500/10 text-red-500 px-2 py-1 rounded border border-red-500/20">DEPRECATED</span>
+                    </div>
+                    <div className="text-[10px] text-fui-gray-500 uppercase tracking-widest mb-2 font-bold">V1.0 • PUBMEDBERT NLP</div>
+                    <h3 className="text-lg text-fui-gray-300 mb-4 line-through decoration-red-500/30">Text-Based Inference</h3>
+                    <p className="text-xs text-fui-gray-500 mb-6 leading-relaxed">
+                      Initial text-based inference system utilizing a HuggingFace transformer to blindly parse medical literature. Failed to capture actual chemical synergy. Suffered from massive hallucination loops, API rate-limiting, and severe computational bottlenecks when analyzing polypharmacy scenarios.
+                    </p>
+                    <div className="space-y-3 pt-6 border-t border-fui-gray-500/10">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-500">Accuracy</span>
+                        <span className="text-red-400">~52.0%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-500">Latency</span>
+                        <span className="text-red-400">8.4s</span>
+                      </div>
+                    </div>
+                  </Box>
+
+                  {/* Phase 2 */}
+                  <Box className="!border-fui-gray-500/30 relative overflow-hidden group">
+                    <div className="absolute top-0 right-0 p-4">
+                      <span className="text-[9px] bg-yellow-500/10 text-yellow-500 px-2 py-1 rounded border border-yellow-500/20">ARCHIVED</span>
+                    </div>
+                    <div className="text-[10px] text-fui-gray-400 uppercase tracking-widest mb-2 font-bold">V2.0 • MICROSCOPIC GIN</div>
+                    <h3 className="text-lg text-fui-gray-200 mb-4">Chemical Graph Isomorphism</h3>
+                    <p className="text-xs text-fui-gray-400 mb-6 leading-relaxed">
+                      Pivoted to parsing raw molecular structures (SMILES) directly into PyTorch graph tensors. Used RDKit to map atoms as nodes and chemical bonds as edges. Reached hardware limits instantly.
+                    </p>
+                    <ul className="space-y-2 mb-6">
+                      <li className="flex gap-2 text-xs text-fui-gray-400 items-start">
+                        <span className="text-red-400 font-bold">X</span>
+                        <span>GPU Memory Overflows (OOM) at Epoch 30</span>
+                      </li>
+                      <li className="flex gap-2 text-xs text-fui-gray-400 items-start">
+                        <span className="text-red-400 font-bold">X</span>
+                        <span>Insufficient representation of clinical pathways</span>
+                      </li>
+                    </ul>
+                    <div className="space-y-3 pt-6 border-t border-fui-gray-500/20">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">Accuracy</span>
+                        <span className="text-yellow-400">65.7%</span>
+                      </div>
+                    </div>
+                  </Box>
+
+                  {/* Phase 3 */}
+                  <Box glow="rgba(0,212,255,0.05)" className="!border-cyan-500/30 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-4">
+                      <span className="text-[9px] bg-cyan-500/10 text-cyan-400 px-2 py-1 rounded border border-cyan-500/30 shadow-[0_0_10px_rgba(0,212,255,0.2)] animate-pulse">CURRENT PROD</span>
+                    </div>
+                    <div className="text-[10px] text-cyan-400 uppercase tracking-widest mb-2 font-bold flex items-center gap-2">
+                      <Activity className="w-3 h-3" /> V3.0 • MACROSCOPIC GRAPHSAGE
+                    </div>
+                    <h3 className="text-lg text-white mb-4">Global Interactome Matrix</h3>
+                    <p className="text-xs text-fui-gray-300 mb-6 leading-relaxed">
+                      Completely abandoned single-molecule scanning. Transformed the entire FDA database into a unified, massive graph network. Drugs are nodes. Clinical pathways, adverse effects, and known interactions are edges. Features are embedded via high-dimensional PCA vectors and passed dynamically through GraphSAGE message layers.
+                    </p>
+                    <div className="space-y-3 pt-6 border-t border-cyan-500/20">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">Density Scaling</span>
+                        <span className="text-cyan-400">1.08 → 79.25 edges</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">Vector Breadth</span>
+                        <span className="text-cyan-400">1,343 latent features/node</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">Test AUC</span>
+                        <span className="text-green-400 font-bold">98.67%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">F1 Score</span>
+                        <span className="text-green-400">94.34%</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-fui-gray-400">Endpoint Latency</span>
+                        <span className="text-cyan-400">&lt; 20ms</span>
+                      </div>
+                    </div>
+                  </Box>
+                </div>
+              </motion.div>
+            )}
 
           {/* ════════════════ GNN RESEARCH TAB ════════════════ */}
           {activeTab === 'gnn' && (
