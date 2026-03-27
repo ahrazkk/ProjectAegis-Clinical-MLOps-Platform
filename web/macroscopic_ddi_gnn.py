@@ -69,11 +69,26 @@ class MacroscopicDDIGNN(nn.Module):
         z = self.encode(data.x, data.edge_index)
         return self.decode(z, edge_label_index)
 
+class FocalLoss(nn.Module):
+    """
+    Focal Loss to heavily penalize false positives. 
+    It forces the network to focus on harder examples rather than defaulting to 'safe' guesses.
+    """
+    def __init__(self, alpha=0.75, gamma=2.0):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, inputs, targets):
+        bce_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
+        pt = torch.exp(-bce_loss) # Prevents nans
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
+        return focal_loss.mean()
+
 # -------------- TRAINING PIPELINE --------------
 def train_link_predictor(model, data, epochs=100, lr=0.01):
     """
-    Trains the GNN using PyTorch Geometric's RandomLinkSplit to automatically
-    hide a percentage of edges to test the model's accuracy on unseen DDI.
+    Trains the GNN using Focal Loss to balance out over-predicting false positives.
     """
     try:
         import torch_geometric.transforms as T
@@ -82,13 +97,12 @@ def train_link_predictor(model, data, epochs=100, lr=0.01):
         print("Please install torch_geometric and scikit-learn for training.")
         return
 
-    # Split the dataset into 70% train, 10% val, 20% test edges automatically.
-    # The negative injection adds "fake" edges (drugs that don't interact) so the model learns the difference.
     transform = T.RandomLinkSplit(num_val=0.1, num_test=0.2, is_undirected=True, add_negative_train_samples=True)
     train_data, val_data, test_data = transform(data)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-4)
-    criterion = nn.BCEWithLogitsLoss()
+    # Replaced BCEWithLogitsLoss with FocalLoss to fix Alert Fatigue (False Positives)
+    criterion = FocalLoss(alpha=0.8, gamma=2.0)
 
     print(f"Beginning Training for {epochs} epochs...")
     

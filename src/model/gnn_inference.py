@@ -246,7 +246,8 @@ class GNNPredictor:
             calibrated_probs = self.temperature_scaling(logits)
             calibrated_prob = calibrated_probs.squeeze().item()
 
-            has_interaction = raw_prob > 0.5
+            # Updated to 0.6 threshold to eliminate "Alert Fatigue" (False Positives)
+            has_interaction = raw_prob >= 0.6
             interaction_type = None if not has_interaction else 'interaction'
             risk_score = calibrated_prob
         else:
