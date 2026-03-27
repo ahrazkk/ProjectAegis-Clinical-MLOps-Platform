@@ -299,6 +299,50 @@ def get_risk_level(risk_score: float) -> str:
     if risk_score >= 0.3: return 'medium'
     return 'low'
 
+def check_categorical_interaction(drug_a: Dict, drug_b: Dict) -> Dict:
+    """
+    Evaluate structural & therapeutic classes to catch dangerous combinations
+    that might be missed by exact ID matches.
+    """
+    def parse_drug(d):
+        name = d.get('name', '').lower()
+        t_class = d.get('therapeutic_class', '') or ''
+        return name, t_class.lower()
+
+    name_a, class_a = parse_drug(drug_a)
+    name_b, class_b = parse_drug(drug_b)
+
+    def is_nsaid(n, c):
+        return 'nsai' in c or 'anti-inflammatory' in c or n in ['aspirin', 'ibuprofen', 'naproxen', 'ketorolac', 'diclofenac']
+    
+    def is_anticoag(n, c):
+        return 'anticoagulant' in c or 'hematology' in c or n in ['warfarin', 'heparin', 'apixaban']
+
+    # Rule 1: NSAID + Anticoagulant
+    if (is_nsaid(name_a, class_a) and is_anticoag(name_b, class_b)) or \
+       (is_nsaid(name_b, class_b) and is_anticoag(name_a, class_a)):
+        return {
+            'severity': 'severe',
+            'mechanism': 'High Risk Categorical Interaction (NSAID + Anticoagulant): Co-administration significantly increases the risk of severe gastrointestinal bleeding and hemorrhage due to compounded platelet inhibition and gastric mucosal damage.',
+            'source': 'categorical_rule_engine'
+        }
+    
+    # Rule 2: MAOI + SSRI
+    def is_maoi(n, c):
+        return 'monoamine oxidase' in c or 'maoi' in c or n in ['phenelzine', 'tranylcypromine', 'selegiline']
+    def is_ssri(n, c):
+        return 'ssri' in c or 'serotonin reuptake' in c or n in ['fluoxetine', 'sertraline', 'citalopram', 'escitalopram']
+    
+    if (is_maoi(name_a, class_a) and is_ssri(name_b, class_b)) or \
+       (is_maoi(name_b, class_b) and is_ssri(name_a, class_a)):
+        return {
+            'severity': 'severe',
+            'mechanism': 'High Risk Categorical Interaction (MAOI + SSRI): Co-administration carries a severe risk of Serotonin Syndrome, which can be fatal and requires immediate clinical intervention.',
+            'source': 'categorical_rule_engine'
+        }
+
+    return None
+
 
 class DDIPredictionView(APIView):
     """
@@ -335,39 +379,42 @@ class DDIPredictionView(APIView):
         # Get original input names for normalization fallback
         original_name_a = data['drug_a'].get('name', drug_a.get('name', ''))
         original_name_b = data['drug_b'].get('name', drug_b.get('name', ''))
-        
+
         # Check for known interaction in Knowledge Graph first
         # Pass both IDs and original names so we can try normalized lookups
-        known_interaction = None
-        if drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
+        known_interaction = check_categorical_interaction(drug_a, drug_b)
+        interaction_source = known_interaction.get('source', 'categorical_rule_engine') if known_interaction else None
+
+        if not known_interaction and drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
             known_interaction = get_known_interaction(
-                drug_a['drugbank_id'], 
+                drug_a['drugbank_id'],
                 drug_b['drugbank_id'],
                 original_name_a,
                 original_name_b
             )
-        
+            interaction_source = 'knowledge_graph'
+
         if known_interaction:
-            # Use known interaction from Knowledge Graph
+            # Use known interaction from Knowledge Graph or Rules
             severity = known_interaction.get('severity', 'moderate')
             mechanism = known_interaction.get('mechanism', 'Known interaction from clinical database.')
-            
-            severity_scores = {'minor': 0.3, 'moderate': 0.6, 'severe': 0.85}
+
+            severity_scores = {'minor': 0.4, 'moderate': 0.65, 'severe': 0.92}
             risk_score = severity_scores.get(severity, 0.5)
-            
+
             response_data = {
                 'drug_a': drug_a['name'],
                 'drug_b': drug_b['name'],
                 'risk_score': risk_score,
                 'risk_level': get_risk_level(risk_score),
                 'severity': severity,
-                'confidence': 0.95,  # High confidence for known interactions
+                'confidence': 0.95 if interaction_source == 'knowledge_graph' else 0.88,
                 'mechanism_hypothesis': mechanism,
                 'affected_systems': [
-                    {'system': 'See mechanism', 'severity': risk_score, 'symptoms': []}
+                    {'system': 'Systemic/Categorical', 'severity': risk_score, 'symptoms': []}
                 ],
                 'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': 'knowledge_graph'
+                'source': interaction_source
             }
         else:
             # Use Macroscopic GraphSAGE model for prediction
