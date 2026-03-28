@@ -16,6 +16,8 @@ class DrugInputSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=255)
     smiles = serializers.CharField(required=False, allow_blank=True)
     drugbank_id = serializers.CharField(max_length=20, required=False)
+    therapeutic_class = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    target_system = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class DDIPredictionRequestSerializer(serializers.Serializer):

@@ -8,6 +8,16 @@ export default {
     extend: {
       // FUI Blueprint Color Palette
       colors: {
+        'editorial': {
+          'deep': '#050506',
+          'base': '#0a0a0c',
+          'elevated': '#121218',
+          'purple': '#8B5CF6',
+          'pink': '#EC4899',
+          'blue': '#1E3A8A',
+          'violet': '#7C3AED',
+          'lavender': '#A78BFA',
+        },
         'fui': {
           'black': '#000000',
           'dark': '#0a0a0a',
@@ -66,10 +76,13 @@ export default {
           }
         }
       },
-      // Monospace Font Family
+      // Editorial triple-stack font families
       fontFamily: {
         'mono': ['JetBrains Mono', 'Fira Code', 'Roboto Mono', 'monospace'],
-        'display': ['JetBrains Mono', 'monospace'],
+        'display': ['Instrument Serif', 'Georgia', 'serif'],
+        'cursive': ['Cormorant Garamond', 'Georgia', 'serif'],
+        'heading': ['Space Grotesk', 'Inter', 'system-ui', 'sans-serif'],
+        'body': ['Inter', 'system-ui', 'sans-serif'],
       },
       // Hairline borders
       borderWidth: {

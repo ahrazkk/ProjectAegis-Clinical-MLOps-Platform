@@ -314,10 +314,10 @@ def check_categorical_interaction(drug_a: Dict, drug_b: Dict) -> Dict:
     name_b, class_b = parse_drug(drug_b)
 
     def is_nsaid(n, c):
-        return 'nsai' in c or 'anti-inflammatory' in c or n in ['aspirin', 'ibuprofen', 'naproxen', 'ketorolac', 'diclofenac']
+        return 'nsai' in c or 'anti-inflammatory' in c or any(k in n for k in ['aspirin', 'ibuprofen', 'naproxen', 'ketorolac', 'diclofenac'])
     
     def is_anticoag(n, c):
-        return 'anticoagulant' in c or 'hematology' in c or n in ['warfarin', 'heparin', 'apixaban']
+        return 'anticoagulant' in c or 'hematology' in c or 'antiplatelet' in c or any(k in n for k in ['warfarin', 'heparin', 'apixaban', 'clopidogrel'])
 
     # Rule 1: NSAID + Anticoagulant
     if (is_nsaid(name_a, class_a) and is_anticoag(name_b, class_b)) or \

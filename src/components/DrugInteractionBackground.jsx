@@ -380,15 +380,15 @@ function EnergyParticles({ startPos, endPos, intensity = 0, color = '#00FFFF' })
     const lifetimes = [];
     
     for (let i = 0; i < count; i++) {
-      positions[i * 3] = startPos[0];
-      positions[i * 3 + 1] = startPos[1];
-      positions[i * 3 + 2] = startPos[2];
+      positions[i * 3] = 0;
+      positions[i * 3 + 1] = 0;
+      positions[i * 3 + 2] = 0;
       velocities.push(Math.random() * 0.5 + 0.3);
       lifetimes.push(Math.random());
     }
     
     return { positions, velocities, lifetimes };
-  }, [startPos]);
+  }, []);
 
   useFrame((state) => {
     if (pointsRef.current && intensity > 0.3) {
@@ -481,39 +481,44 @@ function ElectricArc({ startPos, endPos, intensity = 0 }) {
 // =============================================================================
 
 // Premium star field with depth layers
-function StarField({ count = 2000 }) {
+function StarField({ count = 3000 }) {
   const pointsRef = useRef();
-  
+
   const { positions, colors, sizes } = useMemo(() => {
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const sizes = new Float32Array(count);
-    
+
     for (let i = 0; i < count; i++) {
       const theta = Math.random() * Math.PI * 2;
       const phi = Math.acos(2 * Math.random() - 1);
-      const radius = 12 + Math.random() * 40;
-      
+      const radius = 10 + Math.random() * 45;
+
       positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
       positions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
       positions[i * 3 + 2] = radius * Math.cos(phi);
-      
-      // Mostly white/gray with rare accents
+
       const brightness = 0.4 + Math.random() * 0.6;
       const accentChance = Math.random();
-      
-      if (accentChance > 0.985) {
-        // Very rare cyan
-        colors[i * 3] = 0;
-        colors[i * 3 + 1] = brightness;
-        colors[i * 3 + 2] = brightness;
-        sizes[i] = 0.06 + Math.random() * 0.04;
-      } else if (accentChance > 0.97) {
-        // Very rare purple
-        colors[i * 3] = brightness * 0.5;
-        colors[i * 3 + 1] = brightness * 0.3;
-        colors[i * 3 + 2] = brightness;
-        sizes[i] = 0.06 + Math.random() * 0.04;
+
+      if (accentChance > 0.95) {
+        // Purple stars
+        colors[i * 3] = brightness * 0.55;
+        colors[i * 3 + 1] = brightness * 0.36;
+        colors[i * 3 + 2] = brightness * 0.96;
+        sizes[i] = 0.05 + Math.random() * 0.06;
+      } else if (accentChance > 0.90) {
+        // Pink stars
+        colors[i * 3] = brightness * 0.93;
+        colors[i * 3 + 1] = brightness * 0.28;
+        colors[i * 3 + 2] = brightness * 0.60;
+        sizes[i] = 0.05 + Math.random() * 0.05;
+      } else if (accentChance > 0.87) {
+        // Deep blue stars
+        colors[i * 3] = brightness * 0.12;
+        colors[i * 3 + 1] = brightness * 0.23;
+        colors[i * 3 + 2] = brightness * 0.54;
+        sizes[i] = 0.04 + Math.random() * 0.04;
       } else {
         // White/gray
         colors[i * 3] = brightness;
@@ -522,14 +527,14 @@ function StarField({ count = 2000 }) {
         sizes[i] = 0.02 + Math.random() * 0.03;
       }
     }
-    
+
     return { positions, colors, sizes };
   }, [count]);
 
   useFrame((state) => {
     if (pointsRef.current) {
-      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.003;
-      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.01) * 0.05;
+      pointsRef.current.rotation.y = state.clock.elapsedTime * 0.005;
+      pointsRef.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.01) * 0.08;
     }
   });
 
@@ -552,29 +557,34 @@ function StarField({ count = 2000 }) {
   );
 }
 
-// Floating wireframe polyhedra - very subtle background geometry
-function FloatingPolyhedra({ count = 12 }) {
+// Floating wireframe polyhedra - colorful accented background geometry
+function FloatingPolyhedra({ count = 18 }) {
   const groupRef = useRef();
-  
+  const accentColors = ['#8B5CF6', '#EC4899', '#1E3A8A', '#7C3AED', '#A855F7'];
+
   const shapes = useMemo(() => {
     return Array.from({ length: count }, () => ({
       position: [
-        (Math.random() - 0.5) * 35,
-        (Math.random() - 0.5) * 18,
-        -8 - Math.random() * 15
+        (Math.random() - 0.5) * 40,
+        (Math.random() - 0.5) * 20,
+        -6 - Math.random() * 18
       ],
       rotation: [Math.random() * Math.PI, Math.random() * Math.PI, 0],
-      scale: 0.2 + Math.random() * 0.5,
-      rotationSpeed: (Math.random() - 0.5) * 0.2,
+      scale: 0.15 + Math.random() * 0.6,
+      rotationSpeed: (Math.random() - 0.5) * 0.25,
       type: Math.floor(Math.random() * 3),
+      colorIndex: Math.floor(Math.random() * accentColors.length),
+      hasAccent: Math.random() > 0.6,
     }));
   }, [count]);
 
   useFrame((state) => {
     if (groupRef.current) {
       groupRef.current.children.forEach((child, i) => {
-        child.rotation.y += shapes[i].rotationSpeed * 0.01;
-        child.rotation.x += shapes[i].rotationSpeed * 0.005;
+        child.rotation.y += shapes[i].rotationSpeed * 0.012;
+        child.rotation.x += shapes[i].rotationSpeed * 0.006;
+        // Gentle bobbing
+        child.position.y = shapes[i].position[1] + Math.sin(state.clock.elapsedTime * 0.3 + i) * 0.15;
       });
     }
   });
@@ -590,7 +600,58 @@ function FloatingPolyhedra({ count = 12 }) {
           ) : (
             <dodecahedronGeometry args={[1, 0]} />
           )}
-          <meshBasicMaterial color="#1a1a1a" wireframe transparent opacity={0.25} />
+          <meshBasicMaterial
+            color={shape.hasAccent ? accentColors[shape.colorIndex] : '#1a1a1a'}
+            wireframe
+            transparent
+            opacity={shape.hasAccent ? 0.12 : 0.2}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// Nebula dust cloud — large soft sprites for atmosphere
+function NebulaDust({ count = 8 }) {
+  const groupRef = useRef();
+
+  const clouds = useMemo(() => {
+    return Array.from({ length: count }, () => ({
+      position: [
+        (Math.random() - 0.5) * 30,
+        (Math.random() - 0.5) * 15,
+        -10 - Math.random() * 15
+      ],
+      scale: 3 + Math.random() * 6,
+      rotationSpeed: (Math.random() - 0.5) * 0.02,
+      hue: ['#8B5CF6', '#EC4899', '#1E3A8A', '#6D28D9'][Math.floor(Math.random() * 4)],
+      opacity: 0.012 + Math.random() * 0.015,
+    }));
+  }, [count]);
+
+  useFrame((state) => {
+    if (groupRef.current) {
+      groupRef.current.children.forEach((child, i) => {
+        child.rotation.z += clouds[i].rotationSpeed * 0.01;
+        child.material.opacity = clouds[i].opacity * (0.7 + 0.3 * Math.sin(state.clock.elapsedTime * 0.2 + i * 2));
+      });
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      {clouds.map((cloud, i) => (
+        <mesh key={i} position={cloud.position} scale={cloud.scale}>
+          <planeGeometry args={[1, 1]} />
+          <meshBasicMaterial
+            color={cloud.hue}
+            transparent
+            opacity={cloud.opacity}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            side={THREE.DoubleSide}
+          />
         </mesh>
       ))}
     </group>
@@ -652,7 +713,7 @@ function GridFloor() {
 // MAIN COMPONENT
 // =============================================================================
 
-export default function DrugInteractionBackground({ scrollProgress = 0 }) {
+export default function DrugInteractionBackground({ scrollProgress = 0, moleculePositionsRef }) {
   const [drugAPos, setDrugAPos] = useState([-3.5, 0, 0]);
   const [drugBPos, setDrugBPos] = useState([3.5, 0, 0]);
   const [distance, setDistance] = useState(7);
@@ -671,22 +732,27 @@ export default function DrugInteractionBackground({ scrollProgress = 0 }) {
   return (
     <group>
       {/* Scene controller */}
-      <SceneController 
+      <SceneController
         scrollProgress={scrollProgress}
         setDrugAPos={setDrugAPos}
         setDrugBPos={setDrugBPos}
         setDistance={setDistance}
+        moleculePositionsRef={moleculePositionsRef}
       />
       
       {/* Deep background layers */}
-      <StarField count={2500} />
-      <FloatingPolyhedra count={15} />
-      <GridFloor />
-      <ScanLine />
-      
-      {/* DNA helixes in background */}
-      <DNAHelix position={[-12, 0, -8]} scale={0.5} color="#333333" />
-      <DNAHelix position={[12, -2, -10]} scale={0.4} color="#222222" />
+      {useMemo(() => (
+        <>
+          <StarField count={3000} />
+          <FloatingPolyhedra count={18} />
+          <NebulaDust count={10} />
+          <GridFloor />
+          <ScanLine />
+          {/* DNA helixes in background */}
+          <DNAHelix position={[-12, 0, -8]} scale={0.5} color="#333333" />
+          <DNAHelix position={[12, -2, -10]} scale={0.4} color="#222222" />
+        </>
+      ), [])}
       
       {/* Orbital ring when interacting */}
       <OrbitalRing position={centerPos} radius={distance / 2 + 1} intensity={interactionIntensity} />
@@ -741,35 +807,46 @@ export default function DrugInteractionBackground({ scrollProgress = 0 }) {
 }
 
 // Scene animation controller
-function SceneController({ scrollProgress, setDrugAPos, setDrugBPos, setDistance }) {
+function SceneController({ scrollProgress, setDrugAPos, setDrugBPos, setDistance, moleculePositionsRef }) {
   useFrame((state) => {
     const time = state.clock.elapsedTime;
-    
+
     // Elegant oscillation - molecules drift toward and away from each other
     const oscillation = (Math.sin(time * 0.12) + 1) / 2; // 0 to 1
     const baseDistance = 1.8 + oscillation * 3.5; // 1.8 to 5.3
-    
+
     const newDrugAPos = [
       -baseDistance - scrollProgress * 2,
       Math.sin(time * 0.3) * 0.4,
       Math.sin(time * 0.2) * 0.25
     ];
-    
+
     const newDrugBPos = [
       baseDistance + scrollProgress * 2,
       Math.cos(time * 0.3) * 0.4,
       Math.cos(time * 0.2) * 0.25
     ];
-    
+
     setDrugAPos(newDrugAPos);
     setDrugBPos(newDrugBPos);
-    
+
+    // Expose positions for YOLO overlay 3D→2D projection
+    if (moleculePositionsRef?.current) {
+      moleculePositionsRef.current.drugA = newDrugAPos;
+      moleculePositionsRef.current.drugB = newDrugBPos;
+      moleculePositionsRef.current.center = [
+        (newDrugAPos[0] + newDrugBPos[0]) / 2,
+        (newDrugAPos[1] + newDrugBPos[1]) / 2,
+        (newDrugAPos[2] + newDrugBPos[2]) / 2
+      ];
+    }
+
     // Calculate distance
     const dx = newDrugAPos[0] - newDrugBPos[0];
     const dy = newDrugAPos[1] - newDrugBPos[1];
     const dz = newDrugAPos[2] - newDrugBPos[2];
     setDistance(Math.sqrt(dx * dx + dy * dy + dz * dz));
   });
-  
+
   return null;
 }
