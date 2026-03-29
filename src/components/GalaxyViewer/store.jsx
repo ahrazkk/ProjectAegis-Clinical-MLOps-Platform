@@ -12,9 +12,21 @@ const initialState = {
   maxHops: 3,            // 1-3 slider
   showShortestPath: true,
   shortestPath: [],      // array of node IDs
-  viewMode: 'galaxy',   // 'galaxy' | 'neighborhood' | 'path'
+  viewMode: 'galaxy',   // 'galaxy' | 'radial' | 'cluster' | 'path'
   cameraTarget: null,    // [x, y, z] to fly to
   cameraFit: null,       // { center, radius } for zoom-to-fit
+  showLabels: 'selected', // 'all' | 'selected' | 'none'
+  showEdges: true,
+  showFilters: false,
+  filters: {
+    severityMin: 'none',
+    visibleClasses: null, // null = all visible
+    cypFilter: null,
+    edgeDensity: 1.0,
+  },
+  enrichedDrugA: null,   // API-fetched drug info
+  enrichedDrugB: null,
+  enrichedInteraction: null,
   stats: {
     totalNodes: 0,
     totalEdges: 0,
@@ -71,6 +83,22 @@ function galaxyReducer(state, action) {
       return { ...state, cameraFit: action.payload };
     case 'SET_VIEW_MODE':
       return { ...state, viewMode: action.payload };
+    case 'TOGGLE_LABELS': {
+      const cycle = { 'selected': 'all', 'all': 'none', 'none': 'selected' };
+      return { ...state, showLabels: cycle[state.showLabels] || 'selected' };
+    }
+    case 'TOGGLE_EDGES':
+      return { ...state, showEdges: !state.showEdges };
+    case 'SET_SHOW_FILTERS':
+      return { ...state, showFilters: action.payload };
+    case 'SET_FILTERS':
+      return { ...state, filters: { ...state.filters, ...action.payload } };
+    case 'SET_ENRICHED_DRUG_A':
+      return { ...state, enrichedDrugA: action.payload };
+    case 'SET_ENRICHED_DRUG_B':
+      return { ...state, enrichedDrugB: action.payload };
+    case 'SET_ENRICHED_INTERACTION':
+      return { ...state, enrichedInteraction: action.payload };
     default:
       return state;
   }

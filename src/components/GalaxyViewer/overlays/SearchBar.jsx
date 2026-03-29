@@ -48,7 +48,7 @@ export default function SearchBar({ nodeDict }) {
   };
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 w-64 sm:w-80">
+    <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 w-64 sm:w-80">
       {/* Search input */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />

@@ -6,7 +6,7 @@ export default function HUD() {
   const { stats, maxHops, drugA, drugB, viewMode } = useGalaxy();
 
   return (
-    <div className="absolute top-3 right-3 pointer-events-none flex flex-col items-end gap-1.5">
+    <div className="absolute top-12 right-3 pointer-events-none flex flex-col items-end gap-1.5">
       {/* Status badge */}
       <div className="bg-black/70 border border-purple-500/30 text-purple-300 px-2.5 py-1 rounded text-[9px] uppercase tracking-[0.2em] shadow-[0_0_12px_rgba(139,92,246,0.15)] backdrop-blur-sm font-mono flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />

@@ -69,7 +69,7 @@ const nodeFragmentShader = `
   }
 `;
 
-export default function InstancedNodes({ nodes, hasDrugs }) {
+export default function InstancedNodes({ nodes, hasDrugs, layoutPositions }) {
   const meshRef = useRef();
   const { hoveredNode, selectedNode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
@@ -78,7 +78,7 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
   const count = nodes.length;
 
   // Buffers for per-instance attributes
-  const { opacityArray, glowArray, scaleArray, colorArray, targetOpacity, targetScale, targetGlow, targetColors } = useMemo(() => {
+  const { opacityArray, glowArray, scaleArray, colorArray, targetOpacity, targetScale, targetGlow, targetColors, currentPos, targetPos } = useMemo(() => {
     return {
       opacityArray: new Float32Array(count),
       glowArray: new Float32Array(count),
@@ -88,6 +88,8 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
       targetScale: new Float32Array(count),
       targetGlow: new Float32Array(count),
       targetColors: new Float32Array(count * 3),
+      currentPos: new Float32Array(count * 3), // for layout transitions
+      targetPos: new Float32Array(count * 3),
     };
   }, [count]);
 
@@ -126,6 +128,13 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
       targetColors[i * 3 + 1] = tempColor.g;
       targetColors[i * 3 + 2] = tempColor.b;
 
+      // Compute target position (from layout or default T-SNE)
+      const layoutPos = layoutPositions?.get?.(node.id);
+      const pos = layoutPos || node.pos;
+      targetPos[i * 3] = pos[0];
+      targetPos[i * 3 + 1] = pos[1];
+      targetPos[i * 3 + 2] = pos[2];
+
       // Initialize current values (for entrance: start at 0)
       if (!isInitialized.current) {
         scaleArray[i] = 0;
@@ -134,10 +143,16 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
         colorArray[i * 3] = tempColor.r;
         colorArray[i * 3 + 1] = tempColor.g;
         colorArray[i * 3 + 2] = tempColor.b;
+        currentPos[i * 3] = pos[0];
+        currentPos[i * 3 + 1] = pos[1];
+        currentPos[i * 3 + 2] = pos[2];
       }
 
       // Set position matrix
-      tempVec.set(node.pos[0], node.pos[1], node.pos[2]);
+      const cx = isInitialized.current ? currentPos[i * 3] : pos[0];
+      const cy = isInitialized.current ? currentPos[i * 3 + 1] : pos[1];
+      const cz = isInitialized.current ? currentPos[i * 3 + 2] : pos[2];
+      tempVec.set(cx, cy, cz);
       tempQuat.identity();
       tempScale.set(scaleArray[i] || 0.001, scaleArray[i] || 0.001, scaleArray[i] || 0.001);
       tempMatrix.compose(tempVec, tempQuat, tempScale);
@@ -149,7 +164,7 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
       entranceProgress.current = 0;
       isInitialized.current = true;
     }
-  }, [nodes, hasDrugs]);
+  }, [nodes, hasDrugs, layoutPositions]);
 
   // Per-frame animation: lerp current → target + entrance cascade
   useFrame(({ clock }) => {
@@ -197,12 +212,18 @@ export default function InstancedNodes({ nodes, hasDrugs }) {
       colorArray[i * 3 + 1] += (targetColors[i * 3 + 1] - colorArray[i * 3 + 1]) * lerpSpeed;
       colorArray[i * 3 + 2] += (targetColors[i * 3 + 2] - colorArray[i * 3 + 2]) * lerpSpeed;
 
+      // Lerp position toward target (layout transitions)
+      const posLerp = 0.06;
+      currentPos[i * 3] += (targetPos[i * 3] - currentPos[i * 3]) * posLerp;
+      currentPos[i * 3 + 1] += (targetPos[i * 3 + 1] - currentPos[i * 3 + 1]) * posLerp;
+      currentPos[i * 3 + 2] += (targetPos[i * 3 + 2] - currentPos[i * 3 + 2]) * posLerp;
+
       // Breathing animation for main nodes
       const breathe = node.isA || node.isB ?
         1 + Math.sin(time * 2 + i * 0.5) * 0.06 : 1;
 
       const s = Math.max(scaleArray[i] * breathe, 0.001);
-      tempVec.set(node.pos[0], node.pos[1], node.pos[2]);
+      tempVec.set(currentPos[i * 3], currentPos[i * 3 + 1], currentPos[i * 3 + 2]);
 
       // Main drug float
       if (node.isA || node.isB) {
