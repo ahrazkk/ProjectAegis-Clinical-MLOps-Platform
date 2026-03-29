@@ -51,7 +51,7 @@ import {
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
 import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats } from '../services/api';
-import GNNGalaxyViewer from '../components/GalaxyViewer';
+import MoleculeViewer from '../components/MoleculeViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
 import KnowledgeGraphView from '../components/KnowledgeGraphView';
@@ -824,7 +824,7 @@ export default function Dashboard() {
                           <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
                           <p className="text-[10px] text-risk-medium uppercase tracking-wider">3D Viewer Under Construction</p>
                         </div>
-                        <GNNGalaxyViewer drugs={selectedDrugs} result={result} isMobile={true} />
+                        <MoleculeViewer drugs={selectedDrugs} result={result} isMobile={true} />
                       </div>
                     )}
                     {activeTab === 'graph' && (
@@ -969,9 +969,7 @@ export default function Dashboard() {
             <button className="p-2 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary">
               <Bell className="w-4 h-4" />
             </button>
-            <button 
-              onClick={() => navigate('/settings')}
-              className="p-2 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary">
+            <button className="p-2 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary">
               <Settings className="w-4 h-4" />
             </button>
             <div className="w-8 h-8 border border-theme flex items-center justify-center">
@@ -1317,7 +1315,7 @@ export default function Dashboard() {
                         <p className="text-[10px] text-theme-muted">Molecular structures may not render correctly</p>
                       </div>
                     </div>
-                    <GNNGalaxyViewer
+                    <MoleculeViewer
                       drugs={selectedDrugs}
                       result={result}
                     />

@@ -1,4 +1,9 @@
-import React, { useMemo, useState, useRef, useEffect, Component } from 'react';
+const fs = require('fs');
+const path = require('path');
+
+const targetPath = path.join(__dirname, 'src', 'components', 'KnowledgeGraphView.jsx');
+
+const code = `import React, { useMemo, useState, useRef, useEffect, Component } from 'react';
 import { MoleculeCanvas } from './MoleculeViewer2D';
 
 // --- Error Boundary to prevent blank screens ---
@@ -40,7 +45,7 @@ function getHexPolygon(cx, cy, size) {
   for (let i = 0; i < 6; i++) {
     const angle_deg = 60 * i - 30;
     const angle_rad = Math.PI / 180 * angle_deg;
-    points.push(`${cx + size * Math.cos(angle_rad)},${cy + size * Math.sin(angle_rad)}`);
+    points.push(\`\${cx + size * Math.cos(angle_rad)},\${cy + size * Math.sin(angle_rad)}\`);
   }
   return points.join(" ");
 }
@@ -52,11 +57,11 @@ function extractEntities(text) {
 
   const entities = new Set();
   const patterns = [
-    /CYP\d+[A-Z]\d+/gi, // CYP3A4, CYP2D6
+    /CYP\\d+[A-Z]\\d+/gi, // CYP3A4, CYP2D6
     /VKORC1/gi,
     /COX-[12]/gi,
     /P-gp/gi,
-    /OATP\w+/gi,
+    /OATP\\w+/gi,
     /Platelet/gi,
     /Serotonin/gi,
     /Dopamine/gi,
@@ -73,10 +78,10 @@ function extractEntities(text) {
   });
 
   return Array.from(entities).map((name, i) => ({
-    id: `entity-${i}`,
+    id: \`entity-\${i}\`,
     name: name,
     type: name.toUpperCase().startsWith('CYP') ? 'Enzyme' : 'Pathway Target',
-    description: `Pharmacokinetics node derived from AI interaction hypothesis.`
+    description: \`Pharmacokinetics node derived from AI interaction hypothesis.\`
   }));
 }
 
@@ -168,7 +173,7 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
         if (!d) return;
         const pos = POSITIONS[idx % POSITIONS.length];
         const color = COLORS[idx % COLORS.length];
-        const safeId = d.id || d.drugbank_id || d.name || `Node${idx}`;
+        const safeId = d.id || d.drugbank_id || d.name || \`Node\${idx}\`;
         const { x, y } = hexToPixel(pos.q, pos.r, HEX_SIZE);
         nList.push({ ...d, id: safeId, q: pos.q, r: pos.r, x, y, color, isDrug: true });
       });
@@ -179,15 +184,13 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
 
     if (polypharmacyResult && Array.isArray(polypharmacyResult.interactions)) {
       interactions = polypharmacyResult.interactions;
-    } else if (result) {
-      // Force map the interaction even if risk_level is string-cased weirdly
-      // Sometimes it's 'Major', 'major', 'Moderate', 'High', etc.
+    } else if (result && result.risk_level && (result.risk_level === 'High' || result.risk_level === 'Moderate' || result.risk_level === 'Severe' || result.risk_level === 'Low')) {
       interactions = [{
         drug_a: result.drug_a || safeDrugsList[0]?.name || '',
         drug_b: result.drug_b || safeDrugsList[1]?.name || '',
-        risk_score: result.risk_score || result.riskLevel || 'Unknown',
-        severity: result.severity || result.risk_level || 'Unknown',
-        mechanism_hypothesis: result.mechanism_hypothesis || result.explanation || ''
+        risk_score: result.risk_score,
+        severity: result.severity,
+        mechanism_hypothesis: result.mechanism_hypothesis
       }];
     }
 
@@ -195,17 +198,9 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
     // Let's gather all texts to parse
     let fullText = "";
     if (result && result.mechanism_hypothesis) fullText += result.mechanism_hypothesis + " ";
-    if (result && result.explanation && result.explanation.mechanism_hypothesis) fullText += result.explanation.mechanism_hypothesis + " ";
-    
     interactions.forEach(intx => {
         if (intx.mechanism_hypothesis) fullText += intx.mechanism_hypothesis + " ";
     });
-
-    // Fallback logic to ensure visual nodes always generate for Aspirin/Warfarin if API text lacks explicit markers
-    const hasBioMarkers = /(cyp|cox|platelet|vkorc1|p-gp|enzyme|target)/i.test(fullText);
-    if (!hasBioMarkers) {
-       fullText += " Key biological targets and enzymes involve CYP3A4, CYP2C9, COX-1, VKORC1, and Platelet activation pathways.";
-    }
 
     const parsedEntities = extractEntities(fullText);
     const ENTITY_POSITIONS = [
@@ -222,7 +217,7 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
       // Connect drugs to this entity
       nList.filter(n => n.isDrug).forEach(drugNode => {
         eList.push({
-          id: `edge-ent-${drugNode.id}-${ent.id}`,
+          id: \`edge-ent-\${drugNode.id}-\${ent.id}\`,
           s: drugNode,
           t: entityNode,
           color: '#64748b', // Neutral dark gray for pathway links
@@ -238,12 +233,12 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
       const srcName = String(intx.drug_a || "").toLowerCase().trim();
       const tgtName = String(intx.drug_b || "").toLowerCase().trim();
       
-      const sourceNode = nList.find(n => n.isDrug && (String(n.name || "").toLowerCase().includes(srcName) || srcName.includes(String(n.name || "").toLowerCase())));
-      const targetNode = nList.find(n => n.isDrug && (String(n.name || "").toLowerCase().includes(tgtName) || tgtName.includes(String(n.name || "").toLowerCase())));
+      const sourceNode = nList.find(n => n.isDrug && String(n.name || "").toLowerCase().trim() === srcName);
+      const targetNode = nList.find(n => n.isDrug && String(n.name || "").toLowerCase().trim() === tgtName);
 
-      if (sourceNode && targetNode && String(intx.severity).toLowerCase() !== 'no_interaction') {
+      if (sourceNode && targetNode && intx.severity !== 'no_interaction') {
         isAlertActive = true;
-        const safeEdgeId = `edge-${sourceNode.id}-${targetNode.id}-${i}`;
+        const safeEdgeId = \`edge-\${sourceNode.id}-\${targetNode.id}-\${i}\`;
 
         // Direct path override logic for the primary connection between (-2,0) and (2,0)
         if (
@@ -267,7 +262,7 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
            dPaths.push({
               id: safeEdgeId,
               tiles: directPathTiles.map(coord => hexToPixel(coord.q, coord.r, HEX_SIZE)),
-              polyline: polylineCoords.map(p => `${p.x},${p.y}`).join(" "),
+              polyline: polylineCoords.map(p => \`\${p.x},\${p.y}\`).join(" "),
               info: intx
            });
         } else {
@@ -304,21 +299,21 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
       </div>
 
       <svg width="100%" height="100%" style={{ overflow: 'visible' }}>
-        <g transform={`translate(${dim.w / 2 + pan.x}, ${dim.h / 2 + pan.y}) scale(${zoom})`}>
+        <g transform={\`translate(\${dim.w / 2 + pan.x}, \${dim.h / 2 + pan.y}) scale(\${zoom})\`}>
           {gridTiles.map(t => (
-            <polygon key={`bg-${t.q}-${t.r}`} points={getHexPolygon(t.x, t.y, HEX_SIZE)} fill="transparent" stroke="rgba(255,255,255,0.04)" strokeWidth="1.5" />
+            <polygon key={\`bg-\${t.q}-\${t.r}\`} points={getHexPolygon(t.x, t.y, HEX_SIZE)} fill="transparent" stroke="rgba(255,255,255,0.04)" strokeWidth="1.5" />
           ))}
 
           {edges.map(e => (
             <g key={e.id} className="pointer-events-none">
-              <line x1={e.s.x} y1={e.s.y} x2={e.t.x} y2={e.t.y} stroke={e.color} strokeWidth={e.isPathway ? "2" : "4"} strokeLinecap="round" strokeDasharray="8 8" strokeOpacity={e.isPathway ? "0.4" : "0.8"} style={{ filter: e.isPathway ? 'none' : `drop-shadow(0 0 10px ${e.color})`, animation: 'dashMove 20s linear infinite' }} />
+              <line x1={e.s.x} y1={e.s.y} x2={e.t.x} y2={e.t.y} stroke={e.color} strokeWidth={e.isPathway ? "2" : "4"} strokeLinecap="round" strokeDasharray="8 8" strokeOpacity={e.isPathway ? "0.4" : "0.8"} style={{ filter: e.isPathway ? 'none' : \`drop-shadow(0 0 10px \${e.color})\`, animation: 'dashMove 20s linear infinite' }} />
             </g>
           ))}
 
           {directPaths.map((pathData) => (
             <g key={pathData.id} className="pointer-events-none">
               {pathData.tiles.map((pos, i) => (
-                 <polygon key={`${pathData.id}-hex-${i}`} points={getHexPolygon(pos.x, pos.y, HEX_SIZE)} fill="rgba(239, 68, 68, 0.08)" stroke="#ef4444" strokeWidth="1" strokeDasharray="4 4" strokeOpacity="0.6" style={{ animation: `pulseGlow 2s infinite ${i * 0.2}s` }} />
+                 <polygon key={\`\${pathData.id}-hex-\${i}\`} points={getHexPolygon(pos.x, pos.y, HEX_SIZE)} fill="rgba(239, 68, 68, 0.08)" stroke="#ef4444" strokeWidth="1" strokeDasharray="4 4" strokeOpacity="0.6" style={{ animation: \`pulseGlow 2s infinite \${i * 0.2}s\` }} />
               ))}
               <polyline points={pathData.polyline} fill="none" stroke="#ef4444" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="12 8" style={{ filter: 'drop-shadow(0 0 10px rgba(239, 68, 68, 0.8))', animation: 'dashMove 20s linear infinite' }} />
             </g>
@@ -327,8 +322,8 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
           {nodes.map(n => {
             if (n.isEntity) {
                return (
-                  <g key={`node-${n.id}`} onMouseEnter={() => setHoveredNode(n)} className="cursor-pointer transition-transform duration-300 hover:scale-[1.05]" style={{ transformOrigin: `${n.x}px ${n.y}px` }}>
-                    <polygon points={getHexPolygon(n.x, n.y, HEX_SIZE * 0.7)} fill="#0f172a" stroke={n.color} strokeWidth="2" strokeDasharray="4 4" style={{ filter: `drop-shadow(0px 0px 8px ${n.color}40)` }} />
+                  <g key={\`node-\${n.id}\`} onMouseEnter={() => setHoveredNode(n)} className="cursor-pointer transition-transform duration-300 hover:scale-[1.05]" style={{ transformOrigin: \`\${n.x}px \${n.y}px\` }}>
+                    <polygon points={getHexPolygon(n.x, n.y, HEX_SIZE * 0.7)} fill="#0f172a" stroke={n.color} strokeWidth="2" strokeDasharray="4 4" style={{ filter: \`drop-shadow(0px 0px 8px \${n.color}40)\` }} />
                     <text x={n.x} y={n.y} textAnchor="middle" dominantBaseline="middle" fill={n.color} fontSize="14" fontWeight="bold" letterSpacing="0.05em" className="pointer-events-none">
                       {String(n.name).toUpperCase()}
                     </text>
@@ -341,8 +336,8 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
 
             const hasSmiles = typeof n.smiles === 'string' && n.smiles.length > 0;
             return (
-              <g key={`node-${n.id}`} onMouseEnter={() => setHoveredNode(n)} className="cursor-pointer transition-transform duration-300 hover:scale-[1.05]" style={{ transformOrigin: `${n.x}px ${n.y}px` }}>
-                <polygon points={getHexPolygon(n.x, n.y, HEX_SIZE)} fill="#0a0a0f" stroke={n.color} strokeWidth="4" style={{ filter: `drop-shadow(0px 0px 10px ${n.color}80)` }} />
+              <g key={\`node-\${n.id}\`} onMouseEnter={() => setHoveredNode(n)} className="cursor-pointer transition-transform duration-300 hover:scale-[1.05]" style={{ transformOrigin: \`\${n.x}px \${n.y}px\` }}>
+                <polygon points={getHexPolygon(n.x, n.y, HEX_SIZE)} fill="#0a0a0f" stroke={n.color} strokeWidth="4" style={{ filter: \`drop-shadow(0px 0px 10px \${n.color}80)\` }} />
                 <foreignObject x={n.x - 65} y={n.y - 75} width="130" height="130" className="pointer-events-none">
                   <div className="w-full h-full flex flex-col items-center justify-center">
                     {hasSmiles ? <MoleculeCanvas smiles={n.smiles} width={130} height={130} /> : <div className="text-gray-600 text-[10px]">No 2D Data</div>}
@@ -359,9 +354,9 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
 
       {hoveredNode && (
         <div className="absolute z-50 p-4 rounded-xl shadow-2xl backdrop-blur-xl border pointer-events-none transition-all duration-200 ease-out" 
-             style={{ left: (dim.w / 2) + pan.x + (hoveredNode.x * zoom) + (80 * zoom), top: (dim.h / 2) + pan.y + (hoveredNode.y * zoom) - (80 * zoom), backgroundColor: 'rgba(10,12,20,0.95)', borderColor: hoveredNode.color, boxShadow: `0 0 30px ${hoveredNode.color}40`, width: '280px', transform: `scale(${Math.max(0.8, Math.min(1.2, zoom))})`, transformOrigin: 'top left' }}>
+             style={{ left: (dim.w / 2) + pan.x + (hoveredNode.x * zoom) + (80 * zoom), top: (dim.h / 2) + pan.y + (hoveredNode.y * zoom) - (80 * zoom), backgroundColor: 'rgba(10,12,20,0.95)', borderColor: hoveredNode.color, boxShadow: \`0 0 30px \${hoveredNode.color}40\`, width: '280px', transform: \`scale(\${Math.max(0.8, Math.min(1.2, zoom))})\`, transformOrigin: 'top left' }}>
           <div className="flex items-center gap-2 mb-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: hoveredNode.color, boxShadow: `0 0 8px ${hoveredNode.color}` }}></div>
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: hoveredNode.color, boxShadow: \`0 0 8px \${hoveredNode.color}\` }}></div>
             <h3 className="text-lg font-bold text-white leading-none tracking-wide">{String(hoveredNode.name || 'Unknown')}</h3>
           </div>
           <div className="text-xs font-mono uppercase tracking-widest text-opacity-80 mb-3" style={{ color: hoveredNode.color }}>
@@ -387,8 +382,8 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
           {safeDrugsList.map((d, i) => {
              if (!d || !d.name) return null;
              return (
-               <div key={`leg-${i}`} className="flex items-center gap-2">
-                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length], boxShadow: `0 0 8px ${COLORS[i % COLORS.length]}`}}></div>
+               <div key={\`leg-\${i}\`} className="flex items-center gap-2">
+                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[i % COLORS.length], boxShadow: \`0 0 8px \${COLORS[i % COLORS.length]}\`}}></div>
                  <span className="text-[10px] text-gray-300 tracking-widest font-bold top-[1px]">{String(d.name).toUpperCase()}</span>
                </div>
              )
@@ -408,7 +403,7 @@ function GraphCore({ drugs = [], result, polypharmacyResult, isMobile = false })
         </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{__html: `@keyframes dashMove { to { stroke-dashoffset: -400; } } @keyframes pulseGlow { 0%, 100% { fill-opacity: 0.08; stroke-opacity: 0.4; } 50% { fill-opacity: 0.2; stroke-opacity: 0.8; stroke-width: 2px; } }`}} />
+      <style dangerouslySetInnerHTML={{__html: \`@keyframes dashMove { to { stroke-dashoffset: -400; } } @keyframes pulseGlow { 0%, 100% { fill-opacity: 0.08; stroke-opacity: 0.4; } 50% { fill-opacity: 0.2; stroke-opacity: 0.8; stroke-width: 2px; } }\`}} />
     </div>
   );
 }
@@ -420,3 +415,7 @@ export default function KnowledgeGraphViewWrapper(props) {
     </ErrorBoundary>
   );
 }
+`;
+
+fs.writeFileSync(targetPath, code);
+console.log('Successfully written KnowledgeGraphView with Entities mapped');

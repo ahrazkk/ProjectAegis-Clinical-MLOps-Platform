@@ -1,0 +1,1 @@
+const fs=require('fs');let c=fs.readFileSync('src/pages/Dashboard.jsx','utf8');c=c.replace(/import MoleculeViewer from '\.\.\/components\/MoleculeViewer';/g,'import GNNGalaxyViewer from \'../components/GNNGalaxyViewer\';');c=c.replace(/<MoleculeViewer/g,'<GNNGalaxyViewer');fs.writeFileSync('src/pages/Dashboard.jsx',c);console.log('Done');

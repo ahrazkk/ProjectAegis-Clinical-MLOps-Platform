@@ -79,27 +79,27 @@
   --grid-accent: rgba(100, 116, 139, 0.05);
 
   /* Borders - Soft precision */
-  --border-color: rgba(148, 163, 184, 0.4);
-  --border-highlight: rgba(100, 116, 139, 0.3);
-  --border-dim: rgba(148, 163, 184, 0.2);
+  --border-color: #000000;
+  --border-highlight: #000000;
+  --border-dim: #000000;
 
   /* Text - Dark readable palette */
-  --text-primary: #1E293B;
-  --text-secondary: #475569;
-  --text-muted: #64748B;
-  --text-dim: #94A3B8;
+  --text-primary: #000000;
+  --text-secondary: #111827;
+  --text-muted: #374151;
+  --text-dim: #4B5563;
 
   /* Accent Colors - Vibrant clinical */
-  --accent-primary: #1E293B;
-  --accent-cyan: #0891B2;
-  --accent-blue: #2563EB;
-  --accent-emerald: #059669;
+  --accent-primary: #000000;
+  --accent-cyan: #06728e;
+  --accent-blue: #1d4ed8;
+  --accent-emerald: #047857;
 
   /* Functional Colors - Clinical indicators */
-  --risk-low: #059669;
-  --risk-medium: #D97706;
-  --risk-high: #DC2626;
-  --risk-critical: #BE123C;
+  --risk-low: #047857;
+  --risk-medium: #b45309;
+  --risk-high: #b91c1c;
+  --risk-critical: #9f1239;
 
   /* Shadows - Soft elevation */
   --glow-primary: 0 1px 3px rgba(0, 0, 0, 0.1);

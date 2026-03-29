@@ -4,7 +4,7 @@ import SmilesDrawer from 'smiles-drawer';
 // 2D Organic Chemistry Skeletal Formula Viewer
 // Renders molecules as they appear in chemistry textbooks
 
-const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme = 'dark', isHighlighted = false }) => {
+export const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme = 'dark', isHighlighted = false }) => {
   const canvasRef = useRef(null);
   const [error, setError] = useState(null);
   // Create unique ID for canvas (needed by SmilesDrawer)

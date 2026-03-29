@@ -1,0 +1,1 @@
+const fs=require('fs');let c=fs.readFileSync('src/pages/Dashboard.jsx','utf8');c=c.replace(/<div className=\\bsolute[^>]*>[\s\S]*?3D Viewer Under Construction[\s\S]*?<\/div>\s*<\/div>/gi, '');fs.writeFileSync('src/pages/Dashboard.jsx',c);

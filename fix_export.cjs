@@ -1,0 +1,1 @@
+const fs=require('fs');let c=fs.readFileSync('src/components/GNNGalaxyViewer.jsx','utf8');if(!c.includes('export default')) { c += '\nexport default GNNGalaxyViewer;\n'; fs.writeFileSync('src/components/GNNGalaxyViewer.jsx', c); }
