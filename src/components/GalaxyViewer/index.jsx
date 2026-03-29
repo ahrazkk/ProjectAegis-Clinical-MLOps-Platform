@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GalaxyProvider, useGalaxy, useGalaxyDispatch } from './store';
 import {
   buildNodeDict, findDrugByName, computeSubgraph,
-  shortestPath as computeShortestPath, rawGnnData,
+  shortestPath as computeShortestPath, rawGnnData, applyFilters,
 } from './graphEngine';
 import InstancedNodes from './InstancedNodes';
 import InstancedEdges from './InstancedEdges';
@@ -30,12 +30,18 @@ import NodeDetailPanel from './overlays/NodeDetailPanel';
 import DrugComparisonPanel from './overlays/DrugComparisonPanel';
 import HopSlider from './overlays/HopSlider';
 import Toolbar from './overlays/Toolbar';
+import EdgeDetailPanel from './overlays/EdgeDetailPanel';
+import FilterPanel from './overlays/FilterPanel';
+
+// Data enrichment
+import { enrichDrug, enrichInteraction } from './dataEnrichment';
 
 // ─── Inner scene (needs Canvas context) ─────────────────────────────────
 function GalaxyScene({
   nodeDict, nodes, edges, hasDrugs, isMobile,
   drugAId, drugBId, maxHops,
   layoutPositions, clusterData, showEdges, shortestPath,
+  nodeVisibility,
 }) {
   const { viewMode } = useGalaxy();
 
@@ -66,6 +72,7 @@ function GalaxyScene({
         nodes={nodes}
         hasDrugs={hasDrugs}
         layoutPositions={layoutPositions}
+        nodeVisibility={nodeVisibility}
       />
 
       {/* Edges */}
@@ -111,14 +118,14 @@ function GalaxyScene({
 }
 
 // ─── Main viewer with state-driven graph computation ────────────────────
-function GalaxyViewerInner({ drugs, isMobile }) {
-  const { drugA, drugB, maxHops, viewMode, showEdges, shortestPath, showFilters } = useGalaxy();
+function GalaxyViewerInner({ drugs, result, isMobile }) {
+  const { drugA, drugB, maxHops, viewMode, showEdges, shortestPath, showFilters, filters } = useGalaxy();
   const dispatch = useGalaxyDispatch();
   const containerRef = useRef(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Build node dictionary (stable, only computed once)
-  const nodeDict = useMemo(() => buildNodeDict(0.25), []);
+  const nodeDict = useMemo(() => buildNodeDict(0.35), []);
 
   // Sync external drugs prop → store
   useEffect(() => {
@@ -154,6 +161,11 @@ function GalaxyViewerInner({ drugs, isMobile }) {
     };
   }, [drugA?.id, drugB?.id, maxHops, nodeDict]);
 
+  // Apply filters to nodes and edges
+  const { nodeVisibility, filteredEdges } = useMemo(() => {
+    return applyFilters(nodes, edges, filters);
+  }, [nodes, edges, filters]);
+
   // Compute shortest path
   const computedPath = useMemo(() => {
     const aId = drugA?.id || null;
@@ -183,6 +195,72 @@ function GalaxyViewerInner({ drugs, isMobile }) {
       },
     });
   }, [drugA?.id, drugB?.id, maxHops, nodes, edges, computedPath]);
+
+  // ─── Data enrichment — fetch from API on drug selection ─────────────
+  useEffect(() => {
+    if (drugA?.name) {
+      dispatch({ type: 'SET_ENRICHMENT_LOADING', payload: { drugA: true } });
+      enrichDrug(drugA.name).then(data => {
+        dispatch({ type: 'SET_ENRICHED_DRUG_A', payload: data });
+      });
+    } else {
+      dispatch({ type: 'SET_ENRICHED_DRUG_A', payload: null });
+    }
+  }, [drugA?.name]);
+
+  useEffect(() => {
+    if (drugB?.name) {
+      dispatch({ type: 'SET_ENRICHMENT_LOADING', payload: { drugB: true } });
+      enrichDrug(drugB.name).then(data => {
+        dispatch({ type: 'SET_ENRICHED_DRUG_B', payload: data });
+      });
+    } else {
+      dispatch({ type: 'SET_ENRICHED_DRUG_B', payload: null });
+    }
+  }, [drugB?.name]);
+
+  useEffect(() => {
+    if (drugA?.name && drugB?.name) {
+      dispatch({ type: 'SET_ENRICHMENT_LOADING', payload: { interaction: true } });
+      enrichInteraction(drugA.name, drugB.name).then(data => {
+        dispatch({ type: 'SET_ENRICHED_INTERACTION', payload: data });
+      });
+    } else {
+      dispatch({ type: 'SET_ENRICHED_INTERACTION', payload: null });
+    }
+  }, [drugA?.name, drugB?.name]);
+
+  // Sync prediction result from Dashboard
+  useEffect(() => {
+    if (result) {
+      dispatch({ type: 'SET_PREDICTION_RESULT', payload: result });
+    }
+  }, [result]);
+
+  // ─── Keyboard shortcuts ────────────────────────────────────────────
+  useEffect(() => {
+    const handleKey = (e) => {
+      // Don't trigger shortcuts when typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      const viewModes = { '1': 'galaxy', '2': 'radial', '3': 'cluster', '4': 'path' };
+      if (viewModes[e.key]) {
+        dispatch({ type: 'SET_VIEW_MODE', payload: viewModes[e.key] });
+      } else if (e.key === 'Escape') {
+        dispatch({ type: 'CLEAR_SELECTION' });
+        setFiltersOpen(false);
+      } else if (e.key === 'e' || e.key === 'E') {
+        dispatch({ type: 'TOGGLE_EDGES' });
+      } else if (e.key === 'l' || e.key === 'L') {
+        dispatch({ type: 'TOGGLE_LABELS' });
+      } else if (e.key === 'f' || e.key === 'F') {
+        setFiltersOpen(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
 
   // ─── Layout computation ─────────────────────────────────────────────
   const clusterData = useMemo(() => {
@@ -223,7 +301,7 @@ function GalaxyViewerInner({ drugs, isMobile }) {
         <GalaxyScene
           nodeDict={nodeDict}
           nodes={nodes}
-          edges={edges}
+          edges={filteredEdges}
           hasDrugs={hasDrugs}
           isMobile={isMobile}
           drugAId={drugAId}
@@ -233,6 +311,7 @@ function GalaxyViewerInner({ drugs, isMobile }) {
           clusterData={clusterData}
           showEdges={showEdges}
           shortestPath={computedPath}
+          nodeVisibility={nodeVisibility}
         />
       </Canvas>
 
@@ -243,9 +322,11 @@ function GalaxyViewerInner({ drugs, isMobile }) {
         canvasRef={containerRef}
       />
       <SearchBar nodeDict={nodeDict} />
+      <FilterPanel isOpen={filtersOpen} onClose={() => setFiltersOpen(false)} />
       <HUD />
       <Legend isMobile={isMobile} />
       <NodeDetailPanel />
+      <EdgeDetailPanel />
       <DrugComparisonPanel />
       <HopSlider />
     </div>
@@ -253,10 +334,10 @@ function GalaxyViewerInner({ drugs, isMobile }) {
 }
 
 // ─── Export: wraps everything in provider ──────────────────────────────
-export default function GNNGalaxyViewer({ drugs, isMobile }) {
+export default function GNNGalaxyViewer({ drugs, result, isMobile }) {
   return (
     <GalaxyProvider>
-      <GalaxyViewerInner drugs={drugs} isMobile={isMobile} />
+      <GalaxyViewerInner drugs={drugs} result={result} isMobile={isMobile} />
     </GalaxyProvider>
   );
 }

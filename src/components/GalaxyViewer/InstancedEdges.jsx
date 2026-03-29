@@ -2,6 +2,8 @@
 import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useGalaxyDispatch } from './store';
+import { rawGnnData } from './graphEngine';
 
 // Animated edge material with data flow particles
 const edgeVertexShader = `
@@ -48,6 +50,7 @@ const edgeFragmentShader = `
 export default function InstancedEdges({ edges }) {
   const activeRef = useRef();
   const bgRef = useRef();
+  const dispatch = useGalaxyDispatch();
 
   // Separate background (faint) edges from active edges
   const { bgEdges, activeEdges } = useMemo(() => {
@@ -173,6 +176,25 @@ export default function InstancedEdges({ edges }) {
 
   const tempMatrix = useMemo(() => new THREE.Matrix4(), []);
 
+  // Edge click handler — maps instanceId back to edge data
+  const handleEdgeClick = (e) => {
+    e.stopPropagation();
+    if (e.instanceId !== undefined && activeEdges[e.instanceId]) {
+      const edge = activeEdges[e.instanceId];
+      // Look up drug names from the node data
+      const startNode = rawGnnData.nodes.find(n => n.id === edge.startId);
+      const endNode = rawGnnData.nodes.find(n => n.id === edge.endId);
+      dispatch({
+        type: 'SET_SELECTED_EDGE',
+        payload: {
+          ...edge,
+          startName: startNode?.name || edge.startId,
+          endName: endNode?.name || edge.endId,
+        },
+      });
+    }
+  };
+
   return (
     <>
       {/* Background edges — simple lines */}
@@ -194,6 +216,7 @@ export default function InstancedEdges({ edges }) {
           ref={activeRef}
           args={[cylinderGeo, activeMatl, activeCount]}
           frustumCulled={false}
+          onClick={handleEdgeClick}
         />
       )}
     </>

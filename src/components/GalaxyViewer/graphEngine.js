@@ -69,7 +69,7 @@ function classifyDrug(type) {
 }
 
 // ─── Build node dictionary ─────────────────────────────────────────────────
-export function buildNodeDict(scale = 0.25) {
+export function buildNodeDict(scale = 0.35) {
   if (!rawGnnData || !rawGnnData.nodes) return {};
   const dict = {};
   rawGnnData.nodes.forEach((n, index) => {
@@ -241,6 +241,10 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
 
 // ─── Get node visual properties ───────────────────────────────────────────
 export function getNodeVisuals(node, hasDrugs) {
+  const adj = rawGnnData.adj || {};
+  const degree = (adj[node.id] || []).length;
+  const degreeFactor = Math.min(Math.sqrt(degree) / 8, 1); // 0-1 normalized
+
   let color = '#1e293b';
   let opacity = 0.15;
   let size = 0.1;
@@ -253,26 +257,26 @@ export function getNodeVisuals(node, hasDrugs) {
   } else if (node.hopA <= 3 && node.hopB <= 3) {
     color = '#a855f7';
     opacity = 0.75 - Math.max(node.hopA, node.hopB) * 0.12;
-    size = 0.35;
+    size = 0.35 + degreeFactor * 0.1;
     glow = 0.4;
   } else if (node.hopA <= 3) {
     color = '#00d2ff';
     opacity = 0.6 - node.hopA * 0.15;
-    size = 0.3 - node.hopA * 0.04;
+    size = 0.3 - node.hopA * 0.04 + degreeFactor * 0.1;
     glow = 0.3 - node.hopA * 0.08;
   } else if (node.hopB <= 3) {
     color = '#ff8c00';
     opacity = 0.6 - node.hopB * 0.15;
-    size = 0.3 - node.hopB * 0.04;
+    size = 0.3 - node.hopB * 0.04 + degreeFactor * 0.1;
     glow = 0.3 - node.hopB * 0.08;
   } else if (!hasDrugs) {
-    // No drugs selected — show by category
+    // No drugs selected — show by category with degree-based sizing
     color = CATEGORY_COLORS[node.category] || '#475569';
-    opacity = 0.25;
-    size = 0.12;
+    opacity = 0.25 + degreeFactor * 0.15;
+    size = 0.12 + degreeFactor * 0.15;
   }
 
-  return { color, opacity, size: Math.max(size, 0.06), glow: Math.max(glow, 0) };
+  return { color, opacity, size: Math.max(size, 0.15), glow: Math.max(glow, 0) };
 }
 
 // ─── Sample background edges for "no selection" view ─────────────────────
@@ -295,6 +299,47 @@ export function sampleBackgroundEdges(maxCount = 3000) {
     [allEdges[i], allEdges[j]] = [allEdges[j], allEdges[i]];
   }
   return allEdges.slice(0, maxCount);
+}
+
+// ─── Apply filters to determine node/edge visibility ─────────────────────
+export function applyFilters(nodes, edges, filters) {
+  const adj = rawGnnData.adj || {};
+  const { visibleClasses, minDegree, edgeDensity } = filters;
+
+  // Determine which nodes pass filters
+  const nodeVisibility = new Map();
+  nodes.forEach(n => {
+    let visible = true;
+
+    // Class filter
+    if (visibleClasses !== null && !visibleClasses.includes(n.category)) {
+      visible = false;
+    }
+
+    // Degree filter
+    if (minDegree > 0) {
+      const degree = (adj[n.id] || []).length;
+      if (degree < minDegree && !n.isA && !n.isB) {
+        visible = false;
+      }
+    }
+
+    // Selected drugs always visible
+    if (n.isA || n.isB) visible = true;
+
+    nodeVisibility.set(n.id, visible);
+  });
+
+  // Edge density sampling for background edges
+  const filteredEdges = edges.filter((e, i) => {
+    if (e.role === 'background' && edgeDensity < 1.0) {
+      // Deterministic sampling based on index
+      return (i % Math.ceil(1 / edgeDensity)) === 0;
+    }
+    return true;
+  });
+
+  return { nodeVisibility, filteredEdges };
 }
 
 export { rawGnnData };

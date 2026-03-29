@@ -12,8 +12,8 @@ export default function HopSlider() {
   const hops = [1, 2, 3];
 
   return (
-    <div className="absolute bottom-16 left-3 pointer-events-auto">
-      <div className="bg-black/70 backdrop-blur-md border border-white/5 rounded-lg px-3 py-2 shadow-xl">
+    <div className="absolute bottom-16 left-3 pointer-events-none">
+      <div className="bg-black/70 backdrop-blur-md border border-white/5 rounded-lg px-3 py-2 shadow-xl pointer-events-auto">
         <div className="text-[8px] text-white/30 font-mono uppercase tracking-wider mb-2">Hop Depth</div>
 
         <div className="flex items-center gap-1">

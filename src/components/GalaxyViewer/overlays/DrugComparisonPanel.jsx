@@ -14,8 +14,8 @@ export default function DrugComparisonPanel() {
   const degreeB = (adj[drugB.id] || []).length;
 
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
-      <div className="bg-black/75 backdrop-blur-md border border-white/8 rounded-lg shadow-2xl px-4 py-3 min-w-[320px]">
+    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 pointer-events-none">
+      <div className="bg-black/75 backdrop-blur-md border border-white/8 rounded-lg shadow-2xl px-4 py-3 min-w-[320px] pointer-events-auto">
         {/* Drug comparison */}
         <div className="flex items-center gap-4">
           {/* Drug A */}

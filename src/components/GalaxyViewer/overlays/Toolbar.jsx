@@ -45,9 +45,9 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
   const canUsePath = shortestPath && shortestPath.length >= 2;
 
   return (
-    <div className="absolute top-2 left-2 right-2 z-20 pointer-events-auto flex items-center gap-1 flex-wrap">
+    <div className="absolute top-2 left-2 right-2 z-20 pointer-events-none flex items-center gap-1 flex-wrap">
       {/* View mode buttons */}
-      <div className="flex items-center bg-black/60 backdrop-blur-md border border-white/5 rounded-lg overflow-hidden">
+      <div className="flex items-center bg-black/60 backdrop-blur-md border border-white/5 rounded-lg overflow-hidden pointer-events-auto">
         {viewModes.map(mode => {
           const Icon = mode.icon;
           const isActive = viewMode === mode.id;
@@ -83,7 +83,7 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
       <button
         onClick={onToggleFilters}
         className={`
-          flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-wider transition-all
+          pointer-events-auto flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-wider transition-all
           border backdrop-blur-md
           ${showFilters
             ? 'bg-purple-500/15 border-purple-500/30 text-purple-300'
@@ -99,7 +99,7 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
       <button
         onClick={() => dispatch({ type: 'TOGGLE_LABELS' })}
         className={`
-          flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all border backdrop-blur-md
+          pointer-events-auto flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all border backdrop-blur-md
           ${showLabels !== 'none'
             ? 'bg-black/60 border-white/10 text-white/50'
             : 'bg-black/60 border-white/5 text-white/20'
@@ -113,7 +113,7 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
       <button
         onClick={() => dispatch({ type: 'TOGGLE_EDGES' })}
         className={`
-          flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all border backdrop-blur-md
+          pointer-events-auto flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all border backdrop-blur-md
           ${showEdges
             ? 'bg-black/60 border-white/10 text-white/50'
             : 'bg-black/60 border-white/5 text-white/20'
@@ -128,7 +128,7 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
       <div className="flex-1" />
 
       {/* Right side actions */}
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1 pointer-events-auto">
         <button
           onClick={handleScreenshot}
           className="p-1.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/5 text-white/30 hover:text-white/60 transition-colors"

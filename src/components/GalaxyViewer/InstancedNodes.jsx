@@ -69,7 +69,7 @@ const nodeFragmentShader = `
   }
 `;
 
-export default function InstancedNodes({ nodes, hasDrugs, layoutPositions }) {
+export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeVisibility }) {
   const meshRef = useRef();
   const { hoveredNode, selectedNode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
@@ -119,10 +119,15 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions }) {
     nodes.forEach((node, i) => {
       const visuals = getNodeVisuals(node, hasDrugs);
 
+      // Apply filter visibility — ghost mode for filtered-out nodes
+      const isVisible = !nodeVisibility || nodeVisibility.get(node.id) !== false;
+      const filterScale = isVisible ? 1.0 : 0.3;
+      const filterOpacity = isVisible ? 1.0 : 0.08;
+
       // Set target values
-      targetScale[i] = visuals.size;
-      targetOpacity[i] = visuals.opacity;
-      targetGlow[i] = visuals.glow;
+      targetScale[i] = visuals.size * filterScale;
+      targetOpacity[i] = visuals.opacity * filterOpacity;
+      targetGlow[i] = isVisible ? visuals.glow : 0;
       tempColor.set(visuals.color);
       targetColors[i * 3] = tempColor.r;
       targetColors[i * 3 + 1] = tempColor.g;
@@ -164,7 +169,7 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions }) {
       entranceProgress.current = 0;
       isInitialized.current = true;
     }
-  }, [nodes, hasDrugs, layoutPositions]);
+  }, [nodes, hasDrugs, layoutPositions, nodeVisibility]);
 
   // Per-frame animation: lerp current → target + entrance cascade
   useFrame(({ clock }) => {

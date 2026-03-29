@@ -6,8 +6,8 @@ export default function Legend({ isMobile }) {
   const [expanded, setExpanded] = useState(!isMobile);
 
   return (
-    <div className="absolute bottom-3 left-3 pointer-events-auto">
-      <div className="bg-black/70 border border-white/5 backdrop-blur-md rounded-lg shadow-xl overflow-hidden" style={{ maxWidth: isMobile ? '200px' : '240px' }}>
+    <div className="absolute bottom-3 left-3 pointer-events-none">
+      <div className="bg-black/70 border border-white/5 backdrop-blur-md rounded-lg shadow-xl overflow-hidden pointer-events-auto" style={{ maxWidth: isMobile ? '200px' : '240px' }}>
         {/* Header */}
         <button
           onClick={() => setExpanded(!expanded)}

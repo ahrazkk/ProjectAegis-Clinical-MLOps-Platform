@@ -44,7 +44,7 @@ export function computeRadialPositions(nodes, drugAId, drugBId, adj, maxHops) {
   });
 
   // For each hop ring, sort by category then distribute on circle
-  const ringRadii = { 1: 5, 2: 11, 3: 18 };
+  const ringRadii = { 1: 6, 2: 13, 3: 21 };
 
   for (let hop = 1; hop <= maxHops; hop++) {
     const bucket = hopBuckets[hop];
@@ -57,14 +57,37 @@ export function computeRadialPositions(nodes, drugAId, drugBId, adj, maxHops) {
       return catA - catB;
     });
 
-    const radius = ringRadii[hop];
+    const baseRadius = ringRadii[hop];
     const count = bucket.length;
-    const ySpread = hop * 0.4; // Slight vertical spread per hop
+    const ySpread = hop * 2.5; // Much more vertical spread per hop
+
+    // For large rings, split into two concentric sub-rings
+    const useDoubleRing = count > 50;
 
     bucket.forEach((n, i) => {
-      const angle = (i / count) * Math.PI * 2;
-      const x = Math.cos(angle) * radius;
-      const z = Math.sin(angle) * radius;
+      let ringIndex, ringCount, radius;
+      if (useDoubleRing) {
+        // Alternate between inner and outer sub-ring
+        if (i % 2 === 0) {
+          ringIndex = Math.floor(i / 2);
+          ringCount = Math.ceil(count / 2);
+          radius = baseRadius - 1.2;
+        } else {
+          ringIndex = Math.floor(i / 2);
+          ringCount = Math.floor(count / 2);
+          radius = baseRadius + 1.2;
+        }
+      } else {
+        ringIndex = i;
+        ringCount = count;
+        radius = baseRadius;
+      }
+
+      const angle = (ringIndex / ringCount) * Math.PI * 2;
+      // Add small radial jitter to prevent perfect alignment
+      const jitter = (Math.random() - 0.5) * 1.5;
+      const x = Math.cos(angle) * (radius + jitter);
+      const z = Math.sin(angle) * (radius + jitter * 0.5);
       const y = (Math.random() - 0.5) * ySpread;
       positions.set(n.id, [x, y, z]);
     });
@@ -89,8 +112,8 @@ export function computeRadialPositions(nodes, drugAId, drugBId, adj, maxHops) {
  */
 function computeDualRadial(nodes, drugAId, drugBId, adj, maxHops) {
   const positions = new Map();
-  const offsetA = [-10, 0, 0];
-  const offsetB = [10, 0, 0];
+  const offsetA = [-14, 0, 0];
+  const offsetB = [14, 0, 0];
 
   positions.set(drugAId, offsetA);
   positions.set(drugBId, offsetB);
@@ -131,7 +154,7 @@ function computeDualRadial(nodes, drugAId, drugBId, adj, maxHops) {
   });
 
   // Drug A neighborhood — left side
-  const ringRadii = { 1: 4, 2: 8, 3: 13 };
+  const ringRadii = { 1: 6, 2: 11, 3: 17 };
   for (let hop = 1; hop <= maxHops; hop++) {
     const bucket = hopANodes[hop];
     bucket.forEach((n, i) => {

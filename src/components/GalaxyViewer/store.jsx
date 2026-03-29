@@ -19,14 +19,19 @@ const initialState = {
   showEdges: true,
   showFilters: false,
   filters: {
-    severityMin: 'none',
+    severityLevels: ['minor', 'moderate', 'major', 'critical'],
     visibleClasses: null, // null = all visible
-    cypFilter: null,
+    minDegree: 0,
     edgeDensity: 1.0,
   },
-  enrichedDrugA: null,   // API-fetched drug info
+  selectedEdge: null,       // clicked edge object
+  enrichedDrugA: null,      // API-fetched drug info
   enrichedDrugB: null,
   enrichedInteraction: null,
+  predictionResult: null,   // result prop from Dashboard
+  enrichmentLoading: { drugA: false, drugB: false, interaction: false },
+  pathTarget: null,         // for path querying
+  focusedCluster: null,     // for cluster zoom
   stats: {
     totalNodes: 0,
     totalEdges: 0,
@@ -44,7 +49,7 @@ function galaxyReducer(state, action) {
         ...state,
         drugA: action.payload,
         selectedNode: null,
-        viewMode: action.payload ? 'neighborhood' : (state.drugB ? 'neighborhood' : 'galaxy'),
+        viewMode: state.viewMode,
         cameraTarget: action.payload?.pos || null,
       };
     case 'SELECT_DRUG_B':
@@ -52,7 +57,7 @@ function galaxyReducer(state, action) {
         ...state,
         drugB: action.payload,
         selectedNode: null,
-        viewMode: action.payload ? 'neighborhood' : (state.drugA ? 'neighborhood' : 'galaxy'),
+        viewMode: state.viewMode,
         cameraTarget: action.payload?.pos || null,
       };
     case 'CLEAR_SELECTION':
@@ -94,11 +99,21 @@ function galaxyReducer(state, action) {
     case 'SET_FILTERS':
       return { ...state, filters: { ...state.filters, ...action.payload } };
     case 'SET_ENRICHED_DRUG_A':
-      return { ...state, enrichedDrugA: action.payload };
+      return { ...state, enrichedDrugA: action.payload, enrichmentLoading: { ...state.enrichmentLoading, drugA: false } };
     case 'SET_ENRICHED_DRUG_B':
-      return { ...state, enrichedDrugB: action.payload };
+      return { ...state, enrichedDrugB: action.payload, enrichmentLoading: { ...state.enrichmentLoading, drugB: false } };
     case 'SET_ENRICHED_INTERACTION':
-      return { ...state, enrichedInteraction: action.payload };
+      return { ...state, enrichedInteraction: action.payload, enrichmentLoading: { ...state.enrichmentLoading, interaction: false } };
+    case 'SET_ENRICHMENT_LOADING':
+      return { ...state, enrichmentLoading: { ...state.enrichmentLoading, ...action.payload } };
+    case 'SET_PREDICTION_RESULT':
+      return { ...state, predictionResult: action.payload };
+    case 'SET_SELECTED_EDGE':
+      return { ...state, selectedEdge: action.payload, selectedNode: null };
+    case 'SET_PATH_TARGET':
+      return { ...state, pathTarget: action.payload };
+    case 'SET_FOCUSED_CLUSTER':
+      return { ...state, focusedCluster: action.payload };
     default:
       return state;
   }
