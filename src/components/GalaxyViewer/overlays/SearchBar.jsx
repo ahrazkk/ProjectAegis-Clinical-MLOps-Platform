@@ -1,7 +1,7 @@
 // SearchBar.jsx — Drug search within the viewer with path querying
 import React, { useState, useRef, useEffect } from 'react';
 import { Search, X, Route } from 'lucide-react';
-import { rawGnnData, shortestPath as computeShortestPath } from '../graphEngine';
+import { getGraphData, getAdj, shortestPath as computeShortestPath } from '../graphEngine';
 import { useGalaxy, useGalaxyDispatch } from '../store';
 
 export default function SearchBar({ nodeDict }) {
@@ -19,7 +19,7 @@ export default function SearchBar({ nodeDict }) {
       return;
     }
     const lower = query.toLowerCase();
-    const matches = rawGnnData.nodes
+    const matches = getGraphData().nodes
       .filter(n => n.name.toLowerCase().includes(lower))
       .slice(0, 8);
     setResults(matches);
@@ -32,7 +32,7 @@ export default function SearchBar({ nodeDict }) {
     if (pathMode && (drugA || drugB)) {
       // Path query mode — compute and show path from selected drug to this target
       const fromId = drugA?.id || drugB?.id;
-      const adj = rawGnnData.adj || {};
+      const adj = getAdj();
       const path = computeShortestPath(adj, fromId, node.id);
 
       if (path.length > 0) {

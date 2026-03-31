@@ -1,7 +1,7 @@
 // PathLayout.js — Linear subway-map style path visualization
 // Path nodes in a line, their neighbors branching vertically
 
-import { rawGnnData } from '../graphEngine';
+import { getAdj } from '../graphEngine';
 
 /**
  * Compute path layout: shortest path nodes in a horizontal line,
@@ -25,7 +25,7 @@ export function computePathPositions(nodes, path, adj) {
   });
 
   // For each path node, fan out its non-path neighbors
-  const adjacency = adj || rawGnnData.adj || {};
+  const adjacency = adj || getAdj();
 
   path.forEach((nodeId, pathIndex) => {
     const neighbors = (adjacency[nodeId] || []).filter(nId => !pathSet.has(nId));

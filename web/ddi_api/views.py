@@ -1243,3 +1243,245 @@ class DrugComparisonView(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# ============== Graph Visualization Endpoints ==============
+
+class GraphNodesView(APIView):
+    """
+    GET /api/v1/graph/nodes/?limit=2000
+
+    Returns all Drug nodes for the Galaxy Viewer.
+    Includes id, name, category, degree, and therapeutic_class.
+    Cached server-side to avoid repeated Neo4j round-trips.
+    """
+
+    _cache = None
+    _cache_time = 0
+    CACHE_TTL = 300  # 5 minutes
+
+    def get(self, request):
+        import time as _time
+        limit = int(request.query_params.get('limit', 2000))
+
+        # Check cache
+        now = _time.time()
+        if GraphNodesView._cache and (now - GraphNodesView._cache_time) < GraphNodesView.CACHE_TTL:
+            nodes = GraphNodesView._cache[:limit]
+            return Response({
+                'nodes': nodes,
+                'total': len(GraphNodesView._cache),
+                'returned': len(nodes),
+                'cached': True,
+            })
+
+        try:
+            kg = KnowledgeGraphService
+            if not kg.is_connected():
+                return Response({'error': 'Database unavailable', 'nodes': []}, status=503)
+
+            # Get all drug nodes with degree count
+            result = kg.run_query("""
+                MATCH (d:Drug)
+                OPTIONAL MATCH (d)-[i:INTERACTS_WITH]-()
+                WITH d, count(i) as degree
+                RETURN d.drugbank_id as id,
+                       d.name as name,
+                       d.category as category,
+                       d.therapeutic_class as therapeutic_class,
+                       d.smiles as smiles,
+                       d.description as description,
+                       degree
+                ORDER BY degree DESC
+            """)
+
+            nodes = []
+            for r in result:
+                nodes.append({
+                    'id': r.get('id', ''),
+                    'name': r.get('name', ''),
+                    'category': r.get('category', ''),
+                    'therapeutic_class': r.get('therapeutic_class', ''),
+                    'smiles': r.get('smiles', ''),
+                    'has_description': bool(r.get('description')),
+                    'degree': r.get('degree', 0),
+                })
+
+            # Cache it
+            GraphNodesView._cache = nodes
+            GraphNodesView._cache_time = now
+
+            return Response({
+                'nodes': nodes[:limit],
+                'total': len(nodes),
+                'returned': min(len(nodes), limit),
+                'cached': False,
+            })
+
+        except Exception as e:
+            logger.error(f"Graph nodes query failed: {e}")
+            return Response({'error': str(e), 'nodes': []}, status=500)
+
+
+class GraphNeighborhoodView(APIView):
+    """
+    GET /api/v1/graph/neighborhood/?drug=<name>&hops=3&limit=500
+
+    Returns the interaction neighborhood around a drug.
+    Includes nodes and edges within N hops via INTERACTS_WITH relationships.
+    """
+
+    def get(self, request):
+        drug_name = request.query_params.get('drug', '').strip()
+        hops = min(int(request.query_params.get('hops', 3)), 4)
+        limit = min(int(request.query_params.get('limit', 500)), 2000)
+
+        if not drug_name:
+            return Response({'error': 'drug parameter required'}, status=400)
+
+        try:
+            kg = KnowledgeGraphService
+            if not kg.is_connected():
+                return Response({'error': 'Database unavailable'}, status=503)
+
+            # Find the drug first (with normalization)
+            drug_result = search_drug_with_normalization(drug_name)
+            if not drug_result:
+                return Response({
+                    'error': f'Drug "{drug_name}" not found',
+                    'nodes': [], 'edges': [],
+                })
+
+            drug_id = drug_result.get('id', '')
+
+            # Get neighborhood via variable-length path (no APOC dependency)
+            result = kg.run_query("""
+                MATCH (center:Drug {drugbank_id: $drug_id})
+                MATCH path = (center)-[:INTERACTS_WITH*1..""" + str(hops) + """]->(neighbor:Drug)
+                WITH neighbor, min(length(path)) as hop_distance
+                ORDER BY hop_distance, neighbor.name
+                LIMIT $limit
+                RETURN neighbor.drugbank_id as id,
+                       neighbor.name as name,
+                       neighbor.category as category,
+                       neighbor.therapeutic_class as therapeutic_class,
+                       hop_distance
+            """, {'drug_id': drug_id, 'limit': limit})
+
+            neighbor_nodes = [{
+                'id': r['id'],
+                'name': r['name'],
+                'category': r.get('category', ''),
+                'therapeutic_class': r.get('therapeutic_class', ''),
+                'hop': r['hop_distance'],
+            } for r in result]
+
+            # Get edges between all these nodes (center + neighbors)
+            all_ids = [drug_id] + [n['id'] for n in neighbor_nodes]
+
+            edge_result = kg.run_query("""
+                MATCH (d1:Drug)-[i:INTERACTS_WITH]-(d2:Drug)
+                WHERE d1.drugbank_id IN $ids AND d2.drugbank_id IN $ids
+                AND d1.drugbank_id < d2.drugbank_id
+                RETURN d1.drugbank_id as source,
+                       d2.drugbank_id as target,
+                       i.severity as severity,
+                       i.mechanism as mechanism,
+                       i.description as description
+            """, {'ids': all_ids})
+
+            edges = [{
+                'source': r['source'],
+                'target': r['target'],
+                'severity': r.get('severity', 'unknown'),
+                'mechanism': r.get('mechanism', ''),
+            } for r in edge_result]
+
+            # Include center node
+            center_node = {
+                'id': drug_id,
+                'name': drug_result.get('name', drug_name),
+                'category': drug_result.get('category', ''),
+                'therapeutic_class': drug_result.get('category', ''),
+                'hop': 0,
+            }
+
+            return Response({
+                'center': center_node,
+                'nodes': [center_node] + neighbor_nodes,
+                'edges': edges,
+                'total_nodes': len(neighbor_nodes) + 1,
+                'total_edges': len(edges),
+                'hops': hops,
+            })
+
+        except Exception as e:
+            logger.error(f"Graph neighborhood query failed: {e}")
+            return Response({'error': str(e)}, status=500)
+
+
+class GraphEdgesView(APIView):
+    """
+    GET /api/v1/graph/edges/?limit=1000&offset=0
+
+    Returns paginated edges (INTERACTS_WITH relationships).
+    For building the full adjacency list on the frontend.
+    """
+
+    _cache = None
+    _cache_time = 0
+    CACHE_TTL = 300
+
+    def get(self, request):
+        import time as _time
+        limit = min(int(request.query_params.get('limit', 1000)), 5000)
+        offset = int(request.query_params.get('offset', 0))
+
+        now = _time.time()
+        if GraphEdgesView._cache and (now - GraphEdgesView._cache_time) < GraphEdgesView.CACHE_TTL:
+            edges = GraphEdgesView._cache
+            page = edges[offset:offset + limit]
+            return Response({
+                'edges': page,
+                'total': len(edges),
+                'returned': len(page),
+                'offset': offset,
+                'cached': True,
+            })
+
+        try:
+            kg = KnowledgeGraphService
+            if not kg.is_connected():
+                return Response({'error': 'Database unavailable', 'edges': []}, status=503)
+
+            # Get all edges (deduplicated)
+            result = kg.run_query("""
+                MATCH (d1:Drug)-[i:INTERACTS_WITH]->(d2:Drug)
+                RETURN d1.drugbank_id as source,
+                       d2.drugbank_id as target,
+                       i.severity as severity
+                ORDER BY d1.drugbank_id, d2.drugbank_id
+            """)
+
+            edges = [{
+                'source': r['source'],
+                'target': r['target'],
+                'severity': r.get('severity', 'unknown'),
+            } for r in result]
+
+            # Cache
+            GraphEdgesView._cache = edges
+            GraphEdgesView._cache_time = now
+
+            page = edges[offset:offset + limit]
+            return Response({
+                'edges': page,
+                'total': len(edges),
+                'returned': len(page),
+                'offset': offset,
+                'cached': False,
+            })
+
+        except Exception as e:
+            logger.error(f"Graph edges query failed: {e}")
+            return Response({'error': str(e), 'edges': []}, status=500)

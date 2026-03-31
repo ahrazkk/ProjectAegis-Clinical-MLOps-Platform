@@ -2,14 +2,14 @@
 import React from 'react';
 import { ArrowRight, GitBranch, Layers, Link2 } from 'lucide-react';
 import { useGalaxy } from '../store';
-import { rawGnnData } from '../graphEngine';
+import { getAdj } from '../graphEngine';
 
 export default function DrugComparisonPanel() {
   const { drugA, drugB, stats, shortestPath } = useGalaxy();
 
   if (!drugA || !drugB) return null;
 
-  const adj = rawGnnData.adj || {};
+  const adj = getAdj();
   const degreeA = (adj[drugA.id] || []).length;
   const degreeB = (adj[drugB.id] || []).length;
 

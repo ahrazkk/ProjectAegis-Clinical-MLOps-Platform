@@ -1,7 +1,21 @@
 // graphEngine.js — Pure computation module for GNN Galaxy Viewer
 // No React dependencies — all functions are pure JS
+// Now accepts dynamic data from graphDataService instead of static JSON
 
-import rawGnnData from '../../assets/gnn_real_data.json';
+// ─── Module-level graph data (set dynamically) ─────────────────────────────
+let _graphData = { nodes: [], adj: {}, edgeMeta: [] };
+
+export function setGraphData(data) {
+  _graphData = {
+    nodes: data.nodes || [],
+    adj: data.adj || {},
+    edgeMeta: data.edgeMeta || [],
+  };
+}
+
+export function getGraphData() {
+  return _graphData;
+}
 
 // ─── Therapeutic class meta-categories ─────────────────────────────────────
 const CLASS_MAP = {
@@ -68,16 +82,18 @@ function classifyDrug(type) {
   return 'Other';
 }
 
-// ─── Build node dictionary ─────────────────────────────────────────────────
+// ─── Build node dictionary from current graph data ──────────────────────────
 export function buildNodeDict(scale = 0.35) {
-  if (!rawGnnData || !rawGnnData.nodes) return {};
+  const nodes = _graphData.nodes;
+  if (!nodes || nodes.length === 0) return {};
   const dict = {};
-  rawGnnData.nodes.forEach((n, index) => {
+  nodes.forEach((n, index) => {
+    const pos = n.pos || [0, 0, 0];
     dict[n.id] = {
       ...n,
       index,
-      pos: [n.pos[0] * scale, n.pos[1] * scale, n.pos[2] * scale],
-      category: classifyDrug(n.type),
+      pos: [pos[0] * scale, pos[1] * scale, pos[2] * scale],
+      category: classifyDrug(n.type || n.therapeutic_class || n.category),
       isA: false,
       isB: false,
       hopA: Infinity,
@@ -141,9 +157,30 @@ export function shortestPath(adj, fromId, toId) {
   return []; // no path found
 }
 
+// ─── Get adjacency list from current data ──────────────────────────────────
+export function getAdj() {
+  return _graphData.adj || {};
+}
+
+// ─── Get edge metadata (severity) for a pair ───────────────────────────────
+const _edgeMetaIndex = new Map();
+
+export function buildEdgeMetaIndex() {
+  _edgeMetaIndex.clear();
+  for (const e of (_graphData.edgeMeta || [])) {
+    const key = e.source < e.target ? `${e.source}-${e.target}` : `${e.target}-${e.source}`;
+    _edgeMetaIndex.set(key, e);
+  }
+}
+
+export function getEdgeMeta(nodeA, nodeB) {
+  const key = nodeA < nodeB ? `${nodeA}-${nodeB}` : `${nodeB}-${nodeA}`;
+  return _edgeMetaIndex.get(key) || null;
+}
+
 // ─── Compute full subgraph state ──────────────────────────────────────────
 export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
-  const adj = rawGnnData.adj || {};
+  const adj = _graphData.adj || {};
 
   // Reset hop fields
   Object.values(nodeDict).forEach(n => {
@@ -192,6 +229,10 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
       let lineWidth = 1;
       let role = 'background';
 
+      // Get severity from edge metadata
+      const meta = getEdgeMeta(u, v);
+      const severity = meta?.severity || 'unknown';
+
       if (onPath) {
         color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'path';
       } else if ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA)) {
@@ -208,17 +249,26 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
         role = 'hopB';
       }
 
+      // Severity-based color tinting for active edges
+      if (role !== 'background' && severity === 'severe') {
+        color = '#ef4444'; // red for severe
+      } else if (role !== 'background' && severity === 'moderate') {
+        color = role === 'path' ? '#ef4444' : '#f97316'; // orange for moderate
+      }
+
       if (!hasDrugs || inHopA || inHopB || onPath) {
         edges.push({
           startId: u, endId: v,
           start: uNode.pos, end: vNode.pos,
-          color, opacity, lineWidth, role,
+          color, opacity, lineWidth, role, severity,
         });
       }
     });
   });
 
   // Stats
+  const totalNodes = _graphData.nodes.length;
+  const totalEdges = Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2;
   const visibleNodes = Object.values(nodeDict).filter(n =>
     n.hopA <= maxHops || n.hopB <= maxHops || !hasDrugs
   ).length;
@@ -229,9 +279,9 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
     path,
     pathSet,
     stats: {
-      totalNodes: rawGnnData.nodes.length,
-      totalEdges: Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2,
-      visibleNodes: hasDrugs ? visibleNodes : rawGnnData.nodes.length,
+      totalNodes,
+      totalEdges,
+      visibleNodes: hasDrugs ? visibleNodes : totalNodes,
       visibleEdges: edges.length,
       pathLength: path.length > 0 ? path.length - 1 : -1,
       sharedNeighbors: Object.values(nodeDict).filter(n => n.hopA <= maxHops && n.hopB <= maxHops && !n.isA && !n.isB).length,
@@ -241,7 +291,7 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
 
 // ─── Get node visual properties ───────────────────────────────────────────
 export function getNodeVisuals(node, hasDrugs) {
-  const adj = rawGnnData.adj || {};
+  const adj = _graphData.adj || {};
   const degree = (adj[node.id] || []).length;
   const degreeFactor = Math.min(Math.sqrt(degree) / 8, 1); // 0-1 normalized
 
@@ -281,7 +331,7 @@ export function getNodeVisuals(node, hasDrugs) {
 
 // ─── Sample background edges for "no selection" view ─────────────────────
 export function sampleBackgroundEdges(maxCount = 3000) {
-  const adj = rawGnnData.adj || {};
+  const adj = _graphData.adj || {};
   const allEdges = [];
   const seen = new Set();
   Object.keys(adj).forEach(u => {
@@ -303,7 +353,7 @@ export function sampleBackgroundEdges(maxCount = 3000) {
 
 // ─── Apply filters to determine node/edge visibility ─────────────────────
 export function applyFilters(nodes, edges, filters) {
-  const adj = rawGnnData.adj || {};
+  const adj = _graphData.adj || {};
   const { visibleClasses, minDegree, edgeDensity } = filters;
 
   // Determine which nodes pass filters
@@ -341,5 +391,3 @@ export function applyFilters(nodes, edges, filters) {
 
   return { nodeVisibility, filteredEdges };
 }
-
-export { rawGnnData };

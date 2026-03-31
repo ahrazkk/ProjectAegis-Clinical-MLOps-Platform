@@ -1288,7 +1288,15 @@ export default function Dashboard() {
 
           {/* Visualization Area */}
           <div className="flex-1 relative overflow-hidden bg-theme-primary">
-            {selectedDrugs.length === 0 ? (
+            {/* GNN Galaxy Viewer always renders on its tab (works with 0 or more drugs) */}
+            {activeTab === 'molecules' ? (
+              <div className="h-full relative">
+                <GNNGalaxyViewer
+                  drugs={selectedDrugs}
+                  result={result}
+                />
+              </div>
+            ) : selectedDrugs.length === 0 ? (
               <div className="absolute inset-0 flex flex-col items-center justify-center animate-fade-in">
                 <div className="w-16 h-16 border border-theme flex items-center justify-center mb-6 relative">
                   <div className="absolute -top-px -left-px w-3 h-3 border-t border-l border-theme"></div>
@@ -1301,27 +1309,12 @@ export default function Dashboard() {
                 </p>
               </div>
             ) : (
-              <>  
+              <>
                 {activeTab === 'molecules2d' && (
                   <MoleculeViewer2D
                     drugs={selectedDrugs}
                     result={result}
                   />
-                )}
-                {activeTab === 'molecules' && (
-                  <div className="h-full relative">
-                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
-                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                      <div>
-                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">3D Viewer Under Construction</p>
-                        <p className="text-[10px] text-theme-muted">Molecular structures may not render correctly</p>
-                      </div>
-                    </div>
-                    <GNNGalaxyViewer
-                      drugs={selectedDrugs}
-                      result={result}
-                    />
-                  </div>
                 )}
                 {activeTab === 'graph' && (
                   <div className="h-full relative">

@@ -2,7 +2,7 @@
 import React from 'react';
 import { X, Link2, Layers, Tag, Beaker, AlertCircle, Activity } from 'lucide-react';
 import { useGalaxy, useGalaxyDispatch } from '../store';
-import { rawGnnData } from '../graphEngine';
+import { getAdj, getGraphData } from '../graphEngine';
 
 export default function NodeDetailPanel() {
   const { selectedNode, drugA, drugB, enrichedDrugA, enrichedDrugB, enrichmentLoading, predictionResult } = useGalaxy();
@@ -10,7 +10,7 @@ export default function NodeDetailPanel() {
 
   if (!selectedNode) return null;
 
-  const adj = rawGnnData.adj || {};
+  const adj = getAdj();
   const neighbors = adj[selectedNode.id] || [];
   const degree = neighbors.length;
 
@@ -182,12 +182,12 @@ export default function NodeDetailPanel() {
             <p className="text-[8px] text-white/25 uppercase tracking-wider mb-1">Neighbors ({Math.min(neighbors.length, 6)} of {neighbors.length})</p>
             <div className="space-y-0.5 max-h-24 overflow-y-auto scrollbar-thin">
               {neighbors.slice(0, 6).map(nId => {
-                const neighbor = rawGnnData.nodes.find(n => n.id === nId);
+                const neighbor = getGraphData().nodes.find(n => n.id === nId);
                 return neighbor ? (
                   <button
                     key={nId}
                     onClick={() => {
-                      const fullNeighbor = Object.values(rawGnnData.nodes).find(n => n.id === nId);
+                      const fullNeighbor = getGraphData().nodes.find(n => n.id === nId);
                       if (fullNeighbor) dispatch({ type: 'SET_SELECTED_NODE', payload: { ...fullNeighbor, category: selectedNode.category } });
                     }}
                     className="block w-full text-left text-[8px] text-white/40 hover:text-white/60 cursor-pointer truncate font-mono"

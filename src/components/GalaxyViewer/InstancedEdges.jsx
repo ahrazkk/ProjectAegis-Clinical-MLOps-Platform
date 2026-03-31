@@ -3,7 +3,7 @@ import React, { useRef, useMemo, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useGalaxyDispatch } from './store';
-import { rawGnnData } from './graphEngine';
+import { getAdj, getGraphData } from './graphEngine';
 
 // Animated edge material with data flow particles
 const edgeVertexShader = `
@@ -182,8 +182,9 @@ export default function InstancedEdges({ edges }) {
     if (e.instanceId !== undefined && activeEdges[e.instanceId]) {
       const edge = activeEdges[e.instanceId];
       // Look up drug names from the node data
-      const startNode = rawGnnData.nodes.find(n => n.id === edge.startId);
-      const endNode = rawGnnData.nodes.find(n => n.id === edge.endId);
+      const graphData = getGraphData();
+      const startNode = graphData.nodes.find(n => n.id === edge.startId);
+      const endNode = graphData.nodes.find(n => n.id === edge.endId);
       dispatch({
         type: 'SET_SELECTED_EDGE',
         payload: {

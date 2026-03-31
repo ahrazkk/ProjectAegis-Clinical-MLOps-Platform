@@ -1,5 +1,6 @@
 // GalaxyViewer/index.jsx — Main orchestrator for the GNN Galaxy Viewer V2
-import React, { useMemo, useEffect, useRef, useState } from 'react';
+// Now with dynamic data loading from Neo4j AuraDB via API
+import React, { useMemo, useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Stars } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -8,8 +9,10 @@ import * as THREE from 'three';
 import { GalaxyProvider, useGalaxy, useGalaxyDispatch } from './store';
 import {
   buildNodeDict, findDrugByName, computeSubgraph,
-  shortestPath as computeShortestPath, rawGnnData, applyFilters,
+  shortestPath as computeShortestPath, applyFilters,
+  setGraphData, getAdj, buildEdgeMetaIndex,
 } from './graphEngine';
+import { loadGraphData, clearGraphCache, getPerformanceLimits, setPerformanceLimits } from './graphDataService';
 import InstancedNodes from './InstancedNodes';
 import InstancedEdges from './InstancedEdges';
 import HopShells from './HopShells';
@@ -35,6 +38,60 @@ import FilterPanel from './overlays/FilterPanel';
 
 // Data enrichment
 import { enrichDrug, enrichInteraction } from './dataEnrichment';
+
+// ─── Loading screen ─────────────────────────────────────────────────────────
+function LoadingScreen({ status, error, onRetry }) {
+  return (
+    <div className="w-full h-full flex flex-col items-center justify-center rounded-xl border border-white/5"
+      style={{ minHeight: '650px', background: '#03050a' }}>
+      <div className="text-center space-y-4">
+        {error ? (
+          <>
+            <div className="w-12 h-12 mx-auto rounded-full bg-red-500/20 flex items-center justify-center">
+              <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <p className="text-red-400 text-sm font-mono">{error}</p>
+            <button
+              onClick={onRetry}
+              className="px-4 py-2 bg-white/10 hover:bg-white/20 text-white/80 text-sm rounded-lg transition-colors"
+            >
+              Retry
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="relative w-16 h-16 mx-auto">
+              <div className="absolute inset-0 rounded-full border-2 border-purple-500/30 animate-ping" />
+              <div className="absolute inset-2 rounded-full border-2 border-cyan-400/50 animate-spin" style={{ animationDuration: '2s' }} />
+              <div className="absolute inset-4 rounded-full bg-purple-500/20 animate-pulse" />
+            </div>
+            <p className="text-white/60 text-sm font-mono tracking-wider">{status}</p>
+            <div className="flex items-center gap-1 justify-center">
+              <div className="w-1.5 h-1.5 bg-cyan-400/50 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-1.5 h-1.5 bg-cyan-400/50 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-1.5 h-1.5 bg-cyan-400/50 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Data source badge ──────────────────────────────────────────────────────
+function DataSourceBadge({ source, stats }) {
+  const isLive = source === 'api';
+  return (
+    <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm border border-white/10">
+      <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
+      <span className="text-[10px] font-mono text-white/50">
+        {isLive ? 'LIVE' : 'STATIC'} | {stats?.fetchedNodes || 0} nodes | {stats?.fetchedEdges || 0} edges
+      </span>
+    </div>
+  );
+}
 
 // ─── Inner scene (needs Canvas context) ─────────────────────────────────
 function GalaxyScene({
@@ -124,11 +181,56 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
   const containerRef = useRef(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Build node dictionary (stable, only computed once)
-  const nodeDict = useMemo(() => buildNodeDict(0.35), []);
+  // ─── Dynamic data loading state ─────────────────────────────────────
+  const [loading, setLoading] = useState(true);
+  const [loadingStatus, setLoadingStatus] = useState('Connecting to Neo4j AuraDB...');
+  const [loadError, setLoadError] = useState(null);
+  const [dataSource, setDataSource] = useState(null); // 'api' | 'static'
+  const [dataStats, setDataStats] = useState(null);
+  const [dataVersion, setDataVersion] = useState(0); // Increments on data reload
+
+  // Load graph data on mount
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    setLoadingStatus('Connecting to Neo4j AuraDB...');
+
+    try {
+      setLoadingStatus('Fetching graph topology...');
+      const data = await loadGraphData();
+
+      // Set the graph data in the engine module
+      setGraphData(data);
+      buildEdgeMetaIndex();
+
+      setDataSource(data.source);
+      setDataStats(data.stats);
+      setLoadingStatus('Building visualization...');
+
+      // Small delay to let React render the loading state update
+      await new Promise(r => setTimeout(r, 100));
+
+      setDataVersion(v => v + 1);
+      setLoading(false);
+
+      if (data.apiError) {
+        console.warn('[GalaxyViewer] Using fallback data:', data.apiError);
+      }
+    } catch (err) {
+      console.error('[GalaxyViewer] Failed to load graph data:', err);
+      setLoadError(`Failed to load graph data: ${err.message}`);
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  // Build node dictionary (recomputed when data changes)
+  const nodeDict = useMemo(() => buildNodeDict(0.35), [dataVersion]);
 
   // Sync external drugs prop → store
   useEffect(() => {
+    if (loading) return;
     const nameA = drugs?.[0]?.name || null;
     const nameB = drugs?.[1]?.name || null;
     const aId = findDrugByName(nodeDict, nameA);
@@ -145,10 +247,13 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
     } else if (!nameB) {
       dispatch({ type: 'SELECT_DRUG_B', payload: null });
     }
-  }, [drugs?.[0]?.name, drugs?.[1]?.name]);
+  }, [drugs?.[0]?.name, drugs?.[1]?.name, loading, dataVersion]);
 
   // Compute subgraph whenever selection or hops change
   const { nodes, edges, hasDrugs, drugAId, drugBId } = useMemo(() => {
+    if (loading || Object.keys(nodeDict).length === 0) {
+      return { nodes: [], edges: [], hasDrugs: false, drugAId: null, drugBId: null };
+    }
     const aId = drugA?.id || null;
     const bId = drugB?.id || null;
     const result = computeSubgraph(nodeDict, aId, bId, maxHops);
@@ -159,42 +264,48 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
       drugAId: aId,
       drugBId: bId,
     };
-  }, [drugA?.id, drugB?.id, maxHops, nodeDict]);
+  }, [drugA?.id, drugB?.id, maxHops, nodeDict, loading, dataVersion]);
 
   // Apply filters to nodes and edges
   const { nodeVisibility, filteredEdges } = useMemo(() => {
+    if (nodes.length === 0) return { nodeVisibility: new Map(), filteredEdges: [] };
     return applyFilters(nodes, edges, filters);
   }, [nodes, edges, filters]);
 
   // Compute shortest path
   const computedPath = useMemo(() => {
+    if (loading) return [];
     const aId = drugA?.id || null;
     const bId = drugB?.id || null;
-    const adj = rawGnnData.adj || {};
+    const adj = getAdj();
     return computeShortestPath(adj, aId, bId);
-  }, [drugA?.id, drugB?.id]);
+  }, [drugA?.id, drugB?.id, loading, dataVersion]);
 
   // Update store with path and stats
   useEffect(() => {
+    if (loading) return;
     dispatch({ type: 'SET_SHORTEST_PATH', payload: computedPath });
 
-    const adj = rawGnnData.adj || {};
+    const adj = getAdj();
     const visibleNodes = nodes.filter(n =>
       n.hopA <= maxHops || n.hopB <= maxHops || (!drugA && !drugB)
     ).length;
 
+    const totalNodes = Object.keys(nodeDict).length;
+    const totalEdges = Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2;
+
     dispatch({
       type: 'SET_STATS',
       payload: {
-        totalNodes: rawGnnData.nodes.length,
-        totalEdges: Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2,
-        visibleNodes: hasDrugs ? visibleNodes : rawGnnData.nodes.length,
+        totalNodes,
+        totalEdges,
+        visibleNodes: hasDrugs ? visibleNodes : totalNodes,
         visibleEdges: edges.length,
         pathLength: computedPath.length > 0 ? computedPath.length - 1 : -1,
         sharedNeighbors: nodes.filter(n => n.hopA <= maxHops && n.hopB <= maxHops && !n.isA && !n.isB).length,
       },
     });
-  }, [drugA?.id, drugB?.id, maxHops, nodes, edges, computedPath]);
+  }, [drugA?.id, drugB?.id, maxHops, nodes, edges, computedPath, loading, dataVersion]);
 
   // ─── Data enrichment — fetch from API on drug selection ─────────────
   useEffect(() => {
@@ -255,21 +366,26 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
         dispatch({ type: 'TOGGLE_LABELS' });
       } else if (e.key === 'f' || e.key === 'F') {
         setFiltersOpen(prev => !prev);
+      } else if (e.key === 'r' || e.key === 'R') {
+        // Refresh data from API
+        clearGraphCache();
+        loadData();
       }
     };
 
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [loadData]);
 
   // ─── Layout computation ─────────────────────────────────────────────
   const clusterData = useMemo(() => {
-    if (viewMode !== 'cluster') return null;
+    if (viewMode !== 'cluster' || nodes.length === 0) return null;
     return computeClusterPositions(nodes);
   }, [viewMode, nodes]);
 
   const layoutPositions = useMemo(() => {
-    const adj = rawGnnData.adj || {};
+    if (nodes.length === 0) return null;
+    const adj = getAdj();
     const aId = drugA?.id || null;
     const bId = drugB?.id || null;
 
@@ -282,9 +398,18 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
         return computePathPositions(nodes, computedPath, adj);
       case 'galaxy':
       default:
-        return null; // null = use default T-SNE positions (node.pos)
+        return null; // null = use default positions (from API or T-SNE)
     }
   }, [viewMode, nodes, drugA?.id, drugB?.id, maxHops, computedPath, clusterData]);
+
+  // ─── Loading state ──────────────────────────────────────────────────
+  if (loading) {
+    return <LoadingScreen status={loadingStatus} />;
+  }
+
+  if (loadError && Object.keys(nodeDict).length === 0) {
+    return <LoadingScreen error={loadError} onRetry={loadData} />;
+  }
 
   return (
     <div
@@ -329,6 +454,7 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
       <EdgeDetailPanel />
       <DrugComparisonPanel />
       <HopSlider />
+      <DataSourceBadge source={dataSource} stats={dataStats} />
     </div>
   );
 }

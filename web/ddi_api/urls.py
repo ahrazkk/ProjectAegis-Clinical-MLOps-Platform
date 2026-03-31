@@ -29,6 +29,9 @@ from .views import (
     DatabaseStatsView,
     TherapeuticAlternativesView,
     DrugComparisonView,
+    GraphNodesView,
+    GraphNeighborhoodView,
+    GraphEdgesView,
 )
 
 # Scanner endpoints
@@ -76,6 +79,11 @@ urlpatterns = [
     path('scanner/analyze-pill/', analyze_pill_image, name='analyze-pill'),
     path('scanner/identify-pill/', identify_pill_multimodal, name='identify-pill'),
     
+    # Graph visualization endpoints (Galaxy Viewer)
+    path('graph/nodes/', GraphNodesView.as_view(), name='graph-nodes'),
+    path('graph/neighborhood/', GraphNeighborhoodView.as_view(), name='graph-neighborhood'),
+    path('graph/edges/', GraphEdgesView.as_view(), name='graph-edges'),
+
     # ViewSet routes
     path('', include(router.urls)),
 ]
