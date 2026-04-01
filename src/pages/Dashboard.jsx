@@ -72,6 +72,38 @@ function useDebounce(value, delay) {
   return debouncedValue;
 }
 
+const SELECTED_DRUGS_STORAGE_KEY = 'aegis:selectedDrugs:v1';
+
+function loadStoredSelectedDrugs() {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(SELECTED_DRUGS_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    const seen = new Set();
+    const sanitized = [];
+
+    parsed.forEach((drug) => {
+      if (!drug || typeof drug !== 'object') return;
+      if (!drug.name || typeof drug.name !== 'string') return;
+
+      const stableId = String(drug.drugbank_id || drug.id || drug.name).toLowerCase();
+      if (seen.has(stableId)) return;
+
+      seen.add(stableId);
+      sanitized.push(drug);
+    });
+
+    return sanitized;
+  } catch {
+    return [];
+  }
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { addLog } = useSystemLogs();
@@ -82,7 +114,7 @@ export default function Dashboard() {
   const [error, setError] = useState(null);
 
   // Drug Selection State
-  const [selectedDrugs, setSelectedDrugs] = useState([]);
+  const [selectedDrugs, setSelectedDrugs] = useState(() => loadStoredSelectedDrugs());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -206,6 +238,17 @@ export default function Dashboard() {
     }
   }, [messages]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (!selectedDrugs || selectedDrugs.length === 0) {
+      window.localStorage.removeItem(SELECTED_DRUGS_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(SELECTED_DRUGS_STORAGE_KEY, JSON.stringify(selectedDrugs));
+  }, [selectedDrugs]);
+
   const addDrug = async (drug) => {
     setSelectedDrugs(prev => [...prev, drug]);
     setSearchQuery('');
@@ -238,6 +281,20 @@ export default function Dashboard() {
     setPolypharmacyResult(null);
     setDigitalTwinResult(null);
     setInteractionEvidence(null);
+  };
+
+  const clearAllDrugs = () => {
+    if (!selectedDrugs.length) return;
+
+    setSelectedDrugs([]);
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearch(false);
+    setResult(null);
+    setPolypharmacyResult(null);
+    setDigitalTwinResult(null);
+    setInteractionEvidence(null);
+    addLog('Cleared selected drug regimen', 'info', 'SYSTEM');
   };
 
   // Handle drug detected from camera scanner
@@ -718,6 +775,14 @@ export default function Dashboard() {
                 >
                   <Camera className="w-5 h-5 text-theme-accent" />
                 </button>
+                <button
+                  onClick={clearAllDrugs}
+                  disabled={selectedDrugs.length === 0}
+                  className="px-3 py-3 border border-risk-high/40 bg-risk-high/10 hover:bg-risk-high/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Clear all selected drugs"
+                >
+                  <Trash2 className="w-5 h-5 text-risk-high" />
+                </button>
               </div>
 
               {/* Search Results */}
@@ -800,7 +865,7 @@ export default function Dashboard() {
               <div className="flex border-b border-theme bg-theme-primary/90 backdrop-blur-md overflow-x-auto scrollbar-hide">
                 {[
                   { id: 'molecules2d', label: '2D', icon: Hexagon },
-                  { id: 'molecules', label: '3D', icon: Box },
+                  { id: 'molecules', label: 'Galaxy', icon: Box },
                   { id: 'graph', label: 'Graph', icon: Network },
                   { id: 'body', label: 'Body', icon: Heart },
                   { id: 'polyTwin', label: 'Twin', icon: Layers },
@@ -831,11 +896,12 @@ export default function Dashboard() {
                     {activeTab === 'molecules2d' && <MoleculeViewer2D drugs={selectedDrugs} result={result} isMobile={true} />}
                     {activeTab === 'molecules' && (
                       <div className="h-full relative">
-                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">3D Viewer Under Construction</p>
-                        </div>
-                        <GNNGalaxyViewer drugs={selectedDrugs} result={result} isMobile={true} />
+                        <GNNGalaxyViewer
+                          drugs={selectedDrugs}
+                          result={result}
+                          polypharmacyResult={polypharmacyResult}
+                          isMobile={true}
+                        />
                       </div>
                     )}
                     {activeTab === 'graph' && (
@@ -1035,6 +1101,14 @@ export default function Dashboard() {
                 title="Scan drug with camera"
               >
                 <Camera className="w-4 h-4 text-theme-accent group-hover:scale-110 transition-transform" />
+              </button>
+              <button
+                onClick={clearAllDrugs}
+                disabled={selectedDrugs.length === 0}
+                className="px-3 py-2.5 border border-risk-high/40 bg-risk-high/10 hover:bg-risk-high/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Clear all selected drugs"
+              >
+                <Trash2 className="w-4 h-4 text-risk-high" />
               </button>
             </div>
 
@@ -1264,7 +1338,7 @@ export default function Dashboard() {
           <div className="p-4 border-b border-theme flex items-center gap-1 bg-theme-panel">
             {[
               { id: 'molecules2d', label: '2D Structure', icon: Hexagon },
-              { id: 'molecules', label: '3D Molecules', icon: Box },
+              { id: 'molecules', label: 'GNN Galaxy', icon: Box },
               { id: 'graph', label: 'Knowledge Graph', icon: Network },
               { id: 'body', label: 'Body Map', icon: Heart },
               { id: 'polyTwin', label: 'Poly Twin', icon: Layers },
@@ -1291,6 +1365,7 @@ export default function Dashboard() {
                 <GNNGalaxyViewer
                   drugs={selectedDrugs}
                   result={result}
+                  polypharmacyResult={polypharmacyResult}
                 />
               </div>
             ) : activeTab === 'graph' ? (

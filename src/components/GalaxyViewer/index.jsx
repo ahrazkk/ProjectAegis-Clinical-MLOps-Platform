@@ -149,7 +149,7 @@ function GalaxyScene({
 
       {/* Path particles (when path exists and path/galaxy mode) */}
       <PathParticles
-        visible={shortestPath?.length >= 2 && (viewMode === 'path' || viewMode === 'galaxy')}
+        visible={shortestPath?.length >= 2 && (viewMode === 'path' || viewMode === 'galaxy' || viewMode === 'focus')}
         path={shortestPath}
         nodeDict={nodeDict}
       />
@@ -175,8 +175,8 @@ function GalaxyScene({
 }
 
 // ─── Main viewer with state-driven graph computation ────────────────────
-function GalaxyViewerInner({ drugs, result, isMobile }) {
-  const { drugA, drugB, maxHops, viewMode, showEdges, shortestPath, showFilters, filters } = useGalaxy();
+function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
+  const { drugA, drugB, maxHops, viewMode, showEdges, filters } = useGalaxy();
   const dispatch = useGalaxyDispatch();
   const containerRef = useRef(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
@@ -228,6 +228,49 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
   // Build node dictionary (recomputed when data changes)
   const nodeDict = useMemo(() => buildNodeDict(0.35), [dataVersion]);
 
+  const selectedDrugIds = useMemo(() => {
+    if (loading || !Array.isArray(drugs) || Object.keys(nodeDict).length === 0) return [];
+
+    const ids = [];
+    const seen = new Set();
+    drugs.forEach((drug) => {
+      const name = typeof drug === 'string' ? drug : drug?.name;
+      if (!name) return;
+      const id = findDrugByName(nodeDict, name);
+      if (id && !seen.has(id)) {
+        ids.push(id);
+        seen.add(id);
+      }
+    });
+
+    return ids;
+  }, [drugs, loading, nodeDict]);
+
+  const interactionPairs = useMemo(() => {
+    if (loading || !polypharmacyResult || !Array.isArray(polypharmacyResult.interactions)) return [];
+
+    const pairs = [];
+    const seen = new Set();
+
+    polypharmacyResult.interactions.forEach((interaction) => {
+      const srcName = interaction?.source || interaction?.drug_a;
+      const tgtName = interaction?.target || interaction?.drug_b;
+      if (!srcName || !tgtName) return;
+
+      const srcId = findDrugByName(nodeDict, srcName);
+      const tgtId = findDrugByName(nodeDict, tgtName);
+      if (!srcId || !tgtId || srcId === tgtId) return;
+
+      const key = srcId < tgtId ? `${srcId}-${tgtId}` : `${tgtId}-${srcId}`;
+      if (seen.has(key)) return;
+
+      seen.add(key);
+      pairs.push([srcId, tgtId]);
+    });
+
+    return pairs;
+  }, [loading, polypharmacyResult, nodeDict]);
+
   // Sync external drugs prop → store
   useEffect(() => {
     if (loading) return;
@@ -250,21 +293,29 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
   }, [drugs?.[0]?.name, drugs?.[1]?.name, loading, dataVersion]);
 
   // Compute subgraph whenever selection or hops change
-  const { nodes, edges, hasDrugs, drugAId, drugBId } = useMemo(() => {
+  const { nodes, edges, hasDrugs, drugAId, drugBId, subgraphStats } = useMemo(() => {
     if (loading || Object.keys(nodeDict).length === 0) {
-      return { nodes: [], edges: [], hasDrugs: false, drugAId: null, drugBId: null };
+      return {
+        nodes: [],
+        edges: [],
+        hasDrugs: false,
+        drugAId: null,
+        drugBId: null,
+        subgraphStats: null,
+      };
     }
     const aId = drugA?.id || null;
     const bId = drugB?.id || null;
-    const result = computeSubgraph(nodeDict, aId, bId, maxHops);
+    const result = computeSubgraph(nodeDict, aId, bId, maxHops, selectedDrugIds, interactionPairs, viewMode);
     return {
       nodes: result.nodes,
       edges: result.edges,
-      hasDrugs: aId !== null || bId !== null,
+      hasDrugs: selectedDrugIds.length > 0,
       drugAId: aId,
       drugBId: bId,
+      subgraphStats: result.stats,
     };
-  }, [drugA?.id, drugB?.id, maxHops, nodeDict, loading, dataVersion]);
+  }, [drugA?.id, drugB?.id, maxHops, nodeDict, loading, dataVersion, selectedDrugIds, interactionPairs, viewMode]);
 
   // Apply filters to nodes and edges
   const { nodeVisibility, filteredEdges } = useMemo(() => {
@@ -287,9 +338,7 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
     dispatch({ type: 'SET_SHORTEST_PATH', payload: computedPath });
 
     const adj = getAdj();
-    const visibleNodes = nodes.filter(n =>
-      n.hopA <= maxHops || n.hopB <= maxHops || (!drugA && !drugB)
-    ).length;
+    const visibleNodes = nodes.filter(n => nodeVisibility.get(n.id) !== false).length;
 
     const totalNodes = Object.keys(nodeDict).length;
     const totalEdges = Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2;
@@ -300,12 +349,29 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
         totalNodes,
         totalEdges,
         visibleNodes: hasDrugs ? visibleNodes : totalNodes,
-        visibleEdges: edges.length,
+        visibleEdges: filteredEdges.length,
         pathLength: computedPath.length > 0 ? computedPath.length - 1 : -1,
-        sharedNeighbors: nodes.filter(n => n.hopA <= maxHops && n.hopB <= maxHops && !n.isA && !n.isB).length,
+        sharedNeighbors: subgraphStats?.sharedNeighbors || 0,
+        selectedCount: subgraphStats?.selectedCount || 0,
+        interactionPairCount: subgraphStats?.interactionPairCount || 0,
+        focusConnectorEdges: subgraphStats?.focusConnectorEdges || 0,
+        focusPathCount: subgraphStats?.focusPathCount || 0,
+        focusMode: Boolean(subgraphStats?.focusMode),
       },
     });
-  }, [drugA?.id, drugB?.id, maxHops, nodes, edges, computedPath, loading, dataVersion]);
+  }, [
+    drugA?.id,
+    drugB?.id,
+    maxHops,
+    nodes,
+    filteredEdges,
+    nodeVisibility,
+    computedPath,
+    loading,
+    dataVersion,
+    hasDrugs,
+    subgraphStats,
+  ]);
 
   // ─── Data enrichment — fetch from API on drug selection ─────────────
   useEffect(() => {
@@ -354,7 +420,7 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
       // Don't trigger shortcuts when typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-      const viewModes = { '1': 'galaxy', '2': 'radial', '3': 'cluster', '4': 'path' };
+      const viewModes = { '1': 'galaxy', '2': 'radial', '3': 'cluster', '4': 'path', '5': 'focus' };
       if (viewModes[e.key]) {
         dispatch({ type: 'SET_VIEW_MODE', payload: viewModes[e.key] });
       } else if (e.key === 'Escape') {
@@ -396,6 +462,8 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
         return clusterData?.positions || null;
       case 'path':
         return computePathPositions(nodes, computedPath, adj);
+      case 'focus':
+        return null;
       case 'galaxy':
       default:
         return null; // null = use default positions (from API or T-SNE)
@@ -460,10 +528,15 @@ function GalaxyViewerInner({ drugs, result, isMobile }) {
 }
 
 // ─── Export: wraps everything in provider ──────────────────────────────
-export default function GNNGalaxyViewer({ drugs, result, isMobile }) {
+export default function GNNGalaxyViewer({ drugs, result, polypharmacyResult, isMobile }) {
   return (
     <GalaxyProvider>
-      <GalaxyViewerInner drugs={drugs} result={result} isMobile={isMobile} />
+      <GalaxyViewerInner
+        drugs={drugs}
+        result={result}
+        polypharmacyResult={polypharmacyResult}
+        isMobile={isMobile}
+      />
     </GalaxyProvider>
   );
 }

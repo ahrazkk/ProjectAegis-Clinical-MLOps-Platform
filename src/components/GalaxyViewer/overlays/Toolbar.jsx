@@ -11,6 +11,7 @@ const viewModes = [
   { id: 'radial', label: 'Radial', icon: Target, tip: 'Concentric hop rings' },
   { id: 'cluster', label: 'Cluster', icon: Layers, tip: 'Therapeutic class groups' },
   { id: 'path', label: 'Path', icon: Route, tip: 'Shortest path subway map' },
+  { id: 'focus', label: 'Focus', icon: GitBranch, tip: 'Least-hop connector across selected drugs' },
 ];
 
 export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
@@ -43,6 +44,7 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
   };
 
   const canUsePath = shortestPath && shortestPath.length >= 2;
+  const canUseFocus = Boolean(drugA || drugB);
 
   return (
     <div className="absolute top-2 left-2 right-2 z-20 pointer-events-none flex items-center gap-1 flex-wrap">
@@ -51,7 +53,9 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
         {viewModes.map(mode => {
           const Icon = mode.icon;
           const isActive = viewMode === mode.id;
-          const isDisabled = mode.id === 'path' && !canUsePath;
+          const isDisabled =
+            (mode.id === 'path' && !canUsePath) ||
+            (mode.id === 'focus' && !canUseFocus);
 
           return (
             <button
@@ -99,15 +103,16 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
       <button
         onClick={() => dispatch({ type: 'TOGGLE_LABELS' })}
         className={`
-          pointer-events-auto flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono transition-all border backdrop-blur-md
+          pointer-events-auto flex items-center gap-1 px-2 py-1.5 rounded-lg text-[9px] font-mono uppercase tracking-wider transition-all border backdrop-blur-md
           ${showLabels !== 'none'
             ? 'bg-black/60 border-white/10 text-white/50'
             : 'bg-black/60 border-white/5 text-white/20'
           }
         `}
-        title="Toggle labels"
+        title={`Toggle labels (current: ${showLabels})`}
       >
         <Tag className="w-3 h-3" />
+        <span className="hidden sm:inline">{showLabels === 'none' ? 'off' : showLabels}</span>
       </button>
 
       <button

@@ -1,10 +1,10 @@
 // InstancedNodes.jsx — Single InstancedMesh for all 1,350 drug nodes
 import React, { useRef, useMemo, useEffect } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
+import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGalaxy, useGalaxyDispatch } from './store';
-import { getNodeVisuals } from './graphEngine';
+import { getAdj, getNodeVisuals } from './graphEngine';
 
 const tempMatrix = new THREE.Matrix4();
 const tempColor = new THREE.Color();
@@ -71,9 +71,8 @@ const nodeFragmentShader = `
 
 export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeVisibility }) {
   const meshRef = useRef();
-  const { hoveredNode, selectedNode } = useGalaxy();
+  const { hoveredNode, showLabels } = useGalaxy();
   const dispatch = useGalaxyDispatch();
-  const { camera } = useThree();
 
   const count = nodes.length;
 
@@ -121,8 +120,8 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
 
       // Apply filter visibility — ghost mode for filtered-out nodes
       const isVisible = !nodeVisibility || nodeVisibility.get(node.id) !== false;
-      const filterScale = isVisible ? 1.0 : 0.3;
-      const filterOpacity = isVisible ? 1.0 : 0.08;
+      const filterScale = isVisible ? 1.0 : 0.001;
+      const filterOpacity = isVisible ? 1.0 : 0;
 
       // Set target values
       targetScale[i] = visuals.size * filterScale;
@@ -223,15 +222,15 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
       currentPos[i * 3 + 1] += (targetPos[i * 3 + 1] - currentPos[i * 3 + 1]) * posLerp;
       currentPos[i * 3 + 2] += (targetPos[i * 3 + 2] - currentPos[i * 3 + 2]) * posLerp;
 
-      // Breathing animation for main nodes
-      const breathe = node.isA || node.isB ?
+      // Breathing animation for selected regimen nodes
+      const breathe = node.isA || node.isB || node.isSelected ?
         1 + Math.sin(time * 2 + i * 0.5) * 0.06 : 1;
 
       const s = Math.max(scaleArray[i] * breathe, 0.001);
       tempVec.set(currentPos[i * 3], currentPos[i * 3 + 1], currentPos[i * 3 + 2]);
 
-      // Main drug float
-      if (node.isA || node.isB) {
+      // Selected regimen nodes float subtly for emphasis
+      if (node.isA || node.isB || node.isSelected) {
         tempVec.y += Math.sin(time * 1.5 + i) * 0.15;
       }
 
@@ -298,6 +297,67 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
   // Hovered node label
   const hoveredNodeData = hoveredNode !== null && hoveredNode !== undefined && nodes[hoveredNode]
     ? nodes[hoveredNode] : null;
+  const adjacency = useMemo(() => getAdj(), [nodes.length]);
+
+  const labelNodes = useMemo(() => {
+    const visibleNodes = nodes.filter(n => !nodeVisibility || nodeVisibility.get(n.id) !== false);
+    if (showLabels === 'none') return [];
+
+    const selectedLabels = visibleNodes.filter(n => n.isA || n.isB || n.isSelected);
+    const byId = new Map(selectedLabels.map(n => [n.id, n]));
+
+    if (showLabels === 'selected') {
+      return Array.from(byId.values());
+    }
+
+    // "All" mode intentionally caps labels to high-degree hubs + selected nodes for readability.
+    const hubNodes = visibleNodes
+      .filter(n => !byId.has(n.id))
+      .map(n => ({ node: n, degree: (adjacency[n.id] || []).length }))
+      .sort((a, b) => b.degree - a.degree)
+      .slice(0, 18)
+      .map(item => item.node);
+
+    hubNodes.forEach(n => byId.set(n.id, n));
+    return Array.from(byId.values()).slice(0, 24);
+  }, [nodes, nodeVisibility, showLabels, adjacency]);
+
+  const getLabelStyle = (node) => {
+    if (node.isA) {
+      return {
+        color: '#00d2ff',
+        borderColor: '#00d2ff',
+        background: 'rgba(5,8,20,0.9)',
+        boxShadow: '0 0 20px rgba(0,210,255,0.3)',
+        marker: '◆ ',
+      };
+    }
+    if (node.isB) {
+      return {
+        color: '#ff8c00',
+        borderColor: '#ff8c00',
+        background: 'rgba(5,8,20,0.9)',
+        boxShadow: '0 0 20px rgba(255,140,0,0.3)',
+        marker: '◇ ',
+      };
+    }
+    if (node.isSelected) {
+      return {
+        color: '#22c55e',
+        borderColor: '#22c55e',
+        background: 'rgba(5,12,8,0.9)',
+        boxShadow: '0 0 18px rgba(34,197,94,0.25)',
+        marker: '● ',
+      };
+    }
+    return {
+      color: '#cbd5e1',
+      borderColor: 'rgba(203,213,225,0.45)',
+      background: 'rgba(4,6,16,0.85)',
+      boxShadow: '0 0 10px rgba(148,163,184,0.18)',
+      marker: '',
+    };
+  };
 
   return (
     <>
@@ -313,7 +373,7 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
       {/* Floating label for hovered node */}
       {hoveredNodeData && (
         <Html
-          position={hoveredNodeData.pos}
+          position={layoutPositions?.get?.(hoveredNodeData.id) || hoveredNodeData.pos}
           center
           zIndexRange={[100, 0]}
           className="pointer-events-none"
@@ -326,11 +386,13 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
         </Html>
       )}
 
-      {/* Labels for selected drugs */}
-      {nodes.filter(n => n.isA || n.isB).map(n => (
+      {/* Labels for selected/hub nodes based on label mode */}
+      {labelNodes.map((n) => {
+        const labelStyle = getLabelStyle(n);
+        return (
         <Html
           key={`label-${n.id}`}
-          position={n.pos}
+          position={layoutPositions?.get?.(n.id) || n.pos}
           center
           zIndexRange={[100, 0]}
           className="pointer-events-none"
@@ -339,16 +401,16 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
           <div
             className="px-3 py-1.5 rounded-sm text-[11px] font-bold tracking-widest uppercase backdrop-blur-md whitespace-nowrap border"
             style={{
-              color: n.isA ? '#00d2ff' : '#ff8c00',
-              borderColor: n.isA ? '#00d2ff' : '#ff8c00',
-              background: 'rgba(5,8,20,0.9)',
-              boxShadow: `0 0 20px ${n.isA ? 'rgba(0,210,255,0.3)' : 'rgba(255,140,0,0.3)'}`,
+              color: labelStyle.color,
+              borderColor: labelStyle.borderColor,
+              background: labelStyle.background,
+              boxShadow: labelStyle.boxShadow,
             }}
           >
-            {n.isA ? '◆ ' : '◇ '}{n.name}
+            {labelStyle.marker}{n.name}
           </div>
         </Html>
-      ))}
+      )})}
     </>
   );
 }

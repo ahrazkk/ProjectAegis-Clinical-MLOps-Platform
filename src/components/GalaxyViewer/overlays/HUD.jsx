@@ -47,6 +47,24 @@ export default function HUD() {
             <span className="text-purple-300">{stats.sharedNeighbors}</span>
           </div>
         )}
+        {stats.selectedCount > 0 && (
+          <div className="flex justify-between text-white/30">
+            <span>SELECTED</span>
+            <span className="text-green-300">{stats.selectedCount}</span>
+          </div>
+        )}
+        {stats.focusMode && (
+          <div className="flex justify-between text-white/30 border-t border-white/5 mt-1 pt-1">
+            <span>FOCUS_EDGES</span>
+            <span className="text-cyan-300">{stats.focusConnectorEdges || 0}</span>
+          </div>
+        )}
+        {stats.focusMode && (
+          <div className="flex justify-between text-white/30">
+            <span>FOCUS_PATHS</span>
+            <span className="text-cyan-300">{stats.focusPathCount || 0}</span>
+          </div>
+        )}
       </div>
 
       {/* Mode indicator */}

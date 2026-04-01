@@ -12,14 +12,14 @@ const initialState = {
   maxHops: 3,            // 1-3 slider
   showShortestPath: true,
   shortestPath: [],      // array of node IDs
-  viewMode: 'galaxy',   // 'galaxy' | 'radial' | 'cluster' | 'path'
+  viewMode: 'galaxy',   // 'galaxy' | 'radial' | 'cluster' | 'path' | 'focus'
   cameraTarget: null,    // [x, y, z] to fly to
   cameraFit: null,       // { center, radius } for zoom-to-fit
   showLabels: 'selected', // 'all' | 'selected' | 'none'
   showEdges: true,
   showFilters: false,
   filters: {
-    severityLevels: ['minor', 'moderate', 'major', 'critical'],
+    severityLevels: ['minor', 'moderate', 'major', 'critical', 'unknown'],
     visibleClasses: null, // null = all visible
     minDegree: 0,
     edgeDensity: 1.0,
@@ -39,6 +39,11 @@ const initialState = {
     visibleEdges: 0,
     pathLength: -1,
     sharedNeighbors: 0,
+    selectedCount: 0,
+    interactionPairCount: 0,
+    focusConnectorEdges: 0,
+    focusPathCount: 0,
+    focusMode: false,
   },
 };
 

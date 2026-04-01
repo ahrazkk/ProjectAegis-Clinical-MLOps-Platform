@@ -197,7 +197,9 @@ export default function EdgeDetailPanel() {
                     <div>Role: <span className="text-white/60 font-mono">{selectedEdge.role}</span></div>
                     <div>Type: <span className="text-white/60 font-mono">
                       {selectedEdge.role === 'path' ? 'Shortest path segment' :
+                        selectedEdge.role === 'focus' ? 'Minimal connector segment' :
                        selectedEdge.role === 'direct' ? 'Direct interaction' :
+                        selectedEdge.role === 'interaction-pair' ? 'Polypharmacy interaction pair' :
                        selectedEdge.role === 'bridge' ? 'Shared neighborhood' :
                        selectedEdge.role === 'hopA' ? 'Drug A neighborhood' :
                        selectedEdge.role === 'hopB' ? 'Drug B neighborhood' :

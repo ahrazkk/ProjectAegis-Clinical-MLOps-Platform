@@ -80,6 +80,7 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
   const [hoveredNode, setHoveredNode] = useState(null);
   const [selectedNode, setSelectedNode] = useState(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const [activePairIndex, setActivePairIndex] = useState(0);
 
   // Zoom/pan
   const [zoom, setZoom] = useState(1);
@@ -100,9 +101,49 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
     return () => ro.disconnect();
   }, []);
 
-  // Extract drug names
-  const drug1Name = drugs[0]?.name || drugs[0] || null;
-  const drug2Name = drugs[1]?.name || drugs[1] || null;
+  const pairCandidates = useMemo(() => {
+    if (!polypharmacyResult || !Array.isArray(polypharmacyResult.interactions)) return [];
+
+    const dedup = new Map();
+    polypharmacyResult.interactions.forEach((interaction) => {
+      const drugA = String(interaction?.source || interaction?.drug_a || '').trim();
+      const drugB = String(interaction?.target || interaction?.drug_b || '').trim();
+      if (!drugA || !drugB) return;
+
+      const key = [drugA.toLowerCase(), drugB.toLowerCase()].sort().join('::');
+      const riskScore = Number(interaction?.risk_score || 0);
+      const existing = dedup.get(key);
+
+      if (!existing || riskScore > existing.riskScore) {
+        dedup.set(key, {
+          drugA,
+          drugB,
+          riskScore,
+          severity: String(interaction?.severity || interaction?.risk_level || 'unknown').toLowerCase(),
+        });
+      }
+    });
+
+    return Array.from(dedup.values()).sort((a, b) => b.riskScore - a.riskScore);
+  }, [polypharmacyResult]);
+
+  useEffect(() => {
+    setActivePairIndex(0);
+  }, [pairCandidates.length, drugs?.length]);
+
+  useEffect(() => {
+    if (activePairIndex >= pairCandidates.length && pairCandidates.length > 0) {
+      setActivePairIndex(0);
+    }
+  }, [activePairIndex, pairCandidates.length]);
+
+  const fallbackDrug1Name = drugs[0]?.name || drugs[0] || null;
+  const fallbackDrug2Name = drugs[1]?.name || drugs[1] || null;
+  const activePair = pairCandidates[activePairIndex] || null;
+
+  // Extract active pair names (polypharmacy pair if available, else first two selected)
+  const drug1Name = activePair?.drugA || fallbackDrug1Name;
+  const drug2Name = activePair?.drugB || fallbackDrug2Name;
 
   // Fetch biology data when drugs change
   useEffect(() => {
@@ -151,8 +192,11 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
     if (!mechanismMapData) return null;
     const mmap = { ...mechanismMapData };
 
+    // For N-way analysis, prefer pair-specific mechanism data over summary result payload.
+    const shouldMergePairwiseResult = pairCandidates.length === 0;
+
     // Merge prediction result data if available
-    if (result) {
+    if (result && shouldMergePairwiseResult) {
       if (!mmap.interaction?.mechanism && result.mechanism_hypothesis) {
         mmap.interaction = {
           ...mmap.interaction,
@@ -165,7 +209,7 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
       }
     }
     return mmap;
-  }, [mechanismMapData, result]);
+  }, [mechanismMapData, result, pairCandidates.length]);
 
   // Build graph
   const graphData = useMemo(() => {
@@ -212,6 +256,11 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
   const handleMouseUp = useCallback(() => setIsPanning(false), []);
 
   const resetView = useCallback(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, []);
+
+  const showPairNavigator = pairCandidates.length > 1;
+  const pairLabel = activePair
+    ? `${activePair.drugA} <-> ${activePair.drugB}`
+    : (drug1Name && drug2Name ? `${drug1Name} <-> ${drug2Name}` : 'Select two drugs');
 
   const refresh = useCallback(() => {
     clearBiologyCache();
@@ -351,6 +400,34 @@ export default function KnowledgeGraphView({ drugs = [], result, polypharmacyRes
             </span>
           )}
           {loading && <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />}
+
+          {drug1Name && drug2Name && (
+            <span className="text-[7px] font-mono text-cyan-300/90 bg-cyan-400/10 border border-cyan-400/20 px-1.5 py-0.5 rounded">
+              {pairLabel}
+            </span>
+          )}
+
+          {showPairNavigator && (
+            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded px-1 py-0.5">
+              <button
+                onClick={() => setActivePairIndex(prev => (prev - 1 + pairCandidates.length) % pairCandidates.length)}
+                className="px-1 text-[9px] text-white/60 hover:text-white"
+                title="Previous interaction pair"
+              >
+                {'<'}
+              </button>
+              <span className="text-[7px] font-mono text-white/50">
+                pair {activePairIndex + 1}/{pairCandidates.length}
+              </span>
+              <button
+                onClick={() => setActivePairIndex(prev => (prev + 1) % pairCandidates.length)}
+                className="px-1 text-[9px] text-white/60 hover:text-white"
+                title="Next interaction pair"
+              >
+                {'>'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Controls */}

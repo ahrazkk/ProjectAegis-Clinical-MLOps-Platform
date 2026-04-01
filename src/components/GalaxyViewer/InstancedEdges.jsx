@@ -153,8 +153,15 @@ export default function InstancedEdges({ edges }) {
       colorArr[i * 3 + 1] = tempC.g;
       colorArr[i * 3 + 2] = tempC.b;
       opacityArr[i] = e.opacity;
-      flowArr[i] = e.role === 'path' || e.role === 'direct' ? 2.0 :
-                   e.role === 'bridge' ? 1.0 : 0.5;
+      flowArr[i] =
+        e.role === 'path' ||
+        e.role === 'direct' ||
+        e.role === 'interaction-pair' ||
+        e.role === 'focus'
+          ? 2.0
+          : e.role === 'bridge'
+            ? 1.0
+            : 0.5;
     });
 
     mesh.instanceMatrix.needsUpdate = true;

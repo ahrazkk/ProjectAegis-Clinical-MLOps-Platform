@@ -3,7 +3,7 @@ import React from 'react';
 import { useGalaxy, useGalaxyDispatch } from '../store';
 
 export default function HopSlider() {
-  const { maxHops, drugA, drugB } = useGalaxy();
+  const { maxHops, drugA, drugB, viewMode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
 
   // Only show when drugs are selected
@@ -12,7 +12,7 @@ export default function HopSlider() {
   const hops = [1, 2, 3];
 
   return (
-    <div className="absolute bottom-16 left-3 pointer-events-none">
+    <div className="absolute bottom-3 left-3 md:left-[260px] z-20 pointer-events-none">
       <div className="bg-black/70 backdrop-blur-md border border-white/5 rounded-lg px-3 py-2 shadow-xl pointer-events-auto">
         <div className="text-[8px] text-white/30 font-mono uppercase tracking-wider mb-2">Hop Depth</div>
 
@@ -36,9 +36,15 @@ export default function HopSlider() {
 
         {/* Hop description */}
         <div className="text-[7px] text-white/20 font-mono mt-1.5">
-          {maxHops === 1 && 'Direct interaction partners'}
-          {maxHops === 2 && 'Partners of partners'}
-          {maxHops === 3 && 'Full GNN receptive field'}
+          {viewMode === 'focus' ? (
+            'Focus mode shows least-hop connector network'
+          ) : (
+            <>
+              {maxHops === 1 && 'Direct interaction partners'}
+              {maxHops === 2 && 'Partners of partners'}
+              {maxHops === 3 && 'Full GNN receptive field'}
+            </>
+          )}
         </div>
       </div>
     </div>

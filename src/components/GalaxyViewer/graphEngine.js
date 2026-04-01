@@ -82,6 +82,31 @@ function classifyDrug(type) {
   return 'Other';
 }
 
+const DRUG_NAME_ALIASES = {
+  tylenol: 'acetaminophen',
+  advil: 'ibuprofen',
+  motrin: 'ibuprofen',
+  aleve: 'naproxen',
+  coumadin: 'warfarin',
+  lipitor: 'atorvastatin',
+  zocor: 'simvastatin',
+  crestor: 'rosuvastatin',
+  norvasc: 'amlodipine',
+  prilosec: 'omeprazole',
+  nexium: 'esomeprazole',
+  zantac: 'ranitidine',
+  pepcid: 'famotidine',
+  erbitux: 'cetuximab',
+};
+
+function normalizeLookupName(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ─── Build node dictionary from current graph data ──────────────────────────
 export function buildNodeDict(scale = 0.35) {
   const nodes = _graphData.nodes;
@@ -96,8 +121,10 @@ export function buildNodeDict(scale = 0.35) {
       category: classifyDrug(n.type || n.therapeutic_class || n.category),
       isA: false,
       isB: false,
+      isSelected: false,
       hopA: Infinity,
       hopB: Infinity,
+      hopAny: Infinity,
     };
   });
   return dict;
@@ -106,15 +133,25 @@ export function buildNodeDict(scale = 0.35) {
 // ─── Find drug by name ─────────────────────────────────────────────────────
 export function findDrugByName(nodeDict, name) {
   if (!name) return null;
-  const lower = name.toLowerCase();
-  // Exact match
-  for (const id of Object.keys(nodeDict)) {
-    if (nodeDict[id].name.toLowerCase() === lower) return id;
+
+  const normalized = normalizeLookupName(name);
+  const alias = DRUG_NAME_ALIASES[normalized] || null;
+  const candidates = Array.from(new Set([normalized, alias].filter(Boolean)));
+
+  for (const candidate of candidates) {
+    // Exact normalized match
+    for (const id of Object.keys(nodeDict)) {
+      const nodeName = normalizeLookupName(nodeDict[id].name);
+      if (nodeName === candidate) return id;
+    }
+
+    // Partial normalized match
+    for (const id of Object.keys(nodeDict)) {
+      const nodeName = normalizeLookupName(nodeDict[id].name);
+      if (nodeName.includes(candidate) || candidate.includes(nodeName)) return id;
+    }
   }
-  // Partial match
-  for (const id of Object.keys(nodeDict)) {
-    if (nodeDict[id].name.toLowerCase().includes(lower)) return id;
-  }
+
   return null;
 }
 
@@ -138,6 +175,35 @@ export function bfsHops(adj, startId, maxHops = 3) {
   return distances;
 }
 
+export function bfsHopsMulti(adj, startIds = [], maxHops = 3) {
+  if (!adj || !Array.isArray(startIds) || startIds.length === 0) return new Map();
+
+  const distances = new Map();
+  const queue = [];
+
+  startIds.forEach((startId) => {
+    if (startId !== null && startId !== undefined && !distances.has(startId)) {
+      distances.set(startId, 0);
+      queue.push({ id: startId, d: 0 });
+    }
+  });
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    if (curr.d >= maxHops) continue;
+
+    const neighbors = adj[curr.id] || [];
+    for (const nxt of neighbors) {
+      if (!distances.has(nxt)) {
+        distances.set(nxt, curr.d + 1);
+        queue.push({ id: nxt, d: curr.d + 1 });
+      }
+    }
+  }
+
+  return distances;
+}
+
 // ─── Shortest path (BFS) ──────────────────────────────────────────────────
 export function shortestPath(adj, fromId, toId) {
   if (!adj || fromId === null || toId === null || fromId === toId) return [];
@@ -155,6 +221,235 @@ export function shortestPath(adj, fromId, toId) {
     }
   }
   return []; // no path found
+}
+
+function edgeKey(a, b) {
+  const u = String(a);
+  const v = String(b);
+  return u < v ? `${u}-${v}` : `${v}-${u}`;
+}
+
+function normalizeSeverityLevel(severity) {
+  const raw = String(severity || 'unknown').toLowerCase();
+  if (raw === 'severe') return 'critical';
+  if (raw === 'high') return 'major';
+  if (raw === 'none' || raw === 'no_interaction') return 'minor';
+  if (raw === 'minor' || raw === 'moderate' || raw === 'major' || raw === 'critical') return raw;
+  return 'unknown';
+}
+
+function shortestPathAvoidingNodes(adj, fromId, toId, blockedNodes = new Set()) {
+  if (!adj || fromId === null || toId === null || fromId === toId) return [];
+
+  const visited = new Set([fromId]);
+  const queue = [{ id: fromId, path: [fromId] }];
+
+  while (queue.length > 0) {
+    const curr = queue.shift();
+    const neighbors = adj[curr.id] || [];
+
+    for (const nxt of neighbors) {
+      if (nxt !== toId && blockedNodes.has(nxt)) continue;
+      if (visited.has(nxt)) continue;
+
+      if (nxt === toId) {
+        return [...curr.path, toId];
+      }
+
+      visited.add(nxt);
+      queue.push({ id: nxt, path: [...curr.path, nxt] });
+    }
+  }
+
+  return [];
+}
+
+function scorePathReuse(path, usedNodes, usedEdges, selectedSet) {
+  if (!Array.isArray(path) || path.length < 2) return Number.POSITIVE_INFINITY;
+
+  let reusedNodeCount = 0;
+  let reusedEdgeCount = 0;
+
+  for (let i = 0; i < path.length; i += 1) {
+    const curr = path[i];
+    const isIntermediate = i > 0 && i < path.length - 1;
+    if (isIntermediate && !selectedSet.has(curr) && usedNodes.has(curr)) {
+      reusedNodeCount += 1;
+    }
+
+    if (i > 0) {
+      const prev = path[i - 1];
+      if (usedEdges.has(edgeKey(prev, curr))) {
+        reusedEdgeCount += 1;
+      }
+    }
+  }
+
+  // Penalize reused bridge nodes more than reused edges to diversify connector routes.
+  return reusedNodeCount * 3 + reusedEdgeCount;
+}
+
+function choosePreferredConnectorPath(adj, fromId, toId, usedNodes, usedEdges, selectedSet) {
+  const basePath = shortestPath(adj, fromId, toId);
+  if (!basePath || basePath.length < 2) {
+    return { path: [], hops: Number.POSITIVE_INFINITY, reuseScore: Number.POSITIVE_INFINITY };
+  }
+
+  const baseHops = basePath.length - 1;
+  const blockedNodes = new Set(
+    Array.from(usedNodes).filter(id => id !== fromId && id !== toId && !selectedSet.has(id))
+  );
+
+  let preferredPath = basePath;
+  if (blockedNodes.size > 0) {
+    const altPath = shortestPathAvoidingNodes(adj, fromId, toId, blockedNodes);
+    const altHops = altPath.length > 0 ? altPath.length - 1 : Number.POSITIVE_INFINITY;
+
+    // Allow a small hop increase if it avoids repeatedly routing through the same connector hub.
+    if (altPath.length > 0 && altHops <= baseHops + 1) {
+      preferredPath = altPath;
+    }
+  }
+
+  return {
+    path: preferredPath,
+    hops: preferredPath.length - 1,
+    reuseScore: scorePathReuse(preferredPath, usedNodes, usedEdges, selectedSet),
+  };
+}
+
+function computeMinimalConnector(adj, selectedIds) {
+  const uniqueIds = Array.from(new Set((selectedIds || []).filter(Boolean)));
+  const nodeSet = new Set(uniqueIds);
+  const edgeSet = new Set();
+  const connectorPaths = [];
+
+  if (!adj || uniqueIds.length < 2) {
+    return { nodeSet, edgeSet, connectorPaths };
+  }
+
+  const selectedSet = new Set(uniqueIds);
+  const idToIndex = new Map(uniqueIds.map((id, idx) => [id, idx]));
+  const parent = uniqueIds.map((_, idx) => idx);
+
+  const findRoot = (idx) => {
+    let root = idx;
+    while (parent[root] !== root) {
+      root = parent[root];
+    }
+    while (parent[idx] !== idx) {
+      const next = parent[idx];
+      parent[idx] = root;
+      idx = next;
+    }
+    return root;
+  };
+
+  const unionIds = (idA, idB) => {
+    const idxA = idToIndex.get(idA);
+    const idxB = idToIndex.get(idB);
+    if (idxA === undefined || idxB === undefined) return;
+    const rootA = findRoot(idxA);
+    const rootB = findRoot(idxB);
+    if (rootA !== rootB) {
+      parent[rootB] = rootA;
+    }
+  };
+
+  const buildSelectedComponents = () => {
+    const byRoot = new Map();
+    uniqueIds.forEach((id) => {
+      const root = findRoot(idToIndex.get(id));
+      if (!byRoot.has(root)) byRoot.set(root, new Set());
+      byRoot.get(root).add(id);
+    });
+    return Array.from(byRoot.values());
+  };
+
+  // Keep all direct selected-selected edges in Focus mode so visible direct links are never dropped.
+  uniqueIds.forEach((u) => {
+    (adj[u] || []).forEach((v) => {
+      if (!selectedSet.has(v)) return;
+      const key = edgeKey(u, v);
+      if (edgeSet.has(key)) return;
+      edgeSet.add(key);
+      unionIds(u, v);
+    });
+  });
+
+  const usedConnectorNodes = new Set();
+  const usedConnectorEdges = new Set(edgeSet);
+  let components = buildSelectedComponents();
+
+  while (components.length > 1) {
+    let best = null;
+
+    for (let i = 0; i < components.length; i += 1) {
+      for (let j = i + 1; j < components.length; j += 1) {
+        for (const fromId of components[i]) {
+          for (const toId of components[j]) {
+            const candidate = choosePreferredConnectorPath(
+              adj,
+              fromId,
+              toId,
+              usedConnectorNodes,
+              usedConnectorEdges,
+              selectedSet,
+            );
+
+            if (!candidate.path || candidate.path.length < 2) continue;
+
+            if (
+              !best ||
+              candidate.hops < best.hops ||
+              (candidate.hops === best.hops && candidate.reuseScore < best.reuseScore)
+            ) {
+              best = {
+                ...candidate,
+                componentA: i,
+                componentB: j,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    if (!best) {
+      break;
+    }
+
+    const path = best.path;
+    connectorPaths.push(path);
+
+    for (let i = 0; i < path.length; i += 1) {
+      const nodeId = path[i];
+      nodeSet.add(nodeId);
+
+      if (i > 0) {
+        const prev = path[i - 1];
+        const key = edgeKey(prev, nodeId);
+        edgeSet.add(key);
+        usedConnectorEdges.add(key);
+      }
+
+      if (i > 0 && i < path.length - 1 && !selectedSet.has(nodeId)) {
+        usedConnectorNodes.add(nodeId);
+      }
+    }
+
+    const selectedOnPath = path.filter(nodeId => selectedSet.has(nodeId));
+    if (selectedOnPath.length >= 2) {
+      const rootId = selectedOnPath[0];
+      for (let i = 1; i < selectedOnPath.length; i += 1) {
+        unionIds(rootId, selectedOnPath[i]);
+      }
+    }
+
+    components = buildSelectedComponents();
+  }
+
+  return { nodeSet, edgeSet, connectorPaths };
 }
 
 // ─── Get adjacency list from current data ──────────────────────────────────
@@ -179,32 +474,81 @@ export function getEdgeMeta(nodeA, nodeB) {
 }
 
 // ─── Compute full subgraph state ──────────────────────────────────────────
-export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
+export function computeSubgraph(
+  nodeDict,
+  drugAId,
+  drugBId,
+  maxHops = 3,
+  selectedDrugIds = [],
+  interactionPairs = [],
+  viewMode = 'galaxy'
+) {
   const adj = _graphData.adj || {};
+  const isFocusMode = viewMode === 'focus';
+
+  const selectedSet = new Set((selectedDrugIds || []).filter(Boolean));
+  if (drugAId) selectedSet.add(drugAId);
+  if (drugBId) selectedSet.add(drugBId);
+  const selectedIds = Array.from(selectedSet);
+
+  const interactionPairSet = new Set();
+  (interactionPairs || []).forEach((pair) => {
+    if (!Array.isArray(pair) || pair.length < 2) return;
+    const a = String(pair[0] || '');
+    const b = String(pair[1] || '');
+    if (!a || !b) return;
+    interactionPairSet.add(edgeKey(a, b));
+  });
+
+  const minimalConnector = isFocusMode
+    ? computeMinimalConnector(adj, selectedIds)
+    : { nodeSet: new Set(selectedIds), edgeSet: new Set(), connectorPaths: [] };
+  const focusNodeSet = minimalConnector.nodeSet;
+  const focusEdgeSet = minimalConnector.edgeSet;
 
   // Reset hop fields
   Object.values(nodeDict).forEach(n => {
     n.isA = false;
     n.isB = false;
+    n.isSelected = false;
+    n.isFocusNode = false;
     n.hopA = Infinity;
     n.hopB = Infinity;
+    n.hopAny = Infinity;
   });
 
   if (drugAId && nodeDict[drugAId]) nodeDict[drugAId].isA = true;
   if (drugBId && nodeDict[drugBId]) nodeDict[drugBId].isB = true;
+  selectedIds.forEach((id) => {
+    if (nodeDict[id]) nodeDict[id].isSelected = true;
+  });
 
   // BFS from both drugs
   const hopsA = bfsHops(adj, drugAId, maxHops);
   const hopsB = bfsHops(adj, drugBId, maxHops);
+  const hopsAny = bfsHopsMulti(adj, selectedIds, maxHops);
 
   hopsA.forEach((d, id) => { if (nodeDict[id]) nodeDict[id].hopA = d; });
   hopsB.forEach((d, id) => { if (nodeDict[id]) nodeDict[id].hopB = d; });
+  hopsAny.forEach((d, id) => { if (nodeDict[id]) nodeDict[id].hopAny = d; });
+
+  if (isFocusMode && selectedIds.length > 0) {
+    Object.values(nodeDict).forEach((n) => {
+      const inFocusNode = focusNodeSet.has(n.id);
+      n.isFocusNode = inFocusNode;
+      if (!inFocusNode && !n.isA && !n.isB && !n.isSelected) {
+        n.hopA = Infinity;
+        n.hopB = Infinity;
+        n.hopAny = Infinity;
+      }
+    });
+  }
 
   // Compute shortest path between A and B
   const path = shortestPath(adj, drugAId, drugBId);
   const pathSet = new Set(path);
 
-  const hasDrugs = drugAId !== null || drugBId !== null;
+  const hasDrugs = selectedIds.length > 0;
 
   // Compute edges
   const edges = [];
@@ -213,7 +557,7 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
     const uNode = nodeDict[u];
     if (!uNode) return;
     (adj[u] || []).forEach(v => {
-      const key = u < v ? `${u}-${v}` : `${v}-${u}`;
+      const key = edgeKey(u, v);
       if (processed.has(key)) return;
       processed.add(key);
       const vNode = nodeDict[v];
@@ -221,6 +565,10 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
 
       const inHopA = uNode.hopA <= maxHops && vNode.hopA <= maxHops;
       const inHopB = uNode.hopB <= maxHops && vNode.hopB <= maxHops;
+      const inHopAny = uNode.hopAny <= maxHops && vNode.hopAny <= maxHops;
+      const isSelectedPair = uNode.isSelected && vNode.isSelected;
+      const isInteractionPair = interactionPairSet.has(key);
+      const inFocusConnector = focusEdgeSet.has(key);
       const onPath = pathSet.has(u) && pathSet.has(v) &&
         Math.abs(path.indexOf(u) - path.indexOf(v)) === 1;
 
@@ -231,12 +579,20 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
 
       // Get severity from edge metadata
       const meta = getEdgeMeta(u, v);
-      const severity = meta?.severity || 'unknown';
+      const severity = normalizeSeverityLevel(meta?.severity || 'unknown');
 
       if (onPath) {
         color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'path';
+      } else if (isInteractionPair) {
+        color = '#ef4444'; opacity = 0.92; lineWidth = 2.8; role = 'interaction-pair';
+      } else if (isSelectedPair && inFocusConnector) {
+        color = '#22c55e'; opacity = 0.95; lineWidth = 2.8; role = 'selected-pair';
+      } else if (inFocusConnector) {
+        color = '#06b6d4'; opacity = 0.95; lineWidth = 2.8; role = 'focus';
       } else if ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA)) {
         color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'direct';
+      } else if (isSelectedPair) {
+        color = '#22c55e'; opacity = 0.9; lineWidth = 2.2; role = 'selected-pair';
       } else if (inHopA && inHopB) {
         color = '#a855f7'; opacity = 0.45; lineWidth = 1.5; role = 'bridge';
       } else if (inHopA) {
@@ -247,16 +603,27 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
         color = '#ff8c00';
         opacity = Math.max(0.1, 0.35 - Math.max(uNode.hopB, vNode.hopB) * 0.08);
         role = 'hopB';
+      } else if (inHopAny) {
+        color = '#06b6d4';
+        opacity = Math.max(0.08, 0.32 - Math.max(uNode.hopAny, vNode.hopAny) * 0.07);
+        role = 'multi-hop';
       }
 
       // Severity-based color tinting for active edges
-      if (role !== 'background' && severity === 'severe') {
+      if (role !== 'background' && severity === 'critical') {
         color = '#ef4444'; // red for severe
-      } else if (role !== 'background' && severity === 'moderate') {
+      } else if (role !== 'background' && severity === 'major') {
         color = role === 'path' ? '#ef4444' : '#f97316'; // orange for moderate
+      } else if (role !== 'background' && severity === 'moderate') {
+        color = role === 'path' ? '#ef4444' : '#f59e0b';
       }
 
-      if (!hasDrugs || inHopA || inHopB || onPath) {
+      let shouldInclude = !hasDrugs || inHopA || inHopB || inHopAny || onPath || isSelectedPair || isInteractionPair;
+      if (isFocusMode && hasDrugs) {
+        shouldInclude = inFocusConnector || isSelectedPair || onPath || (isInteractionPair && focusNodeSet.has(u) && focusNodeSet.has(v));
+      }
+
+      if (shouldInclude) {
         edges.push({
           startId: u, endId: v,
           start: uNode.pos, end: vNode.pos,
@@ -269,9 +636,13 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
   // Stats
   const totalNodes = _graphData.nodes.length;
   const totalEdges = Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2;
-  const visibleNodes = Object.values(nodeDict).filter(n =>
-    n.hopA <= maxHops || n.hopB <= maxHops || !hasDrugs
-  ).length;
+  const visibleNodes = Object.values(nodeDict).filter((n) => {
+    if (!hasDrugs) return true;
+    if (isFocusMode) {
+      return n.isFocusNode || n.isA || n.isB || n.isSelected;
+    }
+    return n.hopAny <= maxHops;
+  }).length;
 
   return {
     nodes: Object.values(nodeDict),
@@ -285,6 +656,11 @@ export function computeSubgraph(nodeDict, drugAId, drugBId, maxHops = 3) {
       visibleEdges: edges.length,
       pathLength: path.length > 0 ? path.length - 1 : -1,
       sharedNeighbors: Object.values(nodeDict).filter(n => n.hopA <= maxHops && n.hopB <= maxHops && !n.isA && !n.isB).length,
+      selectedCount: selectedIds.length,
+      interactionPairCount: interactionPairSet.size,
+      focusConnectorEdges: focusEdgeSet.size,
+      focusPathCount: minimalConnector.connectorPaths.length,
+      focusMode: isFocusMode,
     },
   };
 }
@@ -304,6 +680,8 @@ export function getNodeVisuals(node, hasDrugs) {
     color = '#00d2ff'; opacity = 1; size = 0.7; glow = 1;
   } else if (node.isB) {
     color = '#ff8c00'; opacity = 1; size = 0.7; glow = 1;
+  } else if (node.isSelected) {
+    color = '#22c55e'; opacity = 0.95; size = 0.58; glow = 0.9;
   } else if (node.hopA <= 3 && node.hopB <= 3) {
     color = '#a855f7';
     opacity = 0.75 - Math.max(node.hopA, node.hopB) * 0.12;
@@ -319,6 +697,11 @@ export function getNodeVisuals(node, hasDrugs) {
     opacity = 0.6 - node.hopB * 0.15;
     size = 0.3 - node.hopB * 0.04 + degreeFactor * 0.1;
     glow = 0.3 - node.hopB * 0.08;
+  } else if (node.hopAny <= 3) {
+    color = '#06b6d4';
+    opacity = 0.48 - node.hopAny * 0.1;
+    size = 0.24 - node.hopAny * 0.03 + degreeFactor * 0.08;
+    glow = 0.2;
   } else if (!hasDrugs) {
     // No drugs selected — show by category with degree-based sizing
     color = CATEGORY_COLORS[node.category] || '#475569';
@@ -354,7 +737,17 @@ export function sampleBackgroundEdges(maxCount = 3000) {
 // ─── Apply filters to determine node/edge visibility ─────────────────────
 export function applyFilters(nodes, edges, filters) {
   const adj = _graphData.adj || {};
-  const { visibleClasses, minDegree, edgeDensity } = filters;
+  const {
+    visibleClasses = null,
+    minDegree = 0,
+    edgeDensity = 1.0,
+    severityLevels = ['minor', 'moderate', 'major', 'critical', 'unknown'],
+  } = filters || {};
+
+  const normalizedSeverityLevels = new Set(
+    (severityLevels || []).map(level => normalizeSeverityLevel(level))
+  );
+  const hasFocusSubset = nodes.some(n => n.isFocusNode);
 
   // Determine which nodes pass filters
   const nodeVisibility = new Map();
@@ -369,23 +762,49 @@ export function applyFilters(nodes, edges, filters) {
     // Degree filter
     if (minDegree > 0) {
       const degree = (adj[n.id] || []).length;
-      if (degree < minDegree && !n.isA && !n.isB) {
+      if (degree < minDegree && !n.isA && !n.isB && !n.isSelected) {
         visible = false;
       }
     }
 
     // Selected drugs always visible
-    if (n.isA || n.isB) visible = true;
+    if (n.isA || n.isB || n.isSelected) visible = true;
+
+    // In focus mode, hide non-connector nodes for a clear minimal graph.
+    if (hasFocusSubset && !n.isFocusNode && !n.isA && !n.isB && !n.isSelected) {
+      visible = false;
+    }
 
     nodeVisibility.set(n.id, visible);
   });
 
-  // Edge density sampling for background edges
+  const edgeDensityValue = Math.max(0, Math.min(1, edgeDensity));
+  const importantRoles = new Set(['path', 'direct', 'selected-pair', 'interaction-pair', 'focus']);
+
+  // Filter edges by node visibility, severity, and density.
   const filteredEdges = edges.filter((e, i) => {
-    if (e.role === 'background' && edgeDensity < 1.0) {
-      // Deterministic sampling based on index
-      return (i % Math.ceil(1 / edgeDensity)) === 0;
+    const importantEdge = importantRoles.has(e.role);
+    const startVisible = nodeVisibility.get(e.startId) !== false;
+    const endVisible = nodeVisibility.get(e.endId) !== false;
+
+    if (!importantEdge && (!startVisible || !endVisible)) {
+      return false;
     }
+
+    const edgeSeverity = normalizeSeverityLevel(e.severity);
+    if (!importantEdge && normalizedSeverityLevels.size > 0 && !normalizedSeverityLevels.has(edgeSeverity)) {
+      return false;
+    }
+
+    if (!importantEdge && edgeDensityValue <= 0) {
+      return false;
+    }
+
+    if (!importantEdge && edgeDensityValue < 1.0) {
+      // Deterministic sampling based on index
+      return (i % Math.ceil(1 / edgeDensityValue)) === 0;
+    }
+
     return true;
   });
 

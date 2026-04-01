@@ -14,7 +14,7 @@ export default function FilterPanel({ isOpen, onClose }) {
     dispatch({ type: 'SET_FILTERS', payload: { [key]: value } });
   };
 
-  const severityLevels = ['minor', 'moderate', 'major', 'critical'];
+  const severityLevels = ['minor', 'moderate', 'major', 'critical', 'unknown'];
   const activeSeverity = filters.severityLevels || severityLevels;
 
   const toggleSeverity = (level) => {
@@ -92,6 +92,7 @@ export default function FilterPanel({ isOpen, onClose }) {
                   moderate: '#eab308',
                   major: '#f97316',
                   critical: '#ef4444',
+                  unknown: '#64748b',
                 };
                 return (
                   <button
@@ -197,7 +198,7 @@ export default function FilterPanel({ isOpen, onClose }) {
               onClick={() => dispatch({
                 type: 'SET_FILTERS',
                 payload: {
-                  severityLevels: ['minor', 'moderate', 'major', 'critical'],
+                  severityLevels,
                   visibleClasses: null,
                   minDegree: 0,
                   edgeDensity: 1.0,
