@@ -152,6 +152,18 @@ export async function analyzePolypharmacy(drugs) {
 }
 
 /**
+ * Analyze polypharmacy with N-order Digital Twin scoring.
+ * @param {Array} drugs - Array of drug objects [{name, smiles?}, ...]
+ * @returns {Promise<Object>}
+ */
+export async function analyzePolypharmacyDigitalTwin(drugs) {
+    return apiRequest('/polypharmacy-digital-twin/', {
+        method: 'POST',
+        body: JSON.stringify({ drugs }),
+    });
+}
+
+/**
  * Send message to GraphRAG chatbot
  * @param {string} message - User message
  * @param {Array} contextDrugs - Current drugs in context
@@ -301,6 +313,7 @@ export default {
     searchDrugs,
     predictDDI,
     analyzePolypharmacy,
+    analyzePolypharmacyDigitalTwin,
     sendChatMessage,
     getPredictionHistory,
     getDrugInfo,

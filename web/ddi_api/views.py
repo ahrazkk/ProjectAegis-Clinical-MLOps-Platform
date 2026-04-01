@@ -37,6 +37,7 @@ from .services.knowledge_graph import KnowledgeGraphService
 from .services.gnn_predictor import get_gnn_predictor
 from .services.pubmedbert_predictor import get_pubmedbert_predictor
 from .services.cyp450_database import get_cyp450_database
+from .services.polypharmacy_digital_twin import get_polypharmacy_digital_twin_service
 
 logger = logging.getLogger(__name__)
 
@@ -525,6 +526,48 @@ class PolypharmacyView(APIView):
         except Exception as e:
             logger.warning(f"Failed to log prediction: {e}")
         
+        return Response(response_data)
+
+
+class PolypharmacyDigitalTwinView(APIView):
+    """
+    POST /api/v1/polypharmacy-digital-twin/
+
+    Build an explainable N-order polypharmacy digital twin profile with:
+    pairwise baseline, enzyme competition, target overlap, organ burden,
+    network stress, and a composite toxicity score.
+    """
+
+    def post(self, request):
+        serializer = PolypharmacyRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        start_time = time.time()
+
+        drugs = [lookup_drug(d) for d in data['drugs']]
+
+        twin_service = get_polypharmacy_digital_twin_service()
+        twin_result = twin_service.analyze(drugs)
+
+        inference_time = (time.time() - start_time) * 1000
+        response_data = {
+            **twin_result,
+            'inference_time_ms': inference_time,
+        }
+
+        try:
+            summary = twin_result.get('summary', {})
+            PredictionLog.objects.create(
+                drug_list=twin_result.get('drugs', []),
+                risk_score=summary.get('toxicity_score', 0.0),
+                severity_prediction=summary.get('risk_level', 'low'),
+                inference_time_ms=inference_time
+            )
+        except Exception as e:
+            logger.warning(f"Failed to log digital twin prediction: {e}")
+
         return Response(response_data)
 
 

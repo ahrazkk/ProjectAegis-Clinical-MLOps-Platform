@@ -18,6 +18,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DDIPredictionView,
     PolypharmacyView,
+    PolypharmacyDigitalTwinView,
     ChatView,
     DrugSearchView,
     HealthCheckView,
@@ -55,6 +56,7 @@ urlpatterns = [
     # Core prediction endpoints
     path('predict/', DDIPredictionView.as_view(), name='ddi-predict'),
     path('polypharmacy/', PolypharmacyView.as_view(), name='polypharmacy'),
+    path('polypharmacy-digital-twin/', PolypharmacyDigitalTwinView.as_view(), name='polypharmacy-digital-twin'),
     path('chat/', ChatView.as_view(), name='chat'),
     
     # Search

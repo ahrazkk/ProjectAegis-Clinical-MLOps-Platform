@@ -50,11 +50,12 @@ import {
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
-import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats } from '../services/api';
+import { searchDrugs, predictDDI, analyzePolypharmacy, analyzePolypharmacyDigitalTwin, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats } from '../services/api';
 import GNNGalaxyViewer from '../components/GalaxyViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMap from '../components/BodyMap';
 import KnowledgeGraphView from '../components/KnowledgeGraph';
+import PolypharmacyDigitalTwin from '../components/PolypharmacyDigitalTwin';
 import RiskGauge from '../components/RiskGauge';
 import StatsDashboard from '../components/StatsDashboard';
 import DrugComparison from '../components/DrugComparison';
@@ -90,6 +91,7 @@ export default function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
   const [polypharmacyResult, setPolypharmacyResult] = useState(null);
+  const [digitalTwinResult, setDigitalTwinResult] = useState(null);
 
   // Enhanced Data State
   const [drugInfoCache, setDrugInfoCache] = useState({});
@@ -211,6 +213,7 @@ export default function Dashboard() {
     setShowSearch(false);
     setResult(null);
     setPolypharmacyResult(null);
+    setDigitalTwinResult(null);
     setInteractionEvidence(null);
     
     // Fetch drug info (side effects, etc.)
@@ -233,6 +236,7 @@ export default function Dashboard() {
     setSelectedDrugs(prev => prev.filter(d => d.drugbank_id !== drugId && d.name !== drugId));
     setResult(null);
     setPolypharmacyResult(null);
+    setDigitalTwinResult(null);
     setInteractionEvidence(null);
   };
 
@@ -273,6 +277,7 @@ export default function Dashboard() {
 
         setResult(response);
         setPolypharmacyResult(null);
+        setDigitalTwinResult(null);
         
         // Fetch real-world evidence in background
         addLog('Fetching real-world evidence from FDA FAERS...', 'info', 'DATABASE');
@@ -295,6 +300,25 @@ export default function Dashboard() {
         const response = await analyzePolypharmacy(drugs);
         setPolypharmacyResult(response);
         addLog(`Processed ${response.total_interactions} interaction pathways`, 'success', 'AI');
+
+        try {
+          const twinResponse = await analyzePolypharmacyDigitalTwin(drugs);
+          setDigitalTwinResult(twinResponse);
+          const twinScore = Math.round((twinResponse?.summary?.toxicity_score || 0) * 100);
+          addLog(`Digital Twin toxicity score: ${twinScore}%`, 'info', 'AI');
+
+          // Surface the Twin panel automatically after successful N-order analysis.
+          if (drugs.length >= 3) {
+            setActiveTab('polyTwin');
+            if (isMobile) {
+              setMobileView('viz');
+            }
+          }
+        } catch (twinErr) {
+          console.warn('Digital Twin analysis failed:', twinErr);
+          setDigitalTwinResult(null);
+          addLog('Digital Twin unavailable for this run', 'warning', 'AI');
+        }
 
         // Set summary result
         if (response.interactions && response.interactions.length > 0) {
@@ -709,8 +733,7 @@ export default function Dashboard() {
                       <button
                         key={drug.drugbank_id || i}
                         onClick={() => addDrug(drug)}
-                        disabled={selectedDrugs.length >= 2}
-                        className="w-full flex items-center justify-between p-4 hover:bg-theme-secondary transition-colors disabled:opacity-50"
+                        className="w-full flex items-center justify-between p-4 hover:bg-theme-secondary transition-colors"
                       >
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 border border-theme bg-theme-primary/80 backdrop-blur-sm flex items-center justify-center">
@@ -730,7 +753,7 @@ export default function Dashboard() {
 
               {/* Selected Drugs Header */}
               <div className="flex items-center justify-between pt-4">
-                <h2 className="text-[10px] text-theme-muted uppercase tracking-widest">Selected Drugs ({selectedDrugs.length}/2)</h2>
+                <h2 className="text-[10px] text-theme-muted uppercase tracking-widest">Selected Drugs ({selectedDrugs.length})</h2>
                 {selectedDrugs.length >= 2 && (
                   <button
                     onClick={runAnalysis}
@@ -744,19 +767,6 @@ export default function Dashboard() {
                   </button>
                 )}
               </div>
-
-              {/* Warning for 2 drug limit */}
-              {selectedDrugs.length >= 2 && (
-                <div className="p-3 border border-risk-medium/30 bg-risk-medium/10 backdrop-blur-sm">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs text-risk-medium">Analysis limited to 2 drugs</p>
-                      <p className="text-[10px] text-theme-muted mt-1">For 3+ drugs, use the <span className="text-theme-accent">Compare+</span> tab in the bottom navigation</p>
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {/* Selected Drugs List */}
               {selectedDrugs.length === 0 ? (
@@ -793,6 +803,7 @@ export default function Dashboard() {
                   { id: 'molecules', label: '3D', icon: Box },
                   { id: 'graph', label: 'Graph', icon: Network },
                   { id: 'body', label: 'Body', icon: Heart },
+                  { id: 'polyTwin', label: 'Twin', icon: Layers },
                 ].map(tab => (
                   <button
                     key={tab.id}
@@ -841,6 +852,15 @@ export default function Dashboard() {
                           interactionEvidence={interactionEvidence}
                           polypharmacyResult={polypharmacyResult}
                           result={result}
+                          isMobile={true}
+                        />
+                      </div>
+                    )}
+                    {activeTab === 'polyTwin' && (
+                      <div className="h-full relative">
+                        <PolypharmacyDigitalTwin
+                          drugs={selectedDrugs}
+                          twinResult={digitalTwinResult}
                           isMobile={true}
                         />
                       </div>
@@ -1029,15 +1049,13 @@ export default function Dashboard() {
                 >
                   {searchResults.map((drug, i) => {
                     const hasSmiles = drug.has_smiles || (drug.smiles && drug.smiles.length > 5);
-                    const canAdd = selectedDrugs.length < 2;
                     return (
                     <button
                       key={drug.drugbank_id || i}
-                      onClick={() => canAdd && addDrug(drug)}
-                      disabled={!canAdd}
+                      onClick={() => addDrug(drug)}
                       className={`w-full flex items-center justify-between p-3 transition-colors border-b border-theme last:border-0 ${
                         !hasSmiles ? 'opacity-70' : ''
-                      } ${canAdd ? 'hover:bg-theme-secondary cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
+                      } hover:bg-theme-secondary cursor-pointer`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 border flex items-center justify-center ${
@@ -1065,11 +1083,7 @@ export default function Dashboard() {
                           </div>
                         </div>
                       </div>
-                      {canAdd ? (
-                        <Plus className={`w-4 h-4 ${hasSmiles ? 'text-theme-accent' : 'text-theme-muted'}`} />
-                      ) : (
-                        <span className="text-[8px] text-risk-medium uppercase">Limit</span>
-                      )}
+                      <Plus className={`w-4 h-4 ${hasSmiles ? 'text-theme-accent' : 'text-theme-muted'}`} />
                     </button>
                   )})}
                 </motion.div>
@@ -1089,24 +1103,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* 2-Drug Limit Warning */}
-            {selectedDrugs.length >= 2 && (
-              <div className="mt-3 p-3 bg-theme-primary/90 backdrop-blur-sm border border-risk-medium/40 text-center">
-                <div className="flex items-center justify-center gap-2 text-risk-medium mb-1">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span className="text-xs font-medium uppercase tracking-wider">Analysis Limited to 2 Drugs</span>
-                </div>
-                <p className="text-[10px] text-theme-muted">
-                  For 3+ drugs, use the{' '}
-                  <button 
-                    onClick={() => setActiveSection('compare')}
-                    className="text-theme-accent hover:underline"
-                  >
-                    Compare+ tab
-                  </button>
-                </p>
-              </div>
-            )}
           </div>
 
           {/* Selected Drugs */}
@@ -1271,6 +1267,7 @@ export default function Dashboard() {
               { id: 'molecules', label: '3D Molecules', icon: Box },
               { id: 'graph', label: 'Knowledge Graph', icon: Network },
               { id: 'body', label: 'Body Map', icon: Heart },
+              { id: 'polyTwin', label: 'Poly Twin', icon: Layers },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1313,6 +1310,13 @@ export default function Dashboard() {
                   interactionEvidence={interactionEvidence}
                   polypharmacyResult={polypharmacyResult}
                   result={result}
+                />
+              </div>
+            ) : activeTab === 'polyTwin' ? (
+              <div className="h-full relative">
+                <PolypharmacyDigitalTwin
+                  drugs={selectedDrugs}
+                  twinResult={digitalTwinResult}
                 />
               </div>
             ) : selectedDrugs.length === 0 ? (

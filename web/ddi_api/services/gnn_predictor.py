@@ -802,38 +802,80 @@ class GNNDDIPredictor:
     
     def predict_polypharmacy(self, drugs: List[Dict[str, str]]) -> Dict:
         """
-        Predict interactions for multiple drugs (N-way) natively on Macroscopic model.
+        Predict interactions for multiple drugs by evaluating all unique pairs.
+
+        Returns a response contract that matches the existing API/view/frontend
+        expectations for polypharmacy network rendering.
         """
         n = len(drugs)
-        interactions = []
+        interactions: List[Dict[str, Any]] = []
         max_risk = 0.0
+        degree_count: Dict[str, int] = {}
+        drug_names = [d.get("name", "Unknown") for d in drugs]
+
+        def risk_level_from_score(score: float) -> str:
+            if score >= 0.8:
+                return "critical"
+            if score >= 0.6:
+                return "high"
+            if score >= 0.3:
+                return "medium"
+            return "low"
+
+        # We expose system buckets for BodyMap aggregation even when
+        # pairwise inference does not provide detailed organ labels.
+        interaction_system_map = {
+            "mechanism": ["Metabolic/CYP450"],
+            "effect": ["Pharmacodynamic"],
+            "advise": ["Systemic"],
+            "int": ["Systemic"],
+        }
 
         for i in range(n):
             for j in range(i + 1, n):
                 pred = self.predict(
-                    drugs[i]["name"],
-                    drugs[j]["name"],
+                    drugs[i].get("name", "Unknown"),
+                    drugs[j].get("name", "Unknown"),
                     drugs[i].get("smiles", ""),
                     drugs[j].get("smiles", "")
                 )
-                
-                if pred.risk_score > 0.3:
-                    interactions.append({
-                        "drug_a": pred.drug_a,
-                        "drug_b": pred.drug_b,
-                        "risk_score": pred.risk_score,
-                        "risk_level": pred.risk_level,
-                        "severity": pred.severity,
-                        "mechanism": pred.mechanism_hypothesis,
-                        "affected_systems": list(pred.affected_systems)
-                    })
-                    max_risk = max(max_risk, pred.risk_score)
-                    
+
+                risk_score = float(pred.interaction_probability)
+
+                # Keep response size focused on clinically meaningful edges.
+                if risk_score <= 0.3:
+                    continue
+
+                source = pred.drug1
+                target = pred.drug2
+                affected_systems = interaction_system_map.get(pred.interaction_type, ["Systemic"])
+
+                interactions.append({
+                    "source": source,
+                    "target": target,
+                    "risk_score": risk_score,
+                    "risk_level": risk_level_from_score(risk_score),
+                    "severity": pred.severity,
+                    "mechanism": pred.mechanism_hypothesis,
+                    "affected_systems": affected_systems,
+                })
+
+                max_risk = max(max_risk, risk_score)
+                degree_count[source] = degree_count.get(source, 0) + 1
+                degree_count[target] = degree_count.get(target, 0) + 1
+
+        interactions.sort(key=lambda x: x["risk_score"], reverse=True)
+        hub_drug = max(degree_count, key=degree_count.get) if degree_count else None
+
         return {
+            "drugs": drug_names,
+            "interactions": interactions,
+            "total_interactions": len(interactions),
             "max_risk_score": max_risk,
-            "risk_level": "severe" if max_risk > 0.7 else "moderate" if max_risk > 0.4 else "minor" if max_risk > 0.2 else "none",
-            "interactions": sorted(interactions, key=lambda x: x["risk_score"], reverse=True),
-            "drugs_analyzed": n
+            "overall_risk_level": risk_level_from_score(max_risk),
+            "hub_drug": hub_drug,
+            "hub_interaction_count": degree_count.get(hub_drug, 0) if hub_drug else 0,
+            "drugs_analyzed": n,
         }
 
 
