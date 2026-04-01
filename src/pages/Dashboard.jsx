@@ -54,7 +54,7 @@ import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHea
 import GNNGalaxyViewer from '../components/GalaxyViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
 import BodyMapVisualization from '../components/BodyMapVisualization';
-import KnowledgeGraphView from '../components/KnowledgeGraphView';
+import KnowledgeGraphView from '../components/KnowledgeGraph';
 import RiskGauge from '../components/RiskGauge';
 import StatsDashboard from '../components/StatsDashboard';
 import DrugComparison from '../components/DrugComparison';
@@ -829,10 +829,6 @@ export default function Dashboard() {
                     )}
                     {activeTab === 'graph' && (
                       <div className="h-full relative">
-                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">Knowledge Graph Under Construction</p>
-                        </div>
                         <KnowledgeGraphView drugs={selectedDrugs} result={result} polypharmacyResult={polypharmacyResult} isMobile={true} />
                       </div>
                     )}
@@ -1288,12 +1284,20 @@ export default function Dashboard() {
 
           {/* Visualization Area */}
           <div className="flex-1 relative overflow-hidden bg-theme-primary">
-            {/* GNN Galaxy Viewer always renders on its tab (works with 0 or more drugs) */}
+            {/* Galaxy Viewer and Knowledge Graph always render (they have their own empty states) */}
             {activeTab === 'molecules' ? (
               <div className="h-full relative">
                 <GNNGalaxyViewer
                   drugs={selectedDrugs}
                   result={result}
+                />
+              </div>
+            ) : activeTab === 'graph' ? (
+              <div className="h-full relative">
+                <KnowledgeGraphView
+                  drugs={selectedDrugs}
+                  result={result}
+                  polypharmacyResult={polypharmacyResult}
                 />
               </div>
             ) : selectedDrugs.length === 0 ? (
@@ -1315,22 +1319,6 @@ export default function Dashboard() {
                     drugs={selectedDrugs}
                     result={result}
                   />
-                )}
-                {activeTab === 'graph' && (
-                  <div className="h-full relative">
-                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
-                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                      <div>
-                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Knowledge Graph Under Construction</p>
-                        <p className="text-[10px] text-theme-muted">Graph visualization is still being developed</p>
-                      </div>
-                    </div>
-                    <KnowledgeGraphView
-                      drugs={selectedDrugs}
-                      result={result}
-                      polypharmacyResult={polypharmacyResult}
-                    />
-                  </div>
                 )}
                 {activeTab === 'body' && (
                   <div className="h-full relative">

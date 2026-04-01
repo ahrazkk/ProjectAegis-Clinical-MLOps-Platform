@@ -32,6 +32,8 @@ from .views import (
     GraphNodesView,
     GraphNeighborhoodView,
     GraphEdgesView,
+    DrugBiologyView,
+    MechanismMapView,
 )
 
 # Scanner endpoints
@@ -83,6 +85,10 @@ urlpatterns = [
     path('graph/nodes/', GraphNodesView.as_view(), name='graph-nodes'),
     path('graph/neighborhood/', GraphNeighborhoodView.as_view(), name='graph-neighborhood'),
     path('graph/edges/', GraphEdgesView.as_view(), name='graph-edges'),
+
+    # Knowledge Graph V2: Biology endpoints
+    path('graph/drug-biology/', DrugBiologyView.as_view(), name='drug-biology'),
+    path('graph/mechanism-map/', MechanismMapView.as_view(), name='mechanism-map'),
 
     # ViewSet routes
     path('', include(router.urls)),

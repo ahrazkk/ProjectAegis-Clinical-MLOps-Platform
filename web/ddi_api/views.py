@@ -36,6 +36,7 @@ from .services.ddi_predictor import get_ddi_service, DDIPrediction
 from .services.knowledge_graph import KnowledgeGraphService
 from .services.gnn_predictor import get_gnn_predictor
 from .services.pubmedbert_predictor import get_pubmedbert_predictor
+from .services.cyp450_database import get_cyp450_database
 
 logger = logging.getLogger(__name__)
 
@@ -1485,3 +1486,358 @@ class GraphEdgesView(APIView):
         except Exception as e:
             logger.error(f"Graph edges query failed: {e}")
             return Response({'error': str(e), 'edges': []}, status=500)
+
+
+# ============== Knowledge Graph V2: Biology Endpoints ==============
+
+
+class DrugBiologyView(APIView):
+    """
+    GET /api/v1/graph/drug-biology/?drug=<name>&include_side_effects=true
+
+    Returns all biological relationships for a drug:
+    - CYP450 metabolism profile (from CYP database)
+    - Protein targets (from Neo4j TARGETS relationships)
+    - Side effects (from Neo4j CAUSES relationships)
+    - Interaction count
+    """
+
+    _cache = {}
+    _cache_times = {}
+    CACHE_TTL = 300  # 5 minutes
+
+    def get(self, request):
+        import time as _time
+
+        drug_name = request.query_params.get('drug', '').strip()
+        if not drug_name:
+            return Response({'error': 'drug parameter is required'}, status=400)
+
+        include_side_effects = request.query_params.get('include_side_effects', 'true').lower() == 'true'
+
+        # Check cache
+        cache_key = f"{drug_name.lower()}:{include_side_effects}"
+        now = _time.time()
+        if cache_key in DrugBiologyView._cache and (now - DrugBiologyView._cache_times.get(cache_key, 0)) < DrugBiologyView.CACHE_TTL:
+            return Response({**DrugBiologyView._cache[cache_key], 'cached': True})
+
+        try:
+            result = self._build_drug_biology(drug_name, include_side_effects)
+            DrugBiologyView._cache[cache_key] = result
+            DrugBiologyView._cache_times[cache_key] = now
+            return Response({**result, 'cached': False})
+        except Exception as e:
+            logger.error(f"Drug biology query failed for {drug_name}: {e}")
+            return Response({'error': str(e)}, status=500)
+
+    def _build_drug_biology(self, drug_name, include_side_effects):
+        kg = KnowledgeGraphService
+        cyp_db = get_cyp450_database()
+
+        # 1. Find drug in Neo4j
+        drug_info = {'name': drug_name, 'id': '', 'therapeutic_class': ''}
+        interaction_count = 0
+
+        if kg.is_connected():
+            drug_results = kg.search_drugs(drug_name, limit=1)
+            if drug_results:
+                d = drug_results[0]
+                drug_info = {
+                    'id': d.get('id', ''),
+                    'name': d.get('name', drug_name),
+                    'therapeutic_class': d.get('category', ''),
+                }
+
+                # Get interaction count
+                count_result = kg.run_query("""
+                    MATCH (d:Drug {drugbank_id: $drug_id})-[:INTERACTS_WITH]-()
+                    RETURN count(*) as cnt
+                """, {'drug_id': drug_info['id']})
+                if count_result:
+                    interaction_count = count_result[0].get('cnt', 0)
+
+        # 2. CYP450 profile from local database (fast, no network)
+        cyp_profile = cyp_db.get_drug_cyp_profile(drug_name)
+        cyp_metabolism = {'substrates': [], 'inhibitors': [], 'inducers': []}
+
+        for enzyme, roles in cyp_profile.items():
+            for role in roles:
+                if role == 'substrate':
+                    cyp_metabolism['substrates'].append(enzyme)
+                elif 'inhibitor' in role:
+                    strength = 'strong' if 'strong' in role else ('moderate' if 'moderate' in role else 'weak')
+                    cyp_metabolism['inhibitors'].append({'enzyme': enzyme, 'strength': strength})
+                elif role == 'inducer':
+                    cyp_metabolism['inducers'].append(enzyme)
+
+        # 3. Protein targets from Neo4j
+        targets = []
+        if kg.is_connected() and drug_info['id']:
+            target_results = kg.run_query("""
+                MATCH (d:Drug {drugbank_id: $drug_id})-[r:TARGETS]->(t:Target)
+                RETURN t.uniprot_id as id,
+                       t.name as name,
+                       t.gene_name as gene,
+                       r.action as action
+                ORDER BY t.name
+            """, {'drug_id': drug_info['id']})
+            targets = [{
+                'id': r.get('id', ''),
+                'name': r.get('name', ''),
+                'gene': r.get('gene', ''),
+                'action': r.get('action', 'unknown'),
+            } for r in target_results]
+
+        # 4. Side effects from Neo4j
+        side_effects = []
+        if include_side_effects and kg.is_connected() and drug_info['id']:
+            se_results = kg.run_query("""
+                MATCH (d:Drug {drugbank_id: $drug_id})-[r:CAUSES]->(s:SideEffect)
+                RETURN s.umls_id as id,
+                       s.name as name,
+                       s.organ_system as organ_system,
+                       r.severity as severity,
+                       r.frequency as frequency
+                ORDER BY r.severity DESC
+                LIMIT 15
+            """, {'drug_id': drug_info['id']})
+            side_effects = [{
+                'name': r.get('name', ''),
+                'organ_system': r.get('organ_system', ''),
+                'severity': r.get('severity', 0),
+                'frequency': r.get('frequency', ''),
+            } for r in se_results]
+
+        return {
+            'drug': drug_info,
+            'cyp_metabolism': cyp_metabolism,
+            'targets': targets,
+            'side_effects': side_effects,
+            'interaction_count': interaction_count,
+        }
+
+
+class MechanismMapView(APIView):
+    """
+    GET /api/v1/graph/mechanism-map/?drug1=<name>&drug2=<name>
+
+    Returns the biological mechanism map between two drugs:
+    - Shared CYP enzymes with roles and risk assessment
+    - Shared protein targets
+    - Shared side effects
+    - Interaction details from Neo4j
+    - Conflict summary with overall risk
+    """
+
+    _cache = {}
+    _cache_times = {}
+    CACHE_TTL = 300
+
+    def get(self, request):
+        import time as _time
+
+        drug1_name = request.query_params.get('drug1', '').strip()
+        drug2_name = request.query_params.get('drug2', '').strip()
+
+        if not drug1_name or not drug2_name:
+            return Response({'error': 'Both drug1 and drug2 parameters are required'}, status=400)
+
+        cache_key = f"{min(drug1_name, drug2_name).lower()}:{max(drug1_name, drug2_name).lower()}"
+        now = _time.time()
+        if cache_key in MechanismMapView._cache and (now - MechanismMapView._cache_times.get(cache_key, 0)) < MechanismMapView.CACHE_TTL:
+            return Response({**MechanismMapView._cache[cache_key], 'cached': True})
+
+        try:
+            result = self._build_mechanism_map(drug1_name, drug2_name)
+            MechanismMapView._cache[cache_key] = result
+            MechanismMapView._cache_times[cache_key] = now
+            return Response({**result, 'cached': False})
+        except Exception as e:
+            logger.error(f"Mechanism map query failed for {drug1_name} + {drug2_name}: {e}")
+            return Response({'error': str(e)}, status=500)
+
+    def _build_mechanism_map(self, drug1_name, drug2_name):
+        kg = KnowledgeGraphService
+        cyp_db = get_cyp450_database()
+
+        # Resolve drug identities
+        drugs = []
+        drug_ids = []
+        for name in [drug1_name, drug2_name]:
+            info = {'id': '', 'name': name, 'therapeutic_class': ''}
+            if kg.is_connected():
+                results = kg.search_drugs(name, limit=1)
+                if results:
+                    d = results[0]
+                    info = {'id': d.get('id', ''), 'name': d.get('name', name), 'therapeutic_class': d.get('category', '')}
+            drugs.append(info)
+            drug_ids.append(info['id'])
+
+        # 1. Shared CYP enzymes — from local CYP database
+        profile1 = cyp_db.get_drug_cyp_profile(drug1_name)
+        profile2 = cyp_db.get_drug_cyp_profile(drug2_name)
+
+        shared_enzymes = []
+        all_enzymes_1 = set(profile1.keys())
+        all_enzymes_2 = set(profile2.keys())
+        common_enzymes = all_enzymes_1 & all_enzymes_2
+
+        for enzyme in sorted(common_enzymes):
+            roles1 = profile1[enzyme]
+            roles2 = profile2[enzyme]
+
+            # Classify roles
+            def classify_roles(roles):
+                substrate = 'substrate' in roles
+                inhibitor = any('inhibitor' in r for r in roles)
+                inducer = 'inducer' in roles
+                inhibitor_strength = next(
+                    ('strong' if 'strong' in r else 'moderate' if 'moderate' in r else 'weak')
+                    for r in roles if 'inhibitor' in r
+                ) if inhibitor else None
+                return substrate, inhibitor, inducer, inhibitor_strength
+
+            sub1, inh1, ind1, str1 = classify_roles(roles1)
+            sub2, inh2, ind2, str2 = classify_roles(roles2)
+
+            drug1_role = ', '.join(r for r in roles1)
+            drug2_role = ', '.join(r for r in roles2)
+
+            # Determine risk
+            risk = ''
+            risk_level = 'low'
+            if sub1 and inh2:
+                risk = f"{drugs[1]['name']} inhibits metabolism of {drugs[0]['name']} via {enzyme} → accumulation risk"
+                risk_level = 'high' if str2 == 'strong' else 'moderate'
+            elif sub2 and inh1:
+                risk = f"{drugs[0]['name']} inhibits metabolism of {drugs[1]['name']} via {enzyme} → accumulation risk"
+                risk_level = 'high' if str1 == 'strong' else 'moderate'
+            elif sub1 and ind2:
+                risk = f"{drugs[1]['name']} induces {enzyme}, reducing {drugs[0]['name']} levels → therapeutic failure"
+                risk_level = 'high'
+            elif sub2 and ind1:
+                risk = f"{drugs[0]['name']} induces {enzyme}, reducing {drugs[1]['name']} levels → therapeutic failure"
+                risk_level = 'high'
+            elif sub1 and sub2:
+                risk = f"Both drugs compete for {enzyme} metabolism → potential altered levels"
+                risk_level = 'moderate'
+
+            shared_enzymes.append({
+                'enzyme': enzyme,
+                'drug1_role': drug1_role,
+                'drug2_role': drug2_role,
+                'risk': risk,
+                'risk_level': risk_level,
+            })
+
+        # Also add non-shared CYP enzymes (for individual drug biology context)
+        # from the CYP interactions checker
+        cyp_interactions = cyp_db.check_cyp_interaction(drug1_name, drug2_name)
+        cyp_conflict_details = [{
+            'enzyme': str(ci.enzyme.value),
+            'perpetrator': ci.drug1,
+            'victim': ci.drug2,
+            'mechanism': ci.mechanism,
+            'severity': ci.severity,
+            'clinical_effect': ci.clinical_effect,
+            'management': ci.management,
+        } for ci in cyp_interactions]
+
+        # 2. Shared protein targets from Neo4j
+        shared_targets = []
+        if kg.is_connected() and drug_ids[0] and drug_ids[1]:
+            target_results = kg.run_query("""
+                MATCH (d1:Drug {drugbank_id: $id1})-[r1:TARGETS]->(t:Target)<-[r2:TARGETS]-(d2:Drug {drugbank_id: $id2})
+                RETURN t.uniprot_id as id,
+                       t.name as target,
+                       t.gene_name as gene,
+                       r1.action as drug1_action,
+                       r2.action as drug2_action
+            """, {'id1': drug_ids[0], 'id2': drug_ids[1]})
+
+            for r in target_results:
+                d1_action = r.get('drug1_action', 'unknown')
+                d2_action = r.get('drug2_action', 'unknown')
+                risk = ''
+                if d1_action == d2_action:
+                    risk = f"Additive pharmacodynamic effect ({d1_action})"
+                elif {d1_action, d2_action} & {'agonist', 'antagonist'}:
+                    risk = f"Opposing actions: {drugs[0]['name']} ({d1_action}) vs {drugs[1]['name']} ({d2_action})"
+                shared_targets.append({
+                    'target': r.get('target', ''),
+                    'gene': r.get('gene', ''),
+                    'drug1_action': d1_action,
+                    'drug2_action': d2_action,
+                    'risk': risk,
+                })
+
+        # 3. Shared side effects from Neo4j
+        shared_side_effects = []
+        if kg.is_connected() and drug_ids[0] and drug_ids[1]:
+            se_results = kg.run_query("""
+                MATCH (d1:Drug {drugbank_id: $id1})-[r1:CAUSES]->(s:SideEffect)<-[r2:CAUSES]-(d2:Drug {drugbank_id: $id2})
+                RETURN s.name as name,
+                       s.organ_system as organ_system,
+                       r1.severity as drug1_severity,
+                       r2.severity as drug2_severity
+                ORDER BY r1.severity DESC
+                LIMIT 20
+            """, {'id1': drug_ids[0], 'id2': drug_ids[1]})
+
+            for r in se_results:
+                s1 = r.get('drug1_severity', 0)
+                s2 = r.get('drug2_severity', 0)
+                try:
+                    s1 = float(s1) if s1 else 0
+                    s2 = float(s2) if s2 else 0
+                except (ValueError, TypeError):
+                    s1, s2 = 0, 0
+                combined = 'high' if (s1 + s2) > 1.0 else ('moderate' if (s1 + s2) > 0.5 else 'low')
+                shared_side_effects.append({
+                    'name': r.get('name', ''),
+                    'organ_system': r.get('organ_system', ''),
+                    'drug1_severity': s1,
+                    'drug2_severity': s2,
+                    'combined_risk': combined,
+                })
+
+        # 4. Direct interaction from Neo4j
+        interaction = {}
+        if kg.is_connected() and drug_ids[0] and drug_ids[1]:
+            ix = kg.check_interaction(drug_ids[0], drug_ids[1])
+            if ix:
+                interaction = {
+                    'severity': ix.get('severity', 'unknown'),
+                    'mechanism': ix.get('mechanism', ''),
+                    'description': ix.get('description', ''),
+                    'evidence_level': ix.get('evidence_level', ''),
+                }
+
+        # 5. Collect affected organ systems
+        affected_systems = list(set(
+            se.get('organ_system', '') for se in shared_side_effects if se.get('organ_system')
+        ))
+
+        # 6. Conflict summary
+        cyp_conflicts = len([e for e in shared_enzymes if e['risk_level'] in ('moderate', 'high')])
+        target_overlaps = len(shared_targets)
+        se_count = len(shared_side_effects)
+        overall_risk = 'high' if (cyp_conflicts >= 2 or any(e['risk_level'] == 'high' for e in shared_enzymes)) else (
+            'moderate' if (cyp_conflicts >= 1 or target_overlaps >= 1 or se_count >= 3) else 'low'
+        )
+
+        return {
+            'drugs': drugs,
+            'shared_enzymes': shared_enzymes,
+            'cyp_interactions': cyp_conflict_details,
+            'shared_targets': shared_targets,
+            'shared_side_effects': shared_side_effects,
+            'interaction': interaction,
+            'affected_systems': affected_systems,
+            'conflict_summary': {
+                'cyp_conflicts': cyp_conflicts,
+                'target_overlaps': target_overlaps,
+                'shared_side_effects': se_count,
+                'overall_risk': overall_risk,
+            },
+        }
