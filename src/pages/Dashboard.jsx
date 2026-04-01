@@ -53,7 +53,7 @@ import { useTheme } from '../hooks/useTheme';
 import { searchDrugs, predictDDI, analyzePolypharmacy, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats } from '../services/api';
 import GNNGalaxyViewer from '../components/GalaxyViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
-import BodyMapVisualization from '../components/BodyMapVisualization';
+import BodyMap from '../components/BodyMap';
 import KnowledgeGraphView from '../components/KnowledgeGraph';
 import RiskGauge from '../components/RiskGauge';
 import StatsDashboard from '../components/StatsDashboard';
@@ -834,11 +834,15 @@ export default function Dashboard() {
                     )}
                     {activeTab === 'body' && (
                       <div className="h-full relative">
-                        <div className="absolute top-2 left-2 right-2 z-10 p-2 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                          <p className="text-[10px] text-risk-medium uppercase tracking-wider">Body Map Under Construction</p>
-                        </div>
-                        <BodyMapVisualization affectedSystems={getBodyMapData()} result={result} isMobile={true} />
+                        <BodyMap
+                          affectedSystems={getBodyMapData()}
+                          drugs={selectedDrugs.map(d => d.name)}
+                          drugInfoCache={drugInfoCache}
+                          interactionEvidence={interactionEvidence}
+                          polypharmacyResult={polypharmacyResult}
+                          result={result}
+                          isMobile={true}
+                        />
                       </div>
                     )}
                   </div>
@@ -1284,7 +1288,7 @@ export default function Dashboard() {
 
           {/* Visualization Area */}
           <div className="flex-1 relative overflow-hidden bg-theme-primary">
-            {/* Galaxy Viewer and Knowledge Graph always render (they have their own empty states) */}
+            {/* Galaxy Viewer, Knowledge Graph, and Body Map always render (they have their own empty states) */}
             {activeTab === 'molecules' ? (
               <div className="h-full relative">
                 <GNNGalaxyViewer
@@ -1298,6 +1302,17 @@ export default function Dashboard() {
                   drugs={selectedDrugs}
                   result={result}
                   polypharmacyResult={polypharmacyResult}
+                />
+              </div>
+            ) : activeTab === 'body' ? (
+              <div className="h-full relative">
+                <BodyMap
+                  affectedSystems={getBodyMapData()}
+                  drugs={selectedDrugs.map(d => d.name)}
+                  drugInfoCache={drugInfoCache}
+                  interactionEvidence={interactionEvidence}
+                  polypharmacyResult={polypharmacyResult}
+                  result={result}
                 />
               </div>
             ) : selectedDrugs.length === 0 ? (
@@ -1319,21 +1334,6 @@ export default function Dashboard() {
                     drugs={selectedDrugs}
                     result={result}
                   />
-                )}
-                {activeTab === 'body' && (
-                  <div className="h-full relative">
-                    <div className="absolute top-4 left-4 right-4 z-10 p-3 border border-risk-medium/40 bg-theme-primary/95 backdrop-blur-sm flex items-center gap-3">
-                      <AlertTriangle className="w-4 h-4 text-risk-medium flex-shrink-0" />
-                      <div>
-                        <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Body Map Under Construction</p>
-                        <p className="text-[10px] text-theme-muted">Body visualization is still being developed</p>
-                      </div>
-                    </div>
-                    <BodyMapVisualization
-                      affectedSystems={getBodyMapData()}
-                      result={result}
-                    />
-                  </div>
                 )}
               </>
             )}
