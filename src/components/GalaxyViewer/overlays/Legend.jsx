@@ -1,9 +1,11 @@
 // Legend.jsx — Interactive legend with GNN hop explanation
 import React, { useState } from 'react';
 import { ChevronDown, ChevronUp, Info } from 'lucide-react';
+import { useGalaxy } from '../store';
 
 export default function Legend({ isMobile }) {
   const [expanded, setExpanded] = useState(!isMobile);
+  const { viewMode } = useGalaxy();
 
   return (
     <div className="absolute bottom-3 left-3 pointer-events-none">
@@ -34,9 +36,20 @@ export default function Legend({ isMobile }) {
               <div className="flex items-start gap-1.5">
                 <Info className="w-3 h-3 text-purple-400 mt-0.5 flex-shrink-0" />
                 <p className="text-[8px] text-white/30 leading-relaxed">
-                  The GraphSAGE GNN aggregates information from selected drugs out to <span className="text-purple-300">3 hops</span>.
-                  In multi-drug regimens, hop distance is computed from any selected anchor to expose shared interaction neighborhoods.
-                  Focus mode keeps direct selected links and prefers alternate connector routes when similar-length paths exist.
+                  {viewMode === 'embedding'
+                    ? (
+                      <>
+                        Embedding mode shows the full latent atlas: each sphere is a drug position in model space.
+                        Faint gray links show sparse global structure, while colored links highlight selected-drug relationships.
+                      </>
+                    )
+                    : (
+                      <>
+                        The GraphSAGE GNN aggregates information from selected drugs out to <span className="text-purple-300">3 hops</span>.
+                        In multi-drug regimens, hop distance is computed from any selected anchor to expose shared interaction neighborhoods.
+                        Focus mode keeps direct selected links and prefers alternate connector routes when similar-length paths exist.
+                      </>
+                    )}
                 </p>
               </div>
             </div>

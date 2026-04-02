@@ -83,11 +83,20 @@ function LoadingScreen({ status, error, onRetry }) {
 // ─── Data source badge ──────────────────────────────────────────────────────
 function DataSourceBadge({ source, stats }) {
   const isLive = source === 'api';
+  const coordinateSources = stats?.coordinateSources || null;
+  const coordSummary = coordinateSources
+    ? Object.entries(coordinateSources)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 2)
+      .map(([kind, count]) => `${kind}:${count}`)
+      .join(', ')
+    : null;
+
   return (
     <div className="absolute bottom-2 right-2 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-black/60 backdrop-blur-sm border border-white/10">
       <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
       <span className="text-[10px] font-mono text-white/50">
-        {isLive ? 'LIVE' : 'STATIC'} | {stats?.fetchedNodes || 0} nodes | {stats?.fetchedEdges || 0} edges
+        {isLive ? 'LIVE' : 'STATIC'} | {stats?.fetchedNodes || 0} nodes | {stats?.fetchedEdges || 0} edges{coordSummary ? ` | coords ${coordSummary}` : ''}
       </span>
     </div>
   );
@@ -420,7 +429,7 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
       // Don't trigger shortcuts when typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
-      const viewModes = { '1': 'galaxy', '2': 'radial', '3': 'cluster', '4': 'path', '5': 'focus' };
+      const viewModes = { '1': 'galaxy', '2': 'embedding', '3': 'radial', '4': 'cluster', '5': 'path', '6': 'focus' };
       if (viewModes[e.key]) {
         dispatch({ type: 'SET_VIEW_MODE', payload: viewModes[e.key] });
       } else if (e.key === 'Escape') {
@@ -456,6 +465,8 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
     const bId = drugB?.id || null;
 
     switch (viewMode) {
+      case 'embedding':
+        return null;
       case 'radial':
         return computeRadialPositions(nodes, aId, bId, adj, maxHops);
       case 'cluster':

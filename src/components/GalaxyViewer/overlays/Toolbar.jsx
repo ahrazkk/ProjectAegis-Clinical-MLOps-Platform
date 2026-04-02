@@ -1,13 +1,14 @@
 // Toolbar.jsx — View mode switcher, toggles, export, reset
 import React, { useRef } from 'react';
 import {
-  Globe, Target, Layers, Route, SlidersHorizontal,
+  Globe, Atom, Target, Layers, Route, SlidersHorizontal,
   Tag, GitBranch, Camera, RotateCcw, Maximize2,
 } from 'lucide-react';
 import { useGalaxy, useGalaxyDispatch } from '../store';
 
 const viewModes = [
   { id: 'galaxy', label: 'Galaxy', icon: Globe, tip: 'T-SNE embedding space' },
+  { id: 'embedding', label: 'Embedding', icon: Atom, tip: 'All-drug latent space (full atlas)' },
   { id: 'radial', label: 'Radial', icon: Target, tip: 'Concentric hop rings' },
   { id: 'cluster', label: 'Cluster', icon: Layers, tip: 'Therapeutic class groups' },
   { id: 'path', label: 'Path', icon: Route, tip: 'Shortest path subway map' },

@@ -229,6 +229,16 @@ function edgeKey(a, b) {
   return u < v ? `${u}-${v}` : `${v}-${u}`;
 }
 
+function shouldKeepEmbeddingBackgroundEdge(key) {
+  // Deterministic sparse sampling to reduce visual clutter in global embedding view.
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i += 1) {
+    hash ^= key.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 18 === 0; // ~5.5% of background edges
+}
+
 function normalizeSeverityLevel(severity) {
   const raw = String(severity || 'unknown').toLowerCase();
   if (raw === 'severe') return 'critical';
@@ -485,6 +495,7 @@ export function computeSubgraph(
 ) {
   const adj = _graphData.adj || {};
   const isFocusMode = viewMode === 'focus';
+  const isEmbeddingMode = viewMode === 'embedding';
 
   const selectedSet = new Set((selectedDrugIds || []).filter(Boolean));
   if (drugAId) selectedSet.add(drugAId);
@@ -548,7 +559,8 @@ export function computeSubgraph(
   const path = shortestPath(adj, drugAId, drugBId);
   const pathSet = new Set(path);
 
-  const hasDrugs = selectedIds.length > 0;
+  // Embedding mode keeps selected drug highlighting but renders the complete latent atlas.
+  const hasDrugs = selectedIds.length > 0 && !isEmbeddingMode;
 
   // Compute edges
   const edges = [];
@@ -571,6 +583,50 @@ export function computeSubgraph(
       const inFocusConnector = focusEdgeSet.has(key);
       const onPath = pathSet.has(u) && pathSet.has(v) &&
         Math.abs(path.indexOf(u) - path.indexOf(v)) === 1;
+
+      if (isEmbeddingMode) {
+        let color = '#334155';
+        let opacity = 0.018;
+        let lineWidth = 0.9;
+        let role = 'background';
+
+        if (onPath || ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA))) {
+          color = '#ef4444';
+          opacity = 0.95;
+          lineWidth = 2.8;
+          role = 'path';
+        } else if (isSelectedPair) {
+          color = '#22c55e';
+          opacity = 0.75;
+          lineWidth = 2.2;
+          role = 'selected-pair';
+        } else if (uNode.isA || vNode.isA) {
+          color = '#00d2ff';
+          opacity = 0.42;
+          lineWidth = 1.8;
+          role = 'hopA';
+        } else if (uNode.isB || vNode.isB) {
+          color = '#ff8c00';
+          opacity = 0.42;
+          lineWidth = 1.8;
+          role = 'hopB';
+        }
+
+        if (role !== 'background' || shouldKeepEmbeddingBackgroundEdge(key)) {
+          edges.push({
+            startId: u,
+            endId: v,
+            start: uNode.pos,
+            end: vNode.pos,
+            color,
+            opacity,
+            lineWidth,
+            role,
+            severity: 'unknown',
+          });
+        }
+        return;
+      }
 
       let color = '#475569';
       let opacity = 0.04;
@@ -666,10 +722,11 @@ export function computeSubgraph(
 }
 
 // ─── Get node visual properties ───────────────────────────────────────────
-export function getNodeVisuals(node, hasDrugs) {
+export function getNodeVisuals(node, hasDrugs, viewMode = 'galaxy') {
   const adj = _graphData.adj || {};
   const degree = (adj[node.id] || []).length;
   const degreeFactor = Math.min(Math.sqrt(degree) / 8, 1); // 0-1 normalized
+  const isEmbeddingMode = viewMode === 'embedding';
 
   let color = '#1e293b';
   let opacity = 0.15;
@@ -682,6 +739,11 @@ export function getNodeVisuals(node, hasDrugs) {
     color = '#ff8c00'; opacity = 1; size = 0.7; glow = 1;
   } else if (node.isSelected) {
     color = '#22c55e'; opacity = 0.95; size = 0.58; glow = 0.9;
+  } else if (isEmbeddingMode) {
+    // Embedding mode should show global class structure independent of hop shells.
+    color = CATEGORY_COLORS[node.category] || '#475569';
+    opacity = 0.55 + degreeFactor * 0.18;
+    size = 0.24 + degreeFactor * 0.22;
   } else if (node.hopA <= 3 && node.hopB <= 3) {
     color = '#a855f7';
     opacity = 0.75 - Math.max(node.hopA, node.hopB) * 0.12;
@@ -709,7 +771,7 @@ export function getNodeVisuals(node, hasDrugs) {
     size = 0.12 + degreeFactor * 0.15;
   }
 
-  return { color, opacity, size: Math.max(size, 0.15), glow: Math.max(glow, 0) };
+  return { color, opacity, size: Math.max(size, isEmbeddingMode ? 0.22 : 0.15), glow: Math.max(glow, 0) };
 }
 
 // ─── Sample background edges for "no selection" view ─────────────────────

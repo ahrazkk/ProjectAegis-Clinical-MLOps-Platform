@@ -6,8 +6,8 @@ export default function HopSlider() {
   const { maxHops, drugA, drugB, viewMode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
 
-  // Only show when drugs are selected
-  if (!drugA && !drugB) return null;
+  // Only show when drugs are selected and the view is hop-aware.
+  if ((!drugA && !drugB) || viewMode === 'embedding') return null;
 
   const hops = [1, 2, 3];
 

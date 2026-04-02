@@ -1335,6 +1335,16 @@ class GraphNodesView(APIView):
                        d.therapeutic_class as therapeutic_class,
                        d.smiles as smiles,
                        d.description as description,
+                       d.pos as pos,
+                       d.x as x,
+                       d.y as y,
+                       d.z as z,
+                       d.tsne_x as tsne_x,
+                       d.tsne_y as tsne_y,
+                       d.tsne_z as tsne_z,
+                       d.embedding_x as embedding_x,
+                       d.embedding_y as embedding_y,
+                       d.embedding_z as embedding_z,
                        degree
                 ORDER BY degree DESC
             """)
@@ -1348,6 +1358,16 @@ class GraphNodesView(APIView):
                     'therapeutic_class': r.get('therapeutic_class', ''),
                     'smiles': r.get('smiles', ''),
                     'has_description': bool(r.get('description')),
+                    'pos': r.get('pos'),
+                    'x': r.get('x'),
+                    'y': r.get('y'),
+                    'z': r.get('z'),
+                    'tsne_x': r.get('tsne_x'),
+                    'tsne_y': r.get('tsne_y'),
+                    'tsne_z': r.get('tsne_z'),
+                    'embedding_x': r.get('embedding_x'),
+                    'embedding_y': r.get('embedding_y'),
+                    'embedding_z': r.get('embedding_z'),
                     'degree': r.get('degree', 0),
                 })
 

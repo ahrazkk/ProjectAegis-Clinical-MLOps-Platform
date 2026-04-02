@@ -12,7 +12,7 @@ const initialState = {
   maxHops: 3,            // 1-3 slider
   showShortestPath: true,
   shortestPath: [],      // array of node IDs
-  viewMode: 'galaxy',   // 'galaxy' | 'radial' | 'cluster' | 'path' | 'focus'
+  viewMode: 'galaxy',   // 'galaxy' | 'embedding' | 'radial' | 'cluster' | 'path' | 'focus'
   cameraTarget: null,    // [x, y, z] to fly to
   cameraFit: null,       // { center, radius } for zoom-to-fit
   showLabels: 'selected', // 'all' | 'selected' | 'none'

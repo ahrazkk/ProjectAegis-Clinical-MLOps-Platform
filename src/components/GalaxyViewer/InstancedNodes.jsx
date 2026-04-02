@@ -47,23 +47,24 @@ const nodeFragmentShader = `
   uniform float uTime;
 
   void main() {
+    vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(vViewPosition);
-    float fresnel = pow(1.0 - abs(dot(viewDir, vNormal)), 2.5);
 
-    // Core color with emissive center
-    vec3 coreColor = vColor * (0.6 + vGlow * 0.4);
+    vec3 lightDirA = normalize(vec3(0.6, 0.9, 0.4));
+    vec3 lightDirB = normalize(vec3(-0.7, -0.2, 0.6));
 
-    // Rim glow (fresnel)
-    vec3 rimColor = vColor * fresnel * (0.5 + vGlow * 1.5);
+    float diffuseA = max(dot(normal, lightDirA), 0.0);
+    float diffuseB = max(dot(normal, lightDirB), 0.0);
+    float fresnel = pow(1.0 - abs(dot(viewDir, normal)), 2.2);
 
-    // Combine
-    vec3 finalColor = coreColor + rimColor;
+    vec3 ambient = vColor * 0.22;
+    vec3 diffuse = vColor * (0.55 * diffuseA + 0.25 * diffuseB + 0.2);
+    vec3 rim = vColor * fresnel * (0.18 + vGlow * 0.35);
 
-    // Subtle pulse for glowing nodes
-    float pulse = 1.0 + sin(uTime * 2.0) * 0.08 * vGlow;
-    finalColor *= pulse;
+    float pulse = 1.0 + sin(uTime * 2.0) * 0.05 * vGlow;
+    vec3 finalColor = (ambient + diffuse + rim) * pulse;
 
-    float alpha = vOpacity * (0.7 + fresnel * 0.3);
+    float alpha = clamp(vOpacity * (0.72 + fresnel * 0.18), 0.0, 1.0);
 
     gl_FragColor = vec4(finalColor, alpha);
   }
@@ -71,7 +72,7 @@ const nodeFragmentShader = `
 
 export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeVisibility }) {
   const meshRef = useRef();
-  const { hoveredNode, showLabels } = useGalaxy();
+  const { hoveredNode, showLabels, viewMode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
 
   const count = nodes.length;
@@ -97,15 +98,16 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
   const isInitialized = useRef(false);
 
   // Create shared geometry and material
-  const geometry = useMemo(() => new THREE.SphereGeometry(1, 20, 20), []);
+  const geometry = useMemo(() => new THREE.SphereGeometry(1, 24, 24), []);
   const material = useMemo(() => {
     const mat = new THREE.ShaderMaterial({
       vertexShader: nodeVertexShader,
       fragmentShader: nodeFragmentShader,
       uniforms: { uTime: { value: 0 } },
       transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      depthWrite: true,
+      depthTest: true,
+      blending: THREE.NormalBlending,
     });
     return mat;
   }, []);
@@ -116,7 +118,7 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
     const mesh = meshRef.current;
 
     nodes.forEach((node, i) => {
-      const visuals = getNodeVisuals(node, hasDrugs);
+      const visuals = getNodeVisuals(node, hasDrugs, viewMode);
 
       // Apply filter visibility — ghost mode for filtered-out nodes
       const isVisible = !nodeVisibility || nodeVisibility.get(node.id) !== false;
@@ -168,7 +170,7 @@ export default function InstancedNodes({ nodes, hasDrugs, layoutPositions, nodeV
       entranceProgress.current = 0;
       isInitialized.current = true;
     }
-  }, [nodes, hasDrugs, layoutPositions, nodeVisibility]);
+  }, [nodes, hasDrugs, layoutPositions, nodeVisibility, viewMode]);
 
   // Per-frame animation: lerp current → target + entrance cascade
   useFrame(({ clock }) => {

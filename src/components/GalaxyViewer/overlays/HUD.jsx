@@ -10,7 +10,7 @@ export default function HUD() {
       {/* Status badge */}
       <div className="bg-black/70 border border-purple-500/30 text-purple-300 px-2.5 py-1 rounded text-[9px] uppercase tracking-[0.2em] shadow-[0_0_12px_rgba(139,92,246,0.15)] backdrop-blur-sm font-mono flex items-center gap-2">
         <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
-        GraphSAGE-3L · T-SNE
+        {viewMode === 'embedding' ? 'GraphSAGE-3L · Full Atlas' : 'GraphSAGE-3L · T-SNE'}
       </div>
 
       {/* Stats grid */}
