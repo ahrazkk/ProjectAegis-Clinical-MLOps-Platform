@@ -9,6 +9,7 @@ from django.test import SimpleTestCase
 from rest_framework.test import APIRequestFactory
 
 from .services.calibration_metrics import expected_calibration_error, generate_calibration_report
+from .services.enhanced_drug_service import EnhancedDrugService
 from .services.gnn_predictor import GNNDDIPredictor, GNNPrediction
 from .views import DDIPredictionView, DatabaseStatsView, CalibrationMetricsView, PolypharmacyDigitalTwinView
 
@@ -415,3 +416,70 @@ class CalibrationMetricsEndpointTests(SimpleTestCase):
 
 		self.assertEqual(response.status_code, 400)
 		self.assertIn('error', response.data)
+
+
+class EnhancedDrugServiceEvidenceSummaryTests(SimpleTestCase):
+	"""Regression tests for source-weighted evidence summary aggregation."""
+
+	def test_build_summary_detects_high_conflict_and_reasons(self):
+		evidence_chain = [
+			{
+				'supports_interaction': True,
+				'strength_score': 1.0,
+				'source': {'id': 'ddi_corpus', 'label': 'DDI Corpus'},
+				'source_weight': 0.9,
+				'claim_type': 'literature_sentence_evidence',
+				'claim': 'Curated literature sentence supports this pair.',
+				'caveats': [],
+			},
+			{
+				'supports_interaction': False,
+				'strength_score': 0.8,
+				'source': {'id': 'knowledge_graph', 'label': 'Neo4j Knowledge Graph'},
+				'source_weight': 1.0,
+				'claim_type': 'curated_knowledge_graph_relation',
+				'claim': 'No robust curated support for this exact pair mapping.',
+				'caveats': ['Potential ontology mismatch in source relation.'],
+			},
+		]
+
+		summary = EnhancedDrugService._build_evidence_summary(evidence_chain)
+
+		self.assertEqual(summary['total_items'], 2)
+		self.assertTrue(summary['disagreement']['has_conflict'])
+		self.assertEqual(summary['disagreement']['level'], 'high')
+		self.assertEqual(summary['confidence_band'], 'moderate')
+		self.assertGreater(summary['weighted_support_score'], 0.45)
+		self.assertEqual(len(summary['uncertainty_reasons']), 1)
+		self.assertEqual(summary['uncertainty_reasons'][0]['source_id'], 'knowledge_graph')
+
+	def test_build_summary_high_support_no_conflict(self):
+		evidence_chain = [
+			{
+				'supports_interaction': True,
+				'strength_score': 0.92,
+				'source': {'id': 'knowledge_graph', 'label': 'Neo4j Knowledge Graph'},
+				'source_weight': 1.0,
+				'claim_type': 'curated_knowledge_graph_relation',
+				'claim': 'Curated relation indicates elevated interaction severity.',
+				'caveats': [],
+			},
+			{
+				'supports_interaction': True,
+				'strength_score': 0.88,
+				'source': {'id': 'ddi_corpus', 'label': 'DDI Corpus'},
+				'source_weight': 0.9,
+				'claim_type': 'literature_sentence_evidence',
+				'claim': 'Clinical sentence context supports pair interaction.',
+				'caveats': [],
+			},
+		]
+
+		summary = EnhancedDrugService._build_evidence_summary(evidence_chain)
+
+		self.assertEqual(summary['total_items'], 2)
+		self.assertFalse(summary['disagreement']['has_conflict'])
+		self.assertEqual(summary['disagreement']['level'], 'none')
+		self.assertEqual(summary['confidence_band'], 'high')
+		self.assertGreater(summary['weighted_support_score'], 0.72)
+		self.assertEqual(summary['uncertainty_reasons'], [])

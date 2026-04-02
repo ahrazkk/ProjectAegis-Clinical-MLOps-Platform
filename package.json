@@ -23,6 +23,7 @@
     "postprocessing": "^6.38.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-muscle-highlighter": "^1.2.0",
     "react-router-dom": "^7.11.0",
     "react-webcam": "^7.2.0",
     "recharts": "^3.8.1",

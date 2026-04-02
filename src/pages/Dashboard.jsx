@@ -697,6 +697,42 @@ function getDisagreementTone(level) {
   return 'border-theme text-theme-muted';
 }
 
+function getUncertaintyGuardrail({
+  confidenceBand,
+  disagreementLevel,
+  weightedSupport,
+  coverageRatio,
+}) {
+  const hasLowCoverage = Number.isFinite(coverageRatio) && coverageRatio < 0.5;
+  const supportLow = Number.isFinite(weightedSupport) && weightedSupport < 0.45;
+
+  if (disagreementLevel === 'high' || confidenceBand === 'low' || supportLow || hasLowCoverage) {
+    return {
+      label: 'Manual Review Required',
+      tone: 'border-risk-high/40 text-risk-high bg-risk-high/10',
+      message: 'Do not auto-approve this interaction risk call. A clinician/pharmacist review is required.',
+    };
+  }
+
+  if (
+    disagreementLevel === 'moderate'
+    || confidenceBand === 'moderate'
+    || (Number.isFinite(weightedSupport) && weightedSupport < 0.72)
+  ) {
+    return {
+      label: 'Clinical Review Recommended',
+      tone: 'border-risk-medium/40 text-risk-medium bg-risk-medium/10',
+      message: 'Treat this as a cautionary result and confirm with additional clinical context before action.',
+    };
+  }
+
+  return {
+    label: 'Auto-Triage Eligible',
+    tone: 'border-risk-low/40 text-risk-low bg-risk-low/10',
+    message: 'Evidence is directionally consistent with low disagreement. Manual review is still advised for critical regimens.',
+  };
+}
+
 function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
   const summary = interactionEvidence?.evidence_summary && typeof interactionEvidence.evidence_summary === 'object'
     ? interactionEvidence.evidence_summary
@@ -720,6 +756,14 @@ function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
 
   const hasConflict = Boolean(disagreement.has_conflict);
   const disagreementLevel = String(disagreement.level || 'none');
+  const coverageRatio = Number(coverage.ratio);
+
+  const guardrail = getUncertaintyGuardrail({
+    confidenceBand,
+    disagreementLevel,
+    weightedSupport,
+    coverageRatio,
+  });
 
   const hasSummarySignals = Number.isFinite(weightedSupport)
     || Number.isFinite(weightedUncertainty)
@@ -739,6 +783,15 @@ function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
         <span className={`ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border ${getEvidenceConfidenceTone(confidenceBand)}`}>
           {confidenceBand} confidence
         </span>
+      </div>
+
+      <div className="mb-3 p-2 border border-theme/20 bg-theme-primary/70">
+        <div className="flex items-center gap-2 mb-1">
+          <span className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-wider ${guardrail.tone}`}>
+            {guardrail.label}
+          </span>
+        </div>
+        <p className="text-[10px] text-theme-secondary leading-relaxed">{guardrail.message}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-3">
@@ -769,9 +822,9 @@ function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
         </div>
       )}
 
-      {Number.isFinite(coverage.ratio) && (
+      {Number.isFinite(coverageRatio) && (
         <p className="text-[9px] text-theme-dim uppercase tracking-wider mb-2">
-          Primary Source Coverage: {(coverage.ratio * 100).toFixed(0)}%
+          Primary Source Coverage: {(coverageRatio * 100).toFixed(0)}%
         </p>
       )}
 
