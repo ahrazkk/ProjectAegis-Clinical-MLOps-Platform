@@ -236,7 +236,7 @@ function shouldKeepEmbeddingBackgroundEdge(key) {
     hash ^= key.charCodeAt(i);
     hash = Math.imul(hash, 16777619);
   }
-  return (hash >>> 0) % 18 === 0; // ~5.5% of background edges
+  return (hash >>> 0) % 14 === 0; // ~7.1% of background edges
 }
 
 function squaredDistance3(a, b) {
@@ -299,7 +299,7 @@ function buildEmbeddingKnnEdgeMap(nodeDict, k = 8) {
         start: nodeDict[sourceId].pos,
         end: nodeDict[neighbor.id].pos,
         color: '#334155',
-        opacity: 0.03,
+        opacity: 0.12,
         lineWidth: 1,
         role: 'embedding-knn',
         severity: 'unknown',
@@ -338,6 +338,41 @@ function upsertEmbeddingEdge(edgeMap, nodeDict, nodeA, nodeB, style) {
     ...style,
     priority: nextPriority,
   });
+}
+
+function injectSelectedFallbackEdges(edges, nodeDict, selectedIds = []) {
+  const ids = Array.from(new Set((selectedIds || []).filter(id => Boolean(nodeDict[id]))));
+  if (ids.length < 2) return;
+
+  const existing = new Set(edges.map(edge => edgeKey(edge.startId, edge.endId)));
+  const maxSyntheticEdges = Math.min(28, (ids.length * (ids.length - 1)) / 2);
+  let inserted = 0;
+
+  for (let i = 0; i < ids.length; i += 1) {
+    for (let j = i + 1; j < ids.length; j += 1) {
+      if (inserted >= maxSyntheticEdges) return;
+
+      const a = ids[i];
+      const b = ids[j];
+      const key = edgeKey(a, b);
+      if (existing.has(key)) continue;
+
+      edges.push({
+        startId: a,
+        endId: b,
+        start: nodeDict[a].pos,
+        end: nodeDict[b].pos,
+        color: '#22c55e',
+        opacity: 0.88,
+        lineWidth: 2.2,
+        role: 'selected-pair',
+        severity: 'unknown',
+      });
+
+      existing.add(key);
+      inserted += 1;
+    }
+  }
 }
 
 function normalizeSeverityLevel(severity) {
@@ -727,6 +762,8 @@ export function computeSubgraph(
       const { priority, distanceSq, ...rest } = edge;
       edges.push(rest);
     });
+
+    injectSelectedFallbackEdges(edges, nodeDict, selectedIds);
   } else {
     const processed = new Set();
     Object.keys(adj).forEach(u => {
@@ -750,7 +787,7 @@ export function computeSubgraph(
 
         if (isEmbeddingMode) {
           let color = '#334155';
-          let opacity = 0.018;
+          let opacity = 0.08;
           let lineWidth = 0.9;
           let role = 'background';
 
@@ -852,6 +889,10 @@ export function computeSubgraph(
         }
       });
     });
+
+    if (isEmbeddingMode) {
+      injectSelectedFallbackEdges(edges, nodeDict, selectedIds);
+    }
   }
 
   // Stats

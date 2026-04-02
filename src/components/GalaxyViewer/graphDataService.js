@@ -69,6 +69,17 @@ function resolveNameCandidates(name) {
 }
 
 function asFiniteNumber(value) {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'null' || lowered === 'undefined' || lowered === 'nan') {
+      return null;
+    }
+  }
+
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }

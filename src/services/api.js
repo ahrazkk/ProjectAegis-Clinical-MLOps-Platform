@@ -17,6 +17,31 @@ const API_MAX_RETRIES = 2;
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function summarizeErrorBody(text, status) {
+    if (!text) {
+        return `HTTP error! status: ${status}`;
+    }
+
+    const normalized = String(text).trim();
+    const looksLikeHtml = /^<!doctype html>|^<html/i.test(normalized);
+
+    if (!looksLikeHtml) {
+        return normalized;
+    }
+
+    const routeMatch = normalized.match(/Page not found at\s*([^<\n]+)/i);
+    if (routeMatch) {
+        return `Route not found: ${routeMatch[1].trim()} (HTTP ${status})`;
+    }
+
+    const titleMatch = normalized.match(/<title>([^<]+)<\/title>/i);
+    if (titleMatch) {
+        return `${titleMatch[1].trim()} (HTTP ${status})`;
+    }
+
+    return `Received HTML error response (HTTP ${status})`;
+}
+
 /**
  * Generic fetch wrapper with error handling
  */
@@ -59,7 +84,7 @@ async function apiRequest(endpoint, options = {}) {
                     } else {
                         const text = await response.text();
                         if (text) {
-                            errorMessage = text;
+                            errorMessage = summarizeErrorBody(text, response.status);
                         }
                     }
                 } catch {

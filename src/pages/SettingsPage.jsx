@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { 
@@ -6,21 +6,65 @@ import {
   Trash2, Shield, Activity, Save, AlertTriangle
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
+import {
+  DEMO_DRUG_GROUPS,
+  DEMO_MODE_SETTING_KEY,
+  USER_PREFERENCES_STORAGE_KEY,
+  readDemoModeSetting,
+  readUserPreferences,
+  writeDemoModeSetting,
+  writeUserPreferences,
+} from '../config/demoMode';
 
 const SettingsPage = () => {
   const navigate = useNavigate();
   const { theme, toggleTheme, setTheme } = useTheme();
+
+  const savedPreferences = useMemo(() => readUserPreferences() || {}, []);
   
   const [activeTab, setActiveTab] = useState('appearance');
-  const [inferenceMode, setInferenceMode] = useState('graphsage');
-  const [threshold, setThreshold] = useState(85);
-  const [privacyMode, setPrivacyMode] = useState(false);
+  const [inferenceMode, setInferenceMode] = useState(() =>
+    typeof savedPreferences.inferenceMode === 'string' ? savedPreferences.inferenceMode : 'graphsage'
+  );
+  const [threshold, setThreshold] = useState(() => {
+    const value = Number(savedPreferences.threshold);
+    if (!Number.isFinite(value)) return 85;
+    return Math.min(99, Math.max(50, value));
+  });
+  const [privacyMode, setPrivacyMode] = useState(() => Boolean(savedPreferences.privacyMode));
+  const [demoModeEnabled, setDemoModeEnabled] = useState(() => readDemoModeSetting());
 
   const handleClearCache = () => {
     // Basic cache clearing for demo purposes
     localStorage.removeItem('ddi-theme'); // Clear theme mapping as a test
     localStorage.removeItem('ddi-dashboard-state'); // Assuming we add this later
+    localStorage.removeItem(DEMO_MODE_SETTING_KEY);
+    localStorage.removeItem(USER_PREFERENCES_STORAGE_KEY);
+    setInferenceMode('graphsage');
+    setThreshold(85);
+    setPrivacyMode(false);
+    setDemoModeEnabled(false);
     alert('System Cache Cleared. Temporary storage purged.');
+  };
+
+  const handleSaveConfiguration = () => {
+    writeDemoModeSetting(demoModeEnabled);
+    writeUserPreferences({
+      inferenceMode,
+      threshold: Number(threshold),
+      privacyMode,
+      demoModeEnabled,
+      updatedAt: new Date().toISOString(),
+    });
+    alert('Settings saved locally.');
+  };
+
+  const handleDemoModeToggle = () => {
+    setDemoModeEnabled((prev) => {
+      const next = !prev;
+      writeDemoModeSetting(next);
+      return next;
+    });
   };
 
   return (
@@ -167,6 +211,43 @@ const SettingsPage = () => {
                         className="w-full accent-theme-accent"
                       />
                     </div>
+
+                    <div className="border border-theme bg-theme-panel-elevated p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="flex items-center gap-2 text-sm text-theme-secondary">
+                            <Database className="w-4 h-4 text-theme-accent" /> Demo Mode: Bulk Candidate Groups
+                          </div>
+                          <p className="text-xs text-theme-muted mt-1 leading-relaxed max-w-xl">
+                            When enabled, Dashboard shows curated grouped drug categories for one-click mass selection during demos.
+                            Default is OFF so normal workflows remain unchanged.
+                          </p>
+                        </div>
+
+                        <button
+                          onClick={handleDemoModeToggle}
+                          className={`w-12 h-6 border relative transition-colors ${demoModeEnabled ? 'bg-theme-accent border-theme-accent' : 'bg-transparent border-theme'}`}
+                          aria-label="Toggle demo mode"
+                        >
+                          <div className={`absolute top-1 w-4 h-4 transition-transform ${demoModeEnabled ? 'left-7 bg-black' : 'left-1 bg-theme-muted'}`} />
+                        </button>
+                      </div>
+
+                      <div className="pt-2 border-t border-theme/40">
+                        <p className="text-[10px] text-theme-muted uppercase tracking-wider mb-2">Available Demo Groups</p>
+                        <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                          {DEMO_DRUG_GROUPS.map((group) => (
+                            <div key={group.id} className="p-2 border border-theme/50 bg-theme-panel/60">
+                              <p className="text-[10px] text-theme-secondary uppercase tracking-wider">{group.title}</p>
+                              <p className="text-[10px] text-theme-dim mt-1 leading-relaxed">{group.reason}</p>
+                              <p className="text-[9px] text-theme-muted mt-1 uppercase tracking-wider">
+                                {group.drugs.join(' • ')}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -218,7 +299,7 @@ const SettingsPage = () => {
 
             <div className="flex justify-end pt-4">
               <button 
-                onClick={() => alert("Settings saved locally.")}
+                onClick={handleSaveConfiguration}
                 className="flex items-center gap-2 px-6 py-2 border border-theme-accent bg-theme-accent text-black text-xs uppercase tracking-widest font-bold hover:bg-theme-accent/90 transition-colors"
               >
                 <Save className="w-4 h-4" /> Save Configuration
