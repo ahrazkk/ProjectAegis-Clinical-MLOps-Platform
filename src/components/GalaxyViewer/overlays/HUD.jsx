@@ -3,7 +3,7 @@ import React from 'react';
 import { useGalaxy } from '../store';
 
 export default function HUD() {
-  const { stats, maxHops, drugA, drugB, viewMode } = useGalaxy();
+  const { stats, maxHops, drugA, drugB, viewMode, filters } = useGalaxy();
 
   return (
     <div className="absolute top-12 right-3 pointer-events-none flex flex-col items-end gap-1.5">
@@ -35,6 +35,15 @@ export default function HUD() {
           <span>HOP_DEPTH</span>
           <span className="text-cyan-300">{maxHops}</span>
         </div>
+        {viewMode === 'embedding' && (
+          <div className="flex justify-between text-white/30">
+            <span>EMBED_EDGE</span>
+            <span className="text-cyan-300 font-mono">
+              {(filters.embeddingEdgeMode || 'knn').toUpperCase()}
+              {(filters.embeddingEdgeMode || 'knn') === 'knn' ? ` k=${filters.embeddingK || 8}` : ''}
+            </span>
+          </div>
+        )}
         {stats.pathLength >= 0 && (
           <div className="flex justify-between text-white/30 border-t border-white/5 mt-1 pt-1">
             <span>PATH_LEN</span>

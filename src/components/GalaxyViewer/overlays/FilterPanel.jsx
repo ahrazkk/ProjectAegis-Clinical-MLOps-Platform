@@ -5,7 +5,7 @@ import { useGalaxy, useGalaxyDispatch } from '../store';
 import { CATEGORY_COLORS, CATEGORY_LIST } from '../graphEngine';
 
 export default function FilterPanel({ isOpen, onClose }) {
-  const { filters } = useGalaxy();
+  const { filters, viewMode } = useGalaxy();
   const dispatch = useGalaxyDispatch();
 
   if (!isOpen) return null;
@@ -58,7 +58,9 @@ export default function FilterPanel({ isOpen, onClose }) {
     (activeSeverity.length < severityLevels.length ? 1 : 0) +
     (visibleClasses !== null ? 1 : 0) +
     (filters.minDegree > 0 ? 1 : 0) +
-    (filters.edgeDensity < 1.0 ? 1 : 0)
+    (filters.edgeDensity < 1.0 ? 1 : 0) +
+    (filters.embeddingEdgeMode !== 'knn' ? 1 : 0) +
+    (filters.embeddingK !== 8 ? 1 : 0)
   );
 
   return (
@@ -192,6 +194,55 @@ export default function FilterPanel({ isOpen, onClose }) {
             />
           </div>
 
+          {/* Embedding mode controls */}
+          {viewMode === 'embedding' && (
+            <>
+              <div className="border-t border-white/5 pt-2">
+                <div className="text-[8px] text-white/30 uppercase tracking-wider font-mono mb-1.5">Embedding Edge Model</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {[{ id: 'knn', label: 'KNN' }, { id: 'graph', label: 'Graph' }].map(mode => {
+                    const active = (filters.embeddingEdgeMode || 'knn') === mode.id;
+                    return (
+                      <button
+                        key={mode.id}
+                        onClick={() => updateFilter('embeddingEdgeMode', mode.id)}
+                        className="text-[8px] px-2 py-1 rounded font-mono uppercase transition-all"
+                        style={{
+                          background: active ? 'rgba(34,211,238,0.12)' : 'rgba(255,255,255,0.02)',
+                          color: active ? 'rgba(103,232,249,0.95)' : 'rgba(255,255,255,0.25)',
+                          border: `1px solid ${active ? 'rgba(34,211,238,0.35)' : 'rgba(255,255,255,0.06)'}`,
+                        }}
+                      >
+                        {mode.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[7px] text-white/25 mt-1 leading-relaxed">
+                  KNN reveals geometric manifold neighborhoods. Graph uses known interaction topology.
+                </p>
+              </div>
+
+              {(filters.embeddingEdgeMode || 'knn') === 'knn' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[8px] text-white/30 uppercase tracking-wider font-mono">KNN Degree (k)</span>
+                    <span className="text-[9px] text-cyan-300 font-mono">{filters.embeddingK || 8}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={2}
+                    max={20}
+                    step={1}
+                    value={filters.embeddingK || 8}
+                    onChange={e => updateFilter('embeddingK', parseInt(e.target.value, 10))}
+                    className="w-full h-1 bg-white/5 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                  />
+                </div>
+              )}
+            </>
+          )}
+
           {/* Reset Filters */}
           {activeFilterCount > 0 && (
             <button
@@ -202,6 +253,8 @@ export default function FilterPanel({ isOpen, onClose }) {
                   visibleClasses: null,
                   minDegree: 0,
                   edgeDensity: 1.0,
+                  embeddingEdgeMode: 'knn',
+                  embeddingK: 8,
                 },
               })}
               className="w-full text-[8px] text-center py-1.5 rounded bg-white/5 text-white/30 hover:text-white/60 hover:bg-white/8 transition-all font-mono uppercase tracking-wider"

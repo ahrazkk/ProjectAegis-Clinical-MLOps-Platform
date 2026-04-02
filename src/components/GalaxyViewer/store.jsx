@@ -23,6 +23,8 @@ const initialState = {
     visibleClasses: null, // null = all visible
     minDegree: 0,
     edgeDensity: 1.0,
+    embeddingEdgeMode: 'knn', // 'knn' | 'graph'
+    embeddingK: 8,
   },
   selectedEdge: null,       // clicked edge object
   enrichedDrugA: null,      // API-fetched drug info

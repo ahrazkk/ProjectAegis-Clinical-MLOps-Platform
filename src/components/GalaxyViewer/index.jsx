@@ -35,6 +35,7 @@ import HopSlider from './overlays/HopSlider';
 import Toolbar from './overlays/Toolbar';
 import EdgeDetailPanel from './overlays/EdgeDetailPanel';
 import FilterPanel from './overlays/FilterPanel';
+import EmbeddingInsightsPanel from './overlays/EmbeddingInsightsPanel';
 
 // Data enrichment
 import { enrichDrug, enrichInteraction } from './dataEnrichment';
@@ -315,7 +316,7 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
     }
     const aId = drugA?.id || null;
     const bId = drugB?.id || null;
-    const result = computeSubgraph(nodeDict, aId, bId, maxHops, selectedDrugIds, interactionPairs, viewMode);
+    const result = computeSubgraph(nodeDict, aId, bId, maxHops, selectedDrugIds, interactionPairs, viewMode, filters);
     return {
       nodes: result.nodes,
       edges: result.edges,
@@ -324,7 +325,7 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
       drugBId: bId,
       subgraphStats: result.stats,
     };
-  }, [drugA?.id, drugB?.id, maxHops, nodeDict, loading, dataVersion, selectedDrugIds, interactionPairs, viewMode]);
+  }, [drugA?.id, drugB?.id, maxHops, nodeDict, loading, dataVersion, selectedDrugIds, interactionPairs, viewMode, filters]);
 
   // Apply filters to nodes and edges
   const { nodeVisibility, filteredEdges } = useMemo(() => {
@@ -532,6 +533,7 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
       <NodeDetailPanel />
       <EdgeDetailPanel />
       <DrugComparisonPanel />
+      <EmbeddingInsightsPanel nodes={nodes} />
       <HopSlider />
       <DataSourceBadge source={dataSource} stats={dataStats} />
     </div>

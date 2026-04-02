@@ -188,7 +188,16 @@ export default function NodeDetailPanel() {
                     key={nId}
                     onClick={() => {
                       const fullNeighbor = getGraphData().nodes.find(n => n.id === nId);
-                      if (fullNeighbor) dispatch({ type: 'SET_SELECTED_NODE', payload: { ...fullNeighbor, category: selectedNode.category } });
+                      if (fullNeighbor) {
+                        dispatch({
+                          type: 'SET_SELECTED_NODE',
+                          payload: {
+                            ...fullNeighbor,
+                            hopA: Number.POSITIVE_INFINITY,
+                            hopB: Number.POSITIVE_INFINITY,
+                          },
+                        });
+                      }
                     }}
                     className="block w-full text-left text-[8px] text-white/40 hover:text-white/60 cursor-pointer truncate font-mono"
                   >

@@ -239,6 +239,107 @@ function shouldKeepEmbeddingBackgroundEdge(key) {
   return (hash >>> 0) % 18 === 0; // ~5.5% of background edges
 }
 
+function squaredDistance3(a, b) {
+  const dx = a[0] - b[0];
+  const dy = a[1] - b[1];
+  const dz = a[2] - b[2];
+  return dx * dx + dy * dy + dz * dz;
+}
+
+function buildEmbeddingKnnEdgeMap(nodeDict, k = 8) {
+  const ids = Object.keys(nodeDict || {});
+  const edgeMap = new Map();
+  if (ids.length < 2) return edgeMap;
+
+  const clampedK = Math.max(1, Math.min(Math.round(k) || 8, ids.length - 1));
+
+  for (let i = 0; i < ids.length; i += 1) {
+    const sourceId = ids[i];
+    const sourcePos = nodeDict[sourceId]?.pos;
+    if (!sourcePos) continue;
+
+    const nearest = [];
+
+    for (let j = 0; j < ids.length; j += 1) {
+      if (i === j) continue;
+
+      const targetId = ids[j];
+      const targetPos = nodeDict[targetId]?.pos;
+      if (!targetPos) continue;
+
+      const distanceSq = squaredDistance3(sourcePos, targetPos);
+      const candidate = { id: targetId, distanceSq };
+
+      let insertAt = -1;
+      for (let idx = 0; idx < nearest.length; idx += 1) {
+        if (distanceSq < nearest[idx].distanceSq) {
+          insertAt = idx;
+          break;
+        }
+      }
+
+      if (insertAt === -1) {
+        if (nearest.length < clampedK) {
+          nearest.push(candidate);
+        }
+      } else {
+        nearest.splice(insertAt, 0, candidate);
+        if (nearest.length > clampedK) nearest.pop();
+      }
+    }
+
+    nearest.forEach((neighbor) => {
+      const key = edgeKey(sourceId, neighbor.id);
+      const existing = edgeMap.get(key);
+      if (existing && existing.distanceSq <= neighbor.distanceSq) return;
+
+      edgeMap.set(key, {
+        startId: sourceId,
+        endId: neighbor.id,
+        start: nodeDict[sourceId].pos,
+        end: nodeDict[neighbor.id].pos,
+        color: '#334155',
+        opacity: 0.03,
+        lineWidth: 1,
+        role: 'embedding-knn',
+        severity: 'unknown',
+        distance: Math.sqrt(neighbor.distanceSq),
+        distanceSq: neighbor.distanceSq,
+        priority: 0,
+      });
+    });
+  }
+
+  return edgeMap;
+}
+
+function upsertEmbeddingEdge(edgeMap, nodeDict, nodeA, nodeB, style) {
+  if (!nodeA || !nodeB || nodeA === nodeB) return;
+  if (!nodeDict[nodeA] || !nodeDict[nodeB]) return;
+
+  const key = edgeKey(nodeA, nodeB);
+  const existing = edgeMap.get(key);
+  const nextPriority = style.priority || 1;
+  const currentPriority = existing?.priority || 0;
+  if (existing && currentPriority > nextPriority) return;
+
+  const base = existing || {
+    startId: nodeA,
+    endId: nodeB,
+    start: nodeDict[nodeA].pos,
+    end: nodeDict[nodeB].pos,
+    distance: null,
+    distanceSq: null,
+    severity: 'unknown',
+  };
+
+  edgeMap.set(key, {
+    ...base,
+    ...style,
+    priority: nextPriority,
+  });
+}
+
 function normalizeSeverityLevel(severity) {
   const raw = String(severity || 'unknown').toLowerCase();
   if (raw === 'severe') return 'critical';
@@ -491,11 +592,14 @@ export function computeSubgraph(
   maxHops = 3,
   selectedDrugIds = [],
   interactionPairs = [],
-  viewMode = 'galaxy'
+  viewMode = 'galaxy',
+  filters = null,
 ) {
   const adj = _graphData.adj || {};
   const isFocusMode = viewMode === 'focus';
   const isEmbeddingMode = viewMode === 'embedding';
+  const embeddingEdgeMode = isEmbeddingMode ? String(filters?.embeddingEdgeMode || 'knn').toLowerCase() : 'graph';
+  const embeddingK = isEmbeddingMode ? Math.max(2, Math.min(20, Math.round(filters?.embeddingK || 8))) : 8;
 
   const selectedSet = new Set((selectedDrugIds || []).filter(Boolean));
   if (drugAId) selectedSet.add(drugAId);
@@ -564,130 +668,191 @@ export function computeSubgraph(
 
   // Compute edges
   const edges = [];
-  const processed = new Set();
-  Object.keys(adj).forEach(u => {
-    const uNode = nodeDict[u];
-    if (!uNode) return;
-    (adj[u] || []).forEach(v => {
-      const key = edgeKey(u, v);
-      if (processed.has(key)) return;
-      processed.add(key);
-      const vNode = nodeDict[v];
-      if (!vNode) return;
 
-      const inHopA = uNode.hopA <= maxHops && vNode.hopA <= maxHops;
-      const inHopB = uNode.hopB <= maxHops && vNode.hopB <= maxHops;
-      const inHopAny = uNode.hopAny <= maxHops && vNode.hopAny <= maxHops;
-      const isSelectedPair = uNode.isSelected && vNode.isSelected;
-      const isInteractionPair = interactionPairSet.has(key);
-      const inFocusConnector = focusEdgeSet.has(key);
-      const onPath = pathSet.has(u) && pathSet.has(v) &&
-        Math.abs(path.indexOf(u) - path.indexOf(v)) === 1;
+  if (isEmbeddingMode && embeddingEdgeMode === 'knn') {
+    const edgeMap = buildEmbeddingKnnEdgeMap(nodeDict, embeddingK);
 
-      if (isEmbeddingMode) {
-        let color = '#334155';
-        let opacity = 0.018;
-        let lineWidth = 0.9;
-        let role = 'background';
+    // Keep known selected-selected interaction links visible even if they are not in the KNN manifold.
+    selectedIds.forEach((u) => {
+      (adj[u] || []).forEach((v) => {
+        if (!selectedSet.has(v)) return;
+        const isDirectPair = (u === drugAId && v === drugBId) || (u === drugBId && v === drugAId);
+        const meta = getEdgeMeta(u, v);
+        upsertEmbeddingEdge(edgeMap, nodeDict, u, v, {
+          color: isDirectPair ? '#ef4444' : '#22c55e',
+          opacity: isDirectPair ? 0.95 : 0.8,
+          lineWidth: isDirectPair ? 2.8 : 2.2,
+          role: isDirectPair ? 'direct' : 'selected-pair',
+          severity: normalizeSeverityLevel(meta?.severity || 'unknown'),
+          priority: isDirectPair ? 6 : 4,
+        });
+      });
+    });
 
-        if (onPath || ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA))) {
-          color = '#ef4444';
-          opacity = 0.95;
-          lineWidth = 2.8;
-          role = 'path';
-        } else if (isSelectedPair) {
-          color = '#22c55e';
-          opacity = 0.75;
-          lineWidth = 2.2;
-          role = 'selected-pair';
-        } else if (uNode.isA || vNode.isA) {
-          color = '#00d2ff';
-          opacity = 0.42;
-          lineWidth = 1.8;
-          role = 'hopA';
-        } else if (uNode.isB || vNode.isB) {
-          color = '#ff8c00';
-          opacity = 0.42;
-          lineWidth = 1.8;
-          role = 'hopB';
-        }
-
-        if (role !== 'background' || shouldKeepEmbeddingBackgroundEdge(key)) {
-          edges.push({
-            startId: u,
-            endId: v,
-            start: uNode.pos,
-            end: vNode.pos,
-            color,
-            opacity,
-            lineWidth,
-            role,
-            severity: 'unknown',
-          });
-        }
-        return;
-      }
-
-      let color = '#475569';
-      let opacity = 0.04;
-      let lineWidth = 1;
-      let role = 'background';
-
-      // Get severity from edge metadata
+    // Highlight known interaction pairs provided from polypharmacy analysis.
+    (interactionPairs || []).forEach((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return;
+      const u = String(pair[0] || '');
+      const v = String(pair[1] || '');
+      if (!u || !v) return;
       const meta = getEdgeMeta(u, v);
-      const severity = normalizeSeverityLevel(meta?.severity || 'unknown');
+      upsertEmbeddingEdge(edgeMap, nodeDict, u, v, {
+        color: '#ef4444',
+        opacity: 0.92,
+        lineWidth: 2.6,
+        role: 'interaction-pair',
+        severity: normalizeSeverityLevel(meta?.severity || 'unknown'),
+        priority: 6,
+      });
+    });
 
-      if (onPath) {
-        color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'path';
-      } else if (isInteractionPair) {
-        color = '#ef4444'; opacity = 0.92; lineWidth = 2.8; role = 'interaction-pair';
-      } else if (isSelectedPair && inFocusConnector) {
-        color = '#22c55e'; opacity = 0.95; lineWidth = 2.8; role = 'selected-pair';
-      } else if (inFocusConnector) {
-        color = '#06b6d4'; opacity = 0.95; lineWidth = 2.8; role = 'focus';
-      } else if ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA)) {
-        color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'direct';
-      } else if (isSelectedPair) {
-        color = '#22c55e'; opacity = 0.9; lineWidth = 2.2; role = 'selected-pair';
-      } else if (inHopA && inHopB) {
-        color = '#a855f7'; opacity = 0.45; lineWidth = 1.5; role = 'bridge';
-      } else if (inHopA) {
-        color = '#00d2ff';
-        opacity = Math.max(0.1, 0.35 - Math.max(uNode.hopA, vNode.hopA) * 0.08);
-        role = 'hopA';
-      } else if (inHopB) {
-        color = '#ff8c00';
-        opacity = Math.max(0.1, 0.35 - Math.max(uNode.hopB, vNode.hopB) * 0.08);
-        role = 'hopB';
-      } else if (inHopAny) {
-        color = '#06b6d4';
-        opacity = Math.max(0.08, 0.32 - Math.max(uNode.hopAny, vNode.hopAny) * 0.07);
-        role = 'multi-hop';
-      }
-
-      // Severity-based color tinting for active edges
-      if (role !== 'background' && severity === 'critical') {
-        color = '#ef4444'; // red for severe
-      } else if (role !== 'background' && severity === 'major') {
-        color = role === 'path' ? '#ef4444' : '#f97316'; // orange for moderate
-      } else if (role !== 'background' && severity === 'moderate') {
-        color = role === 'path' ? '#ef4444' : '#f59e0b';
-      }
-
-      let shouldInclude = !hasDrugs || inHopA || inHopB || inHopAny || onPath || isSelectedPair || isInteractionPair;
-      if (isFocusMode && hasDrugs) {
-        shouldInclude = inFocusConnector || isSelectedPair || onPath || (isInteractionPair && focusNodeSet.has(u) && focusNodeSet.has(v));
-      }
-
-      if (shouldInclude) {
-        edges.push({
-          startId: u, endId: v,
-          start: uNode.pos, end: vNode.pos,
-          color, opacity, lineWidth, role, severity,
+    // Highlight shortest connector path between selected A/B when available.
+    if (path.length >= 2) {
+      for (let i = 1; i < path.length; i += 1) {
+        const prev = path[i - 1];
+        const curr = path[i];
+        const meta = getEdgeMeta(prev, curr);
+        upsertEmbeddingEdge(edgeMap, nodeDict, prev, curr, {
+          color: '#ef4444',
+          opacity: 1.0,
+          lineWidth: 3,
+          role: 'path',
+          severity: normalizeSeverityLevel(meta?.severity || 'unknown'),
+          priority: 7,
         });
       }
+    }
+
+    edgeMap.forEach((edge) => {
+      const { priority, distanceSq, ...rest } = edge;
+      edges.push(rest);
     });
-  });
+  } else {
+    const processed = new Set();
+    Object.keys(adj).forEach(u => {
+      const uNode = nodeDict[u];
+      if (!uNode) return;
+      (adj[u] || []).forEach(v => {
+        const key = edgeKey(u, v);
+        if (processed.has(key)) return;
+        processed.add(key);
+        const vNode = nodeDict[v];
+        if (!vNode) return;
+
+        const inHopA = uNode.hopA <= maxHops && vNode.hopA <= maxHops;
+        const inHopB = uNode.hopB <= maxHops && vNode.hopB <= maxHops;
+        const inHopAny = uNode.hopAny <= maxHops && vNode.hopAny <= maxHops;
+        const isSelectedPair = uNode.isSelected && vNode.isSelected;
+        const isInteractionPair = interactionPairSet.has(key);
+        const inFocusConnector = focusEdgeSet.has(key);
+        const onPath = pathSet.has(u) && pathSet.has(v) &&
+          Math.abs(path.indexOf(u) - path.indexOf(v)) === 1;
+
+        if (isEmbeddingMode) {
+          let color = '#334155';
+          let opacity = 0.018;
+          let lineWidth = 0.9;
+          let role = 'background';
+
+          if (onPath || ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA))) {
+            color = '#ef4444';
+            opacity = 0.95;
+            lineWidth = 2.8;
+            role = 'path';
+          } else if (isSelectedPair) {
+            color = '#22c55e';
+            opacity = 0.75;
+            lineWidth = 2.2;
+            role = 'selected-pair';
+          } else if (uNode.isA || vNode.isA) {
+            color = '#00d2ff';
+            opacity = 0.42;
+            lineWidth = 1.8;
+            role = 'hopA';
+          } else if (uNode.isB || vNode.isB) {
+            color = '#ff8c00';
+            opacity = 0.42;
+            lineWidth = 1.8;
+            role = 'hopB';
+          }
+
+          if (role !== 'background' || shouldKeepEmbeddingBackgroundEdge(key)) {
+            edges.push({
+              startId: u,
+              endId: v,
+              start: uNode.pos,
+              end: vNode.pos,
+              color,
+              opacity,
+              lineWidth,
+              role,
+              severity: 'unknown',
+            });
+          }
+          return;
+        }
+
+        let color = '#475569';
+        let opacity = 0.04;
+        let lineWidth = 1;
+        let role = 'background';
+
+        // Get severity from edge metadata
+        const meta = getEdgeMeta(u, v);
+        const severity = normalizeSeverityLevel(meta?.severity || 'unknown');
+
+        if (onPath) {
+          color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'path';
+        } else if (isInteractionPair) {
+          color = '#ef4444'; opacity = 0.92; lineWidth = 2.8; role = 'interaction-pair';
+        } else if (isSelectedPair && inFocusConnector) {
+          color = '#22c55e'; opacity = 0.95; lineWidth = 2.8; role = 'selected-pair';
+        } else if (inFocusConnector) {
+          color = '#06b6d4'; opacity = 0.95; lineWidth = 2.8; role = 'focus';
+        } else if ((uNode.isA && vNode.isB) || (uNode.isB && vNode.isA)) {
+          color = '#ef4444'; opacity = 1.0; lineWidth = 3; role = 'direct';
+        } else if (isSelectedPair) {
+          color = '#22c55e'; opacity = 0.9; lineWidth = 2.2; role = 'selected-pair';
+        } else if (inHopA && inHopB) {
+          color = '#a855f7'; opacity = 0.45; lineWidth = 1.5; role = 'bridge';
+        } else if (inHopA) {
+          color = '#00d2ff';
+          opacity = Math.max(0.1, 0.35 - Math.max(uNode.hopA, vNode.hopA) * 0.08);
+          role = 'hopA';
+        } else if (inHopB) {
+          color = '#ff8c00';
+          opacity = Math.max(0.1, 0.35 - Math.max(uNode.hopB, vNode.hopB) * 0.08);
+          role = 'hopB';
+        } else if (inHopAny) {
+          color = '#06b6d4';
+          opacity = Math.max(0.08, 0.32 - Math.max(uNode.hopAny, vNode.hopAny) * 0.07);
+          role = 'multi-hop';
+        }
+
+        // Severity-based color tinting for active edges
+        if (role !== 'background' && severity === 'critical') {
+          color = '#ef4444'; // red for severe
+        } else if (role !== 'background' && severity === 'major') {
+          color = role === 'path' ? '#ef4444' : '#f97316'; // orange for moderate
+        } else if (role !== 'background' && severity === 'moderate') {
+          color = role === 'path' ? '#ef4444' : '#f59e0b';
+        }
+
+        let shouldInclude = !hasDrugs || inHopA || inHopB || inHopAny || onPath || isSelectedPair || isInteractionPair;
+        if (isFocusMode && hasDrugs) {
+          shouldInclude = inFocusConnector || isSelectedPair || onPath || (isInteractionPair && focusNodeSet.has(u) && focusNodeSet.has(v));
+        }
+
+        if (shouldInclude) {
+          edges.push({
+            startId: u, endId: v,
+            start: uNode.pos, end: vNode.pos,
+            color, opacity, lineWidth, role, severity,
+          });
+        }
+      });
+    });
+  }
 
   // Stats
   const totalNodes = _graphData.nodes.length;
