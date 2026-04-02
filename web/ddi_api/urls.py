@@ -28,6 +28,7 @@ from .views import (
     EnhancedInteractionInfoView,
     RealWorldEvidenceView,
     DatabaseStatsView,
+    CalibrationMetricsView,
     TherapeuticAlternativesView,
     DrugComparisonView,
     GraphNodesView,
@@ -69,6 +70,7 @@ urlpatterns = [
     
     # Dashboard & Analytics endpoints
     path('stats/', DatabaseStatsView.as_view(), name='database-stats'),
+    path('calibration/metrics/', CalibrationMetricsView.as_view(), name='calibration-metrics'),
     path('alternatives/', TherapeuticAlternativesView.as_view(), name='therapeutic-alternatives'),
     path('compare/', DrugComparisonView.as_view(), name='drug-compare'),
     

@@ -13,7 +13,7 @@ Reference:
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 import hashlib
 
@@ -63,6 +63,11 @@ class GNNPrediction:
     smiles2: Optional[str]
     fingerprint_similarity: Optional[float]
     mechanism_hypothesis: str
+    raw_interaction_probability: Optional[float] = None
+    calibration_method: str = "none"
+    calibration_version: str = "none"
+    fallback_reason: Optional[str] = None
+    provenance: Dict[str, Any] = field(default_factory=dict)
 
 
 class MolecularFeatureExtractor:
@@ -531,7 +536,14 @@ class GNNDDIPredictor:
         
         # If no SMILES or model not loaded, return heuristic prediction
         if not self.is_loaded or fp1 is None or fp2 is None:
-            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+            return self._heuristic_prediction(
+                drug1,
+                drug2,
+                smiles1,
+                smiles2,
+                similarity,
+                fallback_reason="model_not_loaded_or_missing_smiles",
+            )
         
         # Run MLP fallback inference
         try:
@@ -548,6 +560,7 @@ class GNNDDIPredictor:
             pred_idx = torch.argmax(probs).item()
             interaction_type = self.INTERACTION_TYPES[pred_idx]
             confidence = float(probs[pred_idx])
+            interaction_probability = float(1 - probs[0])  # 1 - P(no_interaction)
             
             severity, risk_score = self.SEVERITY_MAP.get(interaction_type, ('unknown', 0.5))
             
@@ -559,7 +572,7 @@ class GNNDDIPredictor:
             return GNNPrediction(
                 drug1=drug1,
                 drug2=drug2,
-                interaction_probability=float(1 - probs[0]),  # 1 - P(no_interaction)
+                interaction_probability=interaction_probability,
                 interaction_type=interaction_type,
                 confidence=confidence,
                 severity=severity,
@@ -567,12 +580,26 @@ class GNNDDIPredictor:
                 smiles1=smiles1,
                 smiles2=smiles2,
                 fingerprint_similarity=similarity,
-                mechanism_hypothesis=mechanism
+                mechanism_hypothesis=mechanism,
+                raw_interaction_probability=interaction_probability,
+                calibration_method="none",
+                calibration_version="none",
+                provenance={
+                    "prediction_path": "simple_mlp",
+                    "model_backend": "simple_mlp",
+                },
             )
             
         except Exception as e:
             logger.error(f"Model inference failed: {e}")
-            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+            return self._heuristic_prediction(
+                drug1,
+                drug2,
+                smiles1,
+                smiles2,
+                similarity,
+                fallback_reason="mlp_inference_error",
+            )
 
     def _predict_with_macroscopic_model(
         self,
@@ -602,7 +629,14 @@ class GNNDDIPredictor:
             # If either drug is entirely foreign to the graph, fallback to heuristics
             if idx1 is None or idx2 is None:
                 logger.info(f"Macroscopic model fallback: {drug1} or {drug2} not mapped in graph space.")
-                return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+                return self._heuristic_prediction(
+                    drug1,
+                    drug2,
+                    smiles1,
+                    smiles2,
+                    similarity,
+                    fallback_reason="drug_not_in_graph_embedding",
+                )
 
             # Create testing tensor array
             edge_label_index = torch.tensor([[idx1], [idx2]], dtype=torch.long)
@@ -644,12 +678,31 @@ class GNNDDIPredictor:
                 smiles1=smiles1,
                 smiles2=smiles2,
                 fingerprint_similarity=similarity,
-                mechanism_hypothesis=mechanism
+                mechanism_hypothesis=mechanism,
+                raw_interaction_probability=float(prob),
+                calibration_method="none",
+                calibration_version="none",
+                provenance={
+                    "prediction_path": "macroscopic_gnn",
+                    "model_backend": "macroscopic_gnn",
+                    "graph_match": {
+                        "drug1": actual_d1,
+                        "drug2": actual_d2,
+                    },
+                    "node_indices": [int(idx1), int(idx2)],
+                },
             )
 
         except Exception as e:
             logger.error(f"Macroscopic GNN inference failed: {e}")
-            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+            return self._heuristic_prediction(
+                drug1,
+                drug2,
+                smiles1,
+                smiles2,
+                similarity,
+                fallback_reason="macroscopic_inference_error",
+            )
 
     def _predict_with_trained_gnn(
         self,
@@ -663,7 +716,14 @@ class GNNDDIPredictor:
         try:
             graphs = self.graph_featurizer.smiles_pair_to_graphs(smiles1, smiles2)
             if graphs is None:
-                return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+                return self._heuristic_prediction(
+                    drug1,
+                    drug2,
+                    smiles1,
+                    smiles2,
+                    similarity,
+                    fallback_reason="graph_featurization_failed",
+                )
 
             with torch.no_grad():
                 # Add batch dimension
@@ -680,6 +740,7 @@ class GNNDDIPredictor:
 
                 # Apply Platt scaling calibration: sigmoid(a * logit + b)
                 raw_logit = logits.squeeze()
+                raw_prob = torch.sigmoid(raw_logit).item()
                 calibrated = self._platt_a * raw_logit + self._platt_b
                 prob = torch.sigmoid(calibrated).item()
 
@@ -714,12 +775,29 @@ class GNNDDIPredictor:
                 smiles1=smiles1,
                 smiles2=smiles2,
                 fingerprint_similarity=similarity,
-                mechanism_hypothesis=mechanism
+                mechanism_hypothesis=mechanism,
+                raw_interaction_probability=float(raw_prob),
+                calibration_method="platt_scaling",
+                calibration_version=f"platt_a={self._platt_a:.6f};platt_b={self._platt_b:.6f}",
+                provenance={
+                    "prediction_path": "trained_gnn",
+                    "model_backend": "edge_conditioned_gin",
+                    "temperature": self._temperature,
+                    "platt_a": self._platt_a,
+                    "platt_b": self._platt_b,
+                },
             )
 
         except Exception as e:
             logger.error(f"Trained GNN inference failed: {e}")
-            return self._heuristic_prediction(drug1, drug2, smiles1, smiles2, similarity)
+            return self._heuristic_prediction(
+                drug1,
+                drug2,
+                smiles1,
+                smiles2,
+                similarity,
+                fallback_reason="trained_gnn_inference_error",
+            )
     
     def _heuristic_prediction(
         self,
@@ -727,7 +805,8 @@ class GNNDDIPredictor:
         drug2: str,
         smiles1: Optional[str],
         smiles2: Optional[str],
-        similarity: Optional[float]
+        similarity: Optional[float],
+        fallback_reason: Optional[str] = None,
     ) -> GNNPrediction:
         """
         Generate heuristic prediction when model unavailable.
@@ -768,7 +847,17 @@ class GNNDDIPredictor:
             smiles1=smiles1,
             smiles2=smiles2,
             fingerprint_similarity=similarity,
-            mechanism_hypothesis=mechanism
+            mechanism_hypothesis=mechanism,
+            raw_interaction_probability=interaction_prob,
+            calibration_method="none",
+            calibration_version="none",
+            fallback_reason=fallback_reason,
+            provenance={
+                "prediction_path": "heuristic",
+                "fallback_reason": fallback_reason,
+                "has_model": self.is_loaded,
+                "has_smiles": bool(smiles1 and smiles2),
+            },
         )
     
     def _generate_mechanism_hypothesis(

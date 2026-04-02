@@ -38,6 +38,7 @@ from .services.gnn_predictor import get_gnn_predictor
 from .services.pubmedbert_predictor import get_pubmedbert_predictor
 from .services.cyp450_database import get_cyp450_database
 from .services.polypharmacy_digital_twin import get_polypharmacy_digital_twin_service
+from .services.calibration_metrics import generate_calibration_report
 
 logger = logging.getLogger(__name__)
 
@@ -404,11 +405,18 @@ class DDIPredictionView(APIView):
 
             severity_scores = {'minor': 0.4, 'moderate': 0.65, 'severe': 0.92}
             risk_score = severity_scores.get(severity, 0.5)
+            model_version = (
+                'aegis-kg-lookup-v1'
+                if interaction_source == 'knowledge_graph'
+                else 'aegis-categorical-rule-v1'
+            )
 
             response_data = {
                 'drug_a': drug_a['name'],
                 'drug_b': drug_b['name'],
                 'risk_score': risk_score,
+                'raw_score': risk_score,
+                'calibrated_score': risk_score,
                 'risk_level': get_risk_level(risk_score),
                 'severity': severity,
                 'confidence': 0.95 if interaction_source == 'knowledge_graph' else 0.88,
@@ -417,7 +425,15 @@ class DDIPredictionView(APIView):
                     {'system': 'Systemic/Categorical', 'severity': risk_score, 'symptoms': []}
                 ],
                 'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': interaction_source
+                'source': interaction_source,
+                'provenance': {
+                    'model_version': model_version,
+                    'prediction_path': interaction_source,
+                    'calibration_method': 'none',
+                    'calibration_version': 'none',
+                    'fallback_reason': None,
+                    'evidence_source': interaction_source,
+                },
             }
         else:
             # Use Macroscopic GraphSAGE model for prediction
@@ -429,39 +445,67 @@ class DDIPredictionView(APIView):
                 drug_a.get('smiles', ''),
                 drug_b.get('smiles', '')
             )
+            model_used = getattr(prediction, 'model_used', 'macroscopic_gnn')
+            calibrated_score = float(getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)))
+            raw_score = float(getattr(prediction, 'raw_interaction_probability', calibrated_score))
+            calibration_method = getattr(prediction, 'calibration_method', 'none')
+            calibration_version = getattr(prediction, 'calibration_version', 'none')
+            fallback_reason = getattr(prediction, 'fallback_reason', None)
+            predictor_provenance = getattr(prediction, 'provenance', {}) or {}
 
             # Map our new robust model format to the frontend interface pattern seamlessly
             response_data = {
                 'drug_a': prediction.drug1 if hasattr(prediction, 'drug1') else getattr(prediction, 'drug_a', drug_a['name']),
                 'drug_b': prediction.drug2 if hasattr(prediction, 'drug2') else getattr(prediction, 'drug_b', drug_b['name']),
-                'risk_score': getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)),
-                'risk_level': get_risk_level(getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5))),
+                'risk_score': calibrated_score,
+                'raw_score': raw_score,
+                'calibrated_score': calibrated_score,
+                'risk_level': get_risk_level(calibrated_score),
                 'severity': getattr(prediction, 'severity', 'Unknown'),
                 'confidence': getattr(prediction, 'confidence', 0.9),
                 'mechanism_hypothesis': getattr(prediction, 'mechanism_hypothesis', 'Potential interaction based on structural and network features.'),
                 'affected_systems': [
-                    {'system': getattr(prediction, 'interaction_type', 'Systemic'), 'severity': getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)), 'symptoms': []}
+                    {'system': getattr(prediction, 'interaction_type', 'Systemic'), 'severity': calibrated_score, 'symptoms': []}
                 ],
                 'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': 'macroscopic_gnn'
+                'source': model_used,
+                'provenance': {
+                    'model_version': f'aegis-{model_used}-v1',
+                    'prediction_path': 'gnn_predictor',
+                    'model_used': model_used,
+                    'calibration_method': calibration_method,
+                    'calibration_version': calibration_version,
+                    'fallback_reason': fallback_reason,
+                    'predictor_provenance': predictor_provenance,
+                },
             }
         inference_time = response_data['inference_time_ms']
         
         # Include explanation if requested
         if data.get('include_explanation', True):
+            provenance = response_data.get('provenance', {})
             response_data['explanation'] = {
-                'model_version': 'aegis-v1.0',
+                'model_version': provenance.get('model_version', 'aegis-v1.0'),
                 'data_source': response_data.get('source', 'ai_model'),
+                'calibration': {
+                    'method': provenance.get('calibration_method', 'none'),
+                    'version': provenance.get('calibration_version', 'none'),
+                },
+                'fallback_reason': provenance.get('fallback_reason'),
             }
         
         # Log prediction
         try:
+            provenance = response_data.get('provenance', {})
             PredictionLog.objects.create(
                 drug_list=[drug_a['name'], drug_b['name']],
-                risk_score=response_data['risk_score'],
-                calibrated_score=response_data['risk_score'],
+                risk_score=float(response_data['risk_score']),
+                raw_score=response_data.get('raw_score'),
+                calibrated_score=response_data.get('calibrated_score', response_data['risk_score']),
                 severity_prediction=response_data['severity'],
-                inference_time_ms=inference_time
+                model_version=provenance.get('model_version', 'v1.0'),
+                inference_time_ms=inference_time,
+                provenance=provenance,
             )
         except Exception as e:
             logger.warning(f"Failed to log prediction: {e}")
@@ -520,8 +564,17 @@ class PolypharmacyView(APIView):
             PredictionLog.objects.create(
                 drug_list=result['drugs'],
                 risk_score=result['max_risk_score'],
+                raw_score=result['max_risk_score'],
+                calibrated_score=result['max_risk_score'],
                 severity_prediction=get_risk_level(result['max_risk_score']),
-                inference_time_ms=inference_time
+                model_version='aegis-polypharmacy-v1',
+                inference_time_ms=inference_time,
+                provenance={
+                    'model_version': 'aegis-polypharmacy-v1',
+                    'prediction_path': 'polypharmacy_network',
+                    'calibration_method': 'none',
+                    'calibration_version': 'none',
+                },
             )
         except Exception as e:
             logger.warning(f"Failed to log prediction: {e}")
@@ -562,8 +615,18 @@ class PolypharmacyDigitalTwinView(APIView):
             PredictionLog.objects.create(
                 drug_list=twin_result.get('drugs', []),
                 risk_score=summary.get('toxicity_score', 0.0),
+                raw_score=summary.get('toxicity_score', 0.0),
+                calibrated_score=summary.get('toxicity_score', 0.0),
                 severity_prediction=summary.get('risk_level', 'low'),
-                inference_time_ms=inference_time
+                model_version='aegis-digital-twin-v1',
+                inference_time_ms=inference_time,
+                provenance={
+                    'model_version': 'aegis-digital-twin-v1',
+                    'prediction_path': 'polypharmacy_digital_twin',
+                    'calibration_method': 'none',
+                    'calibration_version': 'none',
+                    'factor_weights': twin_result.get('metadata', {}).get('weights', {}),
+                },
             )
         except Exception as e:
             logger.warning(f"Failed to log digital twin prediction: {e}")
@@ -990,7 +1053,7 @@ class DatabaseStatsView(APIView):
                 from django.utils import timezone
                 from datetime import timedelta
                 recent = PredictionLog.objects.filter(
-                    timestamp__gte=timezone.now() - timedelta(hours=24)
+                    created_at__gte=timezone.now() - timedelta(hours=24)
                 ).count()
                 stats['recent_predictions'] = recent
             except:
@@ -1004,6 +1067,57 @@ class DatabaseStatsView(APIView):
                 {'error': str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+class CalibrationMetricsView(APIView):
+    """
+    POST /api/v1/calibration/metrics/
+
+    Compute calibration QA metrics from labeled scores.
+
+    Request body:
+    {
+        "labels": [0, 1, ...],
+        "raw_scores": [0.13, 0.84, ...],
+        "calibrated_scores": [0.09, 0.88, ...],
+        "n_bins": 10,
+        "n_bootstrap": 1000,
+        "seed": 42
+    }
+    """
+
+    def post(self, request):
+        labels = request.data.get('labels')
+        raw_scores = request.data.get('raw_scores')
+        calibrated_scores = request.data.get('calibrated_scores')
+        n_bins = request.data.get('n_bins', 10)
+        n_bootstrap = request.data.get('n_bootstrap', 1000)
+        seed = request.data.get('seed', 42)
+
+        if not isinstance(labels, list) or not isinstance(raw_scores, list) or not isinstance(calibrated_scores, list):
+            return Response(
+                {
+                    'error': 'labels, raw_scores, and calibrated_scores must all be arrays'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            report = generate_calibration_report(
+                labels=labels,
+                raw_scores=raw_scores,
+                calibrated_scores=calibrated_scores,
+                n_bins=int(n_bins),
+                n_bootstrap=int(n_bootstrap),
+                seed=int(seed),
+            )
+        except (TypeError, ValueError) as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.error(f"Calibration metrics computation failed: {exc}")
+            return Response({'error': 'Failed to compute calibration report'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(report)
 
 
 class TherapeuticAlternativesView(APIView):

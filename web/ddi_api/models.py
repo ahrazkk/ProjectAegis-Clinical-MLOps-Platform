@@ -175,12 +175,14 @@ class PredictionLog(models.Model):
     
     # Prediction results
     risk_score = models.FloatField()
+    raw_score = models.FloatField(null=True, blank=True)
     calibrated_score = models.FloatField(null=True, blank=True)
     severity_prediction = models.CharField(max_length=20, blank=True)
     
     # Metadata
     model_version = models.CharField(max_length=50, default='v1.0')
     inference_time_ms = models.FloatField(null=True, blank=True)
+    provenance = models.JSONField(default=dict, blank=True)
     
     # User tracking (optional)
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)

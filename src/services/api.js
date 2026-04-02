@@ -241,6 +241,38 @@ export async function getDatabaseStats() {
 }
 
 /**
+ * Compute calibration QA metrics from labeled score arrays.
+ * @param {Object} payload
+ * @param {Array<number>} payload.labels - Binary labels (0/1)
+ * @param {Array<number>} payload.rawScores - Raw model probabilities
+ * @param {Array<number>} payload.calibratedScores - Calibrated probabilities
+ * @param {number} [payload.nBins=10] - Bin count for ECE
+ * @param {number} [payload.nBootstrap=1000] - Bootstrap sample count for CIs
+ * @param {number} [payload.seed=42] - Bootstrap RNG seed
+ * @returns {Promise<Object>}
+ */
+export async function computeCalibrationMetrics({
+    labels,
+    rawScores,
+    calibratedScores,
+    nBins = 10,
+    nBootstrap = 1000,
+    seed = 42,
+}) {
+    return apiRequest('/calibration/metrics/', {
+        method: 'POST',
+        body: JSON.stringify({
+            labels,
+            raw_scores: rawScores,
+            calibrated_scores: calibratedScores,
+            n_bins: nBins,
+            n_bootstrap: nBootstrap,
+            seed,
+        }),
+    });
+}
+
+/**
  * Get therapeutic alternatives for a drug
  * @param {string} drugName - Drug to find alternatives for
  * @param {string} interactingWith - Optional drug that has problematic interaction
@@ -271,12 +303,25 @@ export async function compareDrugs(drugNames) {
  * @property {string} drug_a - Name of drug A
  * @property {string} drug_b - Name of drug B
  * @property {number} risk_score - Risk score (0-1)
+ * @property {number} raw_score - Uncalibrated model score (0-1)
+ * @property {number} calibrated_score - Calibrated model score (0-1)
  * @property {string} risk_level - 'low' | 'medium' | 'high' | 'critical'
- * @property {string} severity - 'no_interaction' | 'minor' | 'moderate' | 'major'
+ * @property {string} severity - 'no_interaction' | 'minor' | 'moderate' | 'major' | 'severe' | 'high' | 'critical'
  * @property {number} confidence - Model confidence (0-1)
  * @property {string} mechanism_hypothesis - Explanation of interaction mechanism
  * @property {Array} affected_systems - Organ systems affected
+ * @property {PredictionProvenance} provenance - Prediction lineage and fallback metadata
  * @property {Object} explanation - XAI explanation data
+ */
+
+/**
+ * @typedef {Object} PredictionProvenance
+ * @property {string} model_version - Backend model version tag
+ * @property {string} prediction_path - Path used to produce prediction
+ * @property {string} model_used - Concrete model implementation used
+ * @property {string} calibration_method - Calibration method applied
+ * @property {string} calibration_version - Calibration artifact/version
+ * @property {string|null} fallback_reason - Why fallback logic was used (if applicable)
  */
 
 /**
@@ -320,6 +365,7 @@ export default {
     getInteractionInfo,
     getRealWorldEvidence,
     getDatabaseStats,
+    computeCalibrationMetrics,
     getTherapeuticAlternatives,
     compareDrugs,
 };

@@ -67,8 +67,10 @@ class DDIPredictionResponseSerializer(serializers.Serializer):
     
     # Risk assessment
     risk_score = serializers.FloatField(min_value=0, max_value=1)
+    raw_score = serializers.FloatField(min_value=0, max_value=1, required=False)
+    calibrated_score = serializers.FloatField(min_value=0, max_value=1, required=False)
     risk_level = serializers.ChoiceField(choices=['low', 'medium', 'high', 'critical'])
-    severity = serializers.ChoiceField(choices=['no_interaction', 'minor', 'moderate', 'major'])
+    severity = serializers.CharField()
     confidence = serializers.FloatField(min_value=0, max_value=1)
     
     # Explanation
@@ -77,6 +79,7 @@ class DDIPredictionResponseSerializer(serializers.Serializer):
     
     # Molecular explanation (for XAI visualization)
     explanation = serializers.DictField(required=False)
+    provenance = serializers.DictField(required=False)
     
     # Alternatives (if requested)
     safer_alternatives = serializers.ListField(
@@ -179,8 +182,8 @@ class PredictionLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = PredictionLog
         fields = [
-            'id', 'drug_list', 'risk_score', 'calibrated_score',
+            'id', 'drug_list', 'risk_score', 'raw_score', 'calibrated_score',
             'severity_prediction', 'model_version', 'inference_time_ms',
-            'created_at'
+            'provenance', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']

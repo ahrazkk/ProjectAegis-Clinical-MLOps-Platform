@@ -104,6 +104,164 @@ function loadStoredSelectedDrugs() {
   }
 }
 
+function normalizeMetaValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value !== 'string') return null;
+
+  return value
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatPercent(score) {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return 'N/A';
+  return `${(score * 100).toFixed(1)}%`;
+}
+
+function getTransparencyData(result) {
+  if (!result || typeof result !== 'object') return null;
+
+  const provenance = result.provenance && typeof result.provenance === 'object'
+    ? result.provenance
+    : {};
+  const explanation = result.explanation && typeof result.explanation === 'object'
+    ? result.explanation
+    : {};
+  const calibration = explanation.calibration && typeof explanation.calibration === 'object'
+    ? explanation.calibration
+    : {};
+
+  const rawScore = typeof result.raw_score === 'number' ? result.raw_score : null;
+  const calibratedScore = typeof result.calibrated_score === 'number'
+    ? result.calibrated_score
+    : (typeof result.risk_score === 'number' ? result.risk_score : null);
+
+  const modelVersion = normalizeMetaValue(provenance.model_version) || normalizeMetaValue(explanation.model_version);
+  const modelUsed = normalizeMetaValue(provenance.model_used) || normalizeMetaValue(result.source);
+  const predictionPath = normalizeMetaValue(provenance.prediction_path);
+
+  const calibrationMethod = normalizeMetaValue(provenance.calibration_method)
+    || normalizeMetaValue(calibration.method);
+  const calibrationVersion = normalizeMetaValue(provenance.calibration_version)
+    || normalizeMetaValue(calibration.version);
+  const fallbackReason = normalizeMetaValue(provenance.fallback_reason)
+    || normalizeMetaValue(explanation.fallback_reason);
+
+  const hasPanelData =
+    rawScore !== null ||
+    calibratedScore !== null ||
+    modelVersion ||
+    modelUsed ||
+    predictionPath ||
+    calibrationMethod ||
+    calibrationVersion ||
+    fallbackReason;
+
+  if (!hasPanelData) return null;
+
+  let calibrationDelta = null;
+  if (rawScore !== null && calibratedScore !== null) {
+    calibrationDelta = calibratedScore - rawScore;
+  }
+
+  return {
+    rawScore,
+    calibratedScore,
+    calibrationDelta,
+    modelVersion,
+    modelUsed,
+    predictionPath,
+    calibrationMethod,
+    calibrationVersion,
+    fallbackReason,
+  };
+}
+
+function PredictionTransparencyPanel({ result, isMobile = false }) {
+  const data = getTransparencyData(result);
+  if (!data) return null;
+
+  const labelClass = isMobile ? 'text-[10px]' : 'text-[9px]';
+  const valueClass = isMobile ? 'text-xs' : 'text-[10px]';
+
+  return (
+    <div className="p-4 border border-theme-accent/30 bg-theme-accent/5 relative">
+      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-theme-accent/70"></div>
+      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-theme-accent/70"></div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <Layers className="w-3.5 h-3.5 text-theme-accent" />
+        <span className="text-[10px] text-theme-muted uppercase tracking-widest">Model Transparency</span>
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Raw Model Score</span>
+          <span className={`${valueClass} text-theme-secondary`}>{formatPercent(data.rawScore)}</span>
+        </div>
+
+        <div className="flex items-center justify-between gap-3">
+          <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Calibrated Score</span>
+          <span className={`${valueClass} text-theme-accent`}>{formatPercent(data.calibratedScore)}</span>
+        </div>
+
+        {data.calibrationDelta !== null && (
+          <div className="flex items-center justify-between gap-3">
+            <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Calibration Shift</span>
+            <span className={`${valueClass} ${data.calibrationDelta === 0 ? 'text-theme-secondary' : 'text-risk-medium'}`}>
+              {data.calibrationDelta > 0 ? '+' : ''}{(data.calibrationDelta * 100).toFixed(1)} pp
+            </span>
+          </div>
+        )}
+
+        {data.modelVersion && (
+          <div className="flex items-center justify-between gap-3">
+            <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Model Version</span>
+            <span className={`${valueClass} text-theme-secondary truncate max-w-[180px] text-right`}>{data.modelVersion}</span>
+          </div>
+        )}
+
+        {data.modelUsed && (
+          <div className="flex items-center justify-between gap-3">
+            <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Model Used</span>
+            <span className={`${valueClass} text-theme-secondary truncate max-w-[180px] text-right`}>{data.modelUsed}</span>
+          </div>
+        )}
+
+        {data.predictionPath && (
+          <div className="flex items-center justify-between gap-3">
+            <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Prediction Path</span>
+            <span className={`${valueClass} text-theme-secondary truncate max-w-[180px] text-right`}>{data.predictionPath}</span>
+          </div>
+        )}
+
+        {(data.calibrationMethod || data.calibrationVersion) && (
+          <div className="flex items-center justify-between gap-3">
+            <span className={`${labelClass} text-theme-muted uppercase tracking-wider`}>Calibration</span>
+            <span className={`${valueClass} text-theme-secondary text-right`}>
+              {[data.calibrationMethod, data.calibrationVersion].filter(Boolean).join(' / ')}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {data.fallbackReason && (
+        <div className="mt-3 pt-3 border-t border-theme-accent/20">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-risk-medium mt-0.5" />
+            <div>
+              <span className="text-[9px] text-risk-medium uppercase tracking-wider block">Fallback Applied</span>
+              <p className="text-[10px] text-theme-secondary mt-1">{data.fallbackReason}</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
   const { addLog } = useSystemLogs();
@@ -580,6 +738,8 @@ export default function Dashboard() {
               </div>
             )}
           </div>
+
+          <PredictionTransparencyPanel result={result} isMobile={true} />
 
           {/* Mechanism */}
           {result.mechanism_hypothesis && (
@@ -1431,7 +1591,7 @@ export default function Dashboard() {
                 // Analysis Results
               </h2>
               {/* Show Alternatives toggle when there's a result */}
-              {result && result.severity && ['severe', 'high', 'critical'].includes(result.severity) && (
+              {result && result.severity && ['severe', 'high', 'critical', 'major'].includes(String(result.severity).toLowerCase()) && (
                 <button
                   onClick={() => setShowAlternatives(!showAlternatives)}
                   className={`flex items-center gap-1 px-2 py-1 text-[9px] uppercase tracking-wider transition-all border ${
@@ -1512,6 +1672,8 @@ export default function Dashboard() {
                       <RiskGauge score={result.risk_score} riskLevel={result.risk_level || result.severity} />
                     </div>
                   )}
+
+                  <PredictionTransparencyPanel result={result} />
 
                   {/* Mechanism */}
                   {result.mechanism_hypothesis && (

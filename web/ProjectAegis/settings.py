@@ -10,6 +10,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 
 from pathlib import Path
 import os
+import sys
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,13 +19,39 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-k5a8aa$4z4zprc2yhp86y&6sjs4pyz&%u4uo#p@@m8*nm^(_q0')
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_csv(name: str, default: str = ""):
+    raw = os.environ.get(name, default)
+    return [item.strip() for item in raw.split(',') if item.strip()]
+
+
+RUNNING_TESTS = 'test' in sys.argv or 'PYTEST_CURRENT_TEST' in os.environ
+
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'True') == 'True'
+DEBUG = _env_bool('DEBUG', False)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.run.app', '*']
+# SECURITY WARNING: keep the secret key used in production secret!
+if RUNNING_TESTS:
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'aegis-test-secret-key')
+elif DEBUG:
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'aegis-dev-secret-key')
+else:
+    SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY')
+    if not SECRET_KEY:
+        raise ValueError('DJANGO_SECRET_KEY environment variable is required when DEBUG=False')
+
+ALLOWED_HOSTS = _env_csv(
+    'ALLOWED_HOSTS',
+    'localhost,127.0.0.1,.run.app,aegishealth.dev,www.aegishealth.dev'
+)
 
 
 # Application definition
@@ -62,9 +89,9 @@ CORS_ALLOWED_ORIGINS = [
     "https://aegis-frontend-667446742007.us-central1.run.app",
     "https://aegis-frontend-ivk6owqmqa-uc.a.run.app",
     "https://aegishealth.dev",
-]
-CORS_ALLOW_ALL_ORIGINS = True # Temporary for MVP to ensure it works
-CORS_ALLOW_CREDENTIALS = True
+] + _env_csv('EXTRA_CORS_ALLOWED_ORIGINS', '')
+CORS_ALLOW_ALL_ORIGINS = _env_bool('CORS_ALLOW_ALL_ORIGINS', False)
+CORS_ALLOW_CREDENTIALS = _env_bool('CORS_ALLOW_CREDENTIALS', True)
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
@@ -74,6 +101,14 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [] if RUNNING_TESTS else [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.environ.get('DRF_THROTTLE_ANON', '120/hour'),
+        'user': os.environ.get('DRF_THROTTLE_USER', '1000/hour'),
+    },
 }
 
 # Redis Cache Configuration - Switched to LocMem for MVP (No Redis needed)
