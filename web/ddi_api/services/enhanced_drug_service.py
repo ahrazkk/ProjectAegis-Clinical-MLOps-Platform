@@ -10,13 +10,33 @@ Provides enriched drug data from multiple sources:
 
 import re
 import logging
+import math
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
+from datetime import datetime, timezone
 
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+
+
+OPENFDA_FAERS_CAVEATS = [
+    "FAERS reports are voluntary and do not establish causality.",
+    "A single report may contain multiple drugs and reactions without one-to-one attribution.",
+    "Report volume can reflect usage and reporting behavior, not true incidence rates.",
+]
+
+EVIDENCE_SOURCE_WEIGHTS = {
+    'knowledge_graph': 1.0,
+    'ddi_corpus': 0.9,
+    'twosides': 0.78,
+    'openfda_faers': 0.62,
+    'normalization_layer': 0.35,
+    'evidence_aggregator': 0.2,
+}
+
+PRIMARY_SOURCE_IDS = {'knowledge_graph', 'ddi_corpus', 'twosides', 'openfda_faers'}
 
 
 def normalize_drug_name(name: str) -> Tuple[str, str]:
@@ -143,12 +163,25 @@ class EnhancedInteractionInfo:
     # Real-world co-reported events from OpenFDA
     faers_reports: int = 0
     faers_reactions: List[Dict] = field(default_factory=list)
+    faers_caveats: List[str] = field(default_factory=list)
+    faers_freshness: Dict[str, str] = field(default_factory=dict)
     
     # Clinical evidence
     evidence_sources: List[str] = field(default_factory=list)
+    evidence_chain: List[Dict] = field(default_factory=list)
+    evidence_summary: Dict = field(default_factory=dict)
     
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
+        faers_data = {
+            'total_reports': self.faers_reports,
+            'top_reactions': self.faers_reactions,
+            'serious_outcomes': {},
+            'source': 'openfda_faers',
+            'freshness': self.faers_freshness,
+            'caveats': self.faers_caveats,
+        }
+
         return {
             'drug1': self.drug1,
             'drug2': self.drug2,
@@ -158,7 +191,10 @@ class EnhancedInteractionInfo:
             'polypharmacy_effects': [asdict(pe) for pe in self.polypharmacy_effects],
             'faers_reports': self.faers_reports,
             'faers_reactions': self.faers_reactions,
-            'evidence_sources': self.evidence_sources
+            'faers_data': faers_data,
+            'evidence_sources': self.evidence_sources,
+            'evidence_chain': self.evidence_chain,
+            'evidence_summary': self.evidence_summary,
         }
 
 
@@ -192,6 +228,190 @@ class EnhancedDrugService:
             traceback.print_exc()
         
         self._initialized = True
+
+    @staticmethod
+    def _source_weight(source_id: str) -> float:
+        """Return normalized trust weight for a given evidence source."""
+        return EVIDENCE_SOURCE_WEIGHTS.get(source_id, 0.5)
+
+    @classmethod
+    def _build_evidence_summary(cls, evidence_chain: List[Dict]) -> Dict:
+        """Aggregate evidence-chain items into weighted support/conflict metrics."""
+        if not evidence_chain:
+            return {
+                'total_items': 0,
+                'supporting_items': 0,
+                'uncertain_items': 0,
+                'unique_sources': [],
+                'primary_source_coverage': {
+                    'covered': 0,
+                    'total': len(PRIMARY_SOURCE_IDS),
+                    'ratio': 0.0,
+                    'missing': sorted(PRIMARY_SOURCE_IDS),
+                },
+                'weighted_support_score': 0.0,
+                'weighted_uncertainty_score': 1.0,
+                'confidence_band': 'low',
+                'disagreement': {
+                    'has_conflict': False,
+                    'level': 'none',
+                    'conflicting_sources': [],
+                    'narrative': 'No evidence items available.',
+                },
+                'source_strengths': [],
+                'uncertainty_reasons': [
+                    {
+                        'type': 'insufficient_evidence',
+                        'source_id': 'evidence_aggregator',
+                        'source_label': 'Evidence Aggregator',
+                        'reason': 'No evidence-chain entries were generated for this interaction pair.',
+                    }
+                ],
+            }
+
+        source_rows = {}
+        weighted_support_numerator = 0.0
+        weighted_uncertainty_numerator = 0.0
+        weighted_total = 0.0
+
+        supporting_items = 0
+        uncertain_items = 0
+        uncertainty_reasons = []
+
+        for item in evidence_chain:
+            source = item.get('source') or {}
+            source_id = source.get('id', 'unknown')
+            source_label = source.get('label', source_id)
+            supports = bool(item.get('supports_interaction'))
+            strength_score = float(item.get('strength_score', 0.0) or 0.0)
+            source_weight = float(item.get('source_weight', cls._source_weight(source_id)) or 0.0)
+
+            weighted_total += source_weight
+            if supports:
+                supporting_items += 1
+                weighted_support_numerator += strength_score * source_weight
+            else:
+                uncertain_items += 1
+                weighted_uncertainty_numerator += strength_score * source_weight
+
+            row = source_rows.setdefault(source_id, {
+                'source_id': source_id,
+                'source_label': source_label,
+                'weight': source_weight,
+                'evidence_count': 0,
+                'support_count': 0,
+                'uncertain_count': 0,
+                'strength_sum': 0.0,
+                'weighted_strength_sum': 0.0,
+            })
+            row['evidence_count'] += 1
+            row['support_count'] += 1 if supports else 0
+            row['uncertain_count'] += 0 if supports else 1
+            row['strength_sum'] += strength_score
+            row['weighted_strength_sum'] += strength_score * source_weight
+
+            if not supports:
+                reason = {
+                    'type': item.get('claim_type', 'uncertainty_signal'),
+                    'source_id': source_id,
+                    'source_label': source_label,
+                    'reason': item.get('claim', 'Uncertain evidence signal detected.'),
+                }
+                caveats = item.get('caveats') or []
+                if caveats:
+                    reason['caveat'] = caveats[0]
+                uncertainty_reasons.append(reason)
+
+        weighted_support_score = (weighted_support_numerator / weighted_total) if weighted_total > 0 else 0.0
+        weighted_uncertainty_score = 1.0 - weighted_support_score
+
+        source_strengths = []
+        supporting_sources = []
+        uncertain_sources = []
+
+        for row in source_rows.values():
+            avg_strength = row['strength_sum'] / row['evidence_count'] if row['evidence_count'] else 0.0
+            support_ratio = row['support_count'] / row['evidence_count'] if row['evidence_count'] else 0.0
+            weighted_strength = row['weighted_strength_sum'] / row['evidence_count'] if row['evidence_count'] else 0.0
+
+            source_strengths.append({
+                'source_id': row['source_id'],
+                'source_label': row['source_label'],
+                'weight': round(row['weight'], 3),
+                'evidence_count': row['evidence_count'],
+                'support_ratio': round(support_ratio, 3),
+                'avg_strength': round(avg_strength, 3),
+                'weighted_strength': round(weighted_strength, 3),
+            })
+
+            if support_ratio >= 0.6:
+                supporting_sources.append(row['source_id'])
+            elif support_ratio <= 0.4:
+                uncertain_sources.append(row['source_id'])
+
+        source_strengths.sort(key=lambda x: x['weighted_strength'], reverse=True)
+
+        has_conflict = bool(supporting_sources and uncertain_sources)
+        conflicting_sources = sorted(set(supporting_sources + uncertain_sources)) if has_conflict else []
+
+        if has_conflict and abs(weighted_support_score - weighted_uncertainty_score) <= 0.1:
+            disagreement_level = 'high'
+        elif has_conflict:
+            disagreement_level = 'moderate'
+        else:
+            disagreement_level = 'none'
+
+        if weighted_support_score >= 0.72 and not has_conflict:
+            confidence_band = 'high'
+        elif weighted_support_score >= 0.45:
+            confidence_band = 'moderate'
+        else:
+            confidence_band = 'low'
+
+        covered_primary_sources = sorted(set(source_rows.keys()).intersection(PRIMARY_SOURCE_IDS))
+        missing_primary_sources = sorted(PRIMARY_SOURCE_IDS.difference(set(source_rows.keys())))
+        primary_coverage_ratio = len(covered_primary_sources) / len(PRIMARY_SOURCE_IDS)
+
+        if has_conflict:
+            disagreement_narrative = (
+                'Sources disagree on interaction strength; review the uncertainty reasons and source-specific caveats.'
+            )
+        elif uncertain_items > 0:
+            disagreement_narrative = 'Some evidence is weak or non-supportive; treat conclusion as conditional.'
+        else:
+            disagreement_narrative = 'Available sources are directionally consistent for this interaction pair.'
+
+        if not uncertainty_reasons and confidence_band != 'high':
+            uncertainty_reasons.append({
+                'type': 'limited_strength',
+                'source_id': 'evidence_aggregator',
+                'source_label': 'Evidence Aggregator',
+                'reason': 'Evidence support remains moderate/low despite no explicit source conflict.',
+            })
+
+        return {
+            'total_items': len(evidence_chain),
+            'supporting_items': supporting_items,
+            'uncertain_items': uncertain_items,
+            'unique_sources': sorted(source_rows.keys()),
+            'primary_source_coverage': {
+                'covered': len(covered_primary_sources),
+                'total': len(PRIMARY_SOURCE_IDS),
+                'ratio': round(primary_coverage_ratio, 3),
+                'missing': missing_primary_sources,
+            },
+            'weighted_support_score': round(weighted_support_score, 3),
+            'weighted_uncertainty_score': round(weighted_uncertainty_score, 3),
+            'confidence_band': confidence_band,
+            'disagreement': {
+                'has_conflict': has_conflict,
+                'level': disagreement_level,
+                'conflicting_sources': conflicting_sources,
+                'narrative': disagreement_narrative,
+            },
+            'source_strengths': source_strengths,
+            'uncertainty_reasons': uncertainty_reasons,
+        }
     
     def get_drug_info(self, drug_name: str, include_faers: bool = True) -> EnhancedDrugInfo:
         """
@@ -270,6 +490,41 @@ class EnhancedDrugService:
         
         info = EnhancedInteractionInfo(drug1=drug1, drug2=drug2)
         evidence = []
+        evidence_chain = []
+
+        def add_evidence_item(
+            claim_type: str,
+            claim: str,
+            source_id: str,
+            source_label: str,
+            source_category: str,
+            strength_score: float,
+            supports_interaction: bool,
+            details: Optional[Dict] = None,
+            caveats: Optional[List[str]] = None,
+            freshness: Optional[Dict] = None,
+        ):
+            source_weight = self._source_weight(source_id)
+            bounded_strength = round(max(0.0, min(1.0, float(strength_score))), 3)
+            evidence_chain.append({
+                'step': len(evidence_chain) + 1,
+                'claim_type': claim_type,
+                'claim': claim,
+                'supports_interaction': supports_interaction,
+                'strength_score': bounded_strength,
+                'source_weight': round(source_weight, 3),
+                'weighted_strength_score': round(bounded_strength * source_weight, 3),
+                'source': {
+                    'id': source_id,
+                    'label': source_label,
+                    'category': source_category,
+                },
+                'details': details or {},
+                'freshness': freshness or {},
+                'caveats': caveats or [],
+            })
+
+        ddi_sentence = None
         
         # Track if we matched via normalization
         matched_normalized = False
@@ -297,6 +552,38 @@ class EnhancedDrugService:
                 ]
                 if effects:
                     evidence.append('twosides')
+
+                    numeric_scores = []
+                    for effect in effects:
+                        try:
+                            numeric_scores.append(float(effect.get('score', 0.0)))
+                        except (TypeError, ValueError):
+                            continue
+
+                    mean_signal = sum(numeric_scores) / len(numeric_scores) if numeric_scores else 0.35
+                    top_effects = [
+                        {
+                            'effect': effect.get('side_effect', ''),
+                            'score': effect.get('score', 0.0),
+                        }
+                        for effect in effects[:3]
+                    ]
+
+                    add_evidence_item(
+                        claim_type='polypharmacy_effect_signal',
+                        claim=(
+                            f"TWOSIDES reports {len(effects)} co-administration side-effect signal(s) "
+                            f"for {drug1} + {drug2}."
+                        ),
+                        source_id='twosides',
+                        source_label='TWOSIDES',
+                        source_category='polypharmacy_dataset',
+                        strength_score=mean_signal,
+                        supports_interaction=True,
+                        details={'top_effects': top_effects},
+                        caveats=['Signal-level association data; not standalone causal proof.'],
+                        freshness={'type': 'snapshot_dataset'},
+                    )
             except Exception as e:
                 logger.debug(f"TWOSIDES lookup failed: {e}")
         
@@ -308,6 +595,38 @@ class EnhancedDrugService:
                 if 'error' not in faers_data:
                     info.faers_reports = faers_data.get('total_reports', 0)
                     info.faers_reactions = faers_data.get('top_reactions', [])
+                    info.faers_caveats = list(OPENFDA_FAERS_CAVEATS)
+                    info.faers_freshness = {
+                        'update_frequency': 'quarterly',
+                        'expected_lag': '3 months or more',
+                        'queried_at': datetime.now(timezone.utc).isoformat(),
+                        'source': 'https://open.fda.gov/apis/drug/event/',
+                    }
+
+                    faers_strength = min(0.95, max(0.1, math.log10(info.faers_reports + 1) / 4))
+                    faers_supports = info.faers_reports > 0
+
+                    add_evidence_item(
+                        claim_type='real_world_safety_signal',
+                        claim=(
+                            f"FAERS includes {info.faers_reports:,} co-reported adverse-event record(s) "
+                            f"for {drug1} + {drug2}."
+                        ) if faers_supports else (
+                            f"No FAERS co-report signal was found for {drug1} + {drug2} in this query window."
+                        ),
+                        source_id='openfda_faers',
+                        source_label='OpenFDA FAERS',
+                        source_category='post_market_surveillance',
+                        strength_score=faers_strength,
+                        supports_interaction=faers_supports,
+                        details={
+                            'total_reports': info.faers_reports,
+                            'top_reactions': info.faers_reactions[:5],
+                        },
+                        caveats=info.faers_caveats,
+                        freshness=info.faers_freshness,
+                    )
+
                     if info.faers_reports > 0:
                         evidence.append('openfda_faers')
             except Exception as e:
@@ -317,13 +636,30 @@ class EnhancedDrugService:
         try:
             from .ddi_sentence_db import get_ddi_sentence_db
             db = get_ddi_sentence_db()
-            sentence = db.find_sentence(drug1, drug2)
-            if not sentence and (norm1 != drug1.lower() or norm2 != drug2.lower()):
-                sentence = db.find_sentence(norm1, norm2)
-                if sentence:
+            ddi_sentence = db.find_sentence(drug1, drug2)
+            if not ddi_sentence and (norm1 != drug1.lower() or norm2 != drug2.lower()):
+                ddi_sentence = db.find_sentence(norm1, norm2)
+                if ddi_sentence:
                     matched_normalized = True
-            if sentence:
+
+            if ddi_sentence:
                 evidence.append('ddi_corpus')
+
+                add_evidence_item(
+                    claim_type='literature_sentence_evidence',
+                    claim='A curated DDI corpus sentence supports this pair-level interaction context.',
+                    source_id='ddi_corpus',
+                    source_label='DDI Corpus',
+                    source_category='literature_corpus',
+                    strength_score=getattr(ddi_sentence, 'confidence', 0.75),
+                    supports_interaction=True,
+                    details={
+                        'sentence': getattr(ddi_sentence, 'sentence', ''),
+                        'interaction_type': getattr(ddi_sentence, 'interaction_type', ''),
+                        'source': getattr(ddi_sentence, 'source', ''),
+                    },
+                    freshness={'type': 'snapshot_dataset'},
+                )
         except Exception as e:
             logger.debug(f"DDI Corpus lookup failed: {e}")
         
@@ -366,12 +702,77 @@ class EnhancedDrugService:
                     info.severity = results[0].get('severity', 'unknown')
                     info.mechanism = results[0].get('mechanism', '') or results[0].get('description', '')
                     evidence.append('knowledge_graph')
+
+                    severity_text = str(info.severity or 'unknown').lower()
+                    severity_strength = {
+                        'severe': 0.95,
+                        'major': 0.9,
+                        'moderate': 0.75,
+                        'minor': 0.55,
+                        'unknown': 0.5,
+                    }.get(severity_text, 0.5)
+                    info.risk_score = {
+                        'severe': 0.9,
+                        'major': 0.82,
+                        'moderate': 0.65,
+                        'minor': 0.4,
+                    }.get(severity_text, info.risk_score)
+
+                    add_evidence_item(
+                        claim_type='curated_knowledge_graph_relation',
+                        claim=(
+                            f"Knowledge Graph contains a curated relation for {drug1} + {drug2} "
+                            f"with severity '{info.severity}'."
+                        ),
+                        source_id='knowledge_graph',
+                        source_label='Neo4j Knowledge Graph',
+                        source_category='curated_ddi_relation',
+                        strength_score=severity_strength,
+                        supports_interaction=True,
+                        details={
+                            'severity': info.severity,
+                            'mechanism': info.mechanism,
+                        },
+                        freshness={'type': 'internal_graph_snapshot'},
+                    )
+
                     if matched_normalized:
                         evidence.append(f'matched_via_normalization:{norm1}+{norm2}')
         except Exception as e:
             logger.debug(f"KG interaction lookup failed: {e}")
+
+        if matched_normalized:
+            add_evidence_item(
+                claim_type='name_normalization',
+                claim=f"Name normalization was applied: '{drug1}'/'{drug2}' -> '{norm1}'/'{norm2}'.",
+                source_id='normalization_layer',
+                source_label='Normalization Layer',
+                source_category='query_preprocessing',
+                strength_score=0.5,
+                supports_interaction=True,
+                details={'normalized_drug1': norm1, 'normalized_drug2': norm2},
+                freshness={'type': 'runtime'},
+            )
+
+        if not evidence_chain:
+            add_evidence_item(
+                claim_type='insufficient_evidence',
+                claim=(
+                    f"No direct cross-source evidence chain was found for {drug1} + {drug2}; "
+                    "treat this as uncertain and verify with clinical references."
+                ),
+                source_id='evidence_aggregator',
+                source_label='Evidence Aggregator',
+                source_category='meta',
+                strength_score=0.2,
+                supports_interaction=False,
+                caveats=['Absence of evidence is not evidence of no interaction.'],
+                freshness={'type': 'runtime'},
+            )
         
         info.evidence_sources = evidence
+        info.evidence_chain = evidence_chain
+        info.evidence_summary = self._build_evidence_summary(evidence_chain)
         return info
 
 

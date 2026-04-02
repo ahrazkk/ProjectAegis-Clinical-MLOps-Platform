@@ -242,7 +242,31 @@ export async function getInteractionInfo(drug1, drug2, includeFaers = true) {
         drug2,
         faers: includeFaers.toString()
     });
-    return apiRequest(`/interaction-info/?${params}`);
+    const response = await apiRequest(`/interaction-info/?${params}`);
+
+    if (!response || typeof response !== 'object') {
+        return response;
+    }
+
+    const fallbackFaersData = {
+        total_reports: Number(response.faers_reports) || 0,
+        top_reactions: Array.isArray(response.faers_reactions) ? response.faers_reactions : [],
+        source: 'openfda_faers',
+        freshness: {},
+        caveats: [],
+        serious_outcomes: {},
+    };
+
+    return {
+        ...response,
+        faers_data: response.faers_data && typeof response.faers_data === 'object'
+            ? response.faers_data
+            : fallbackFaersData,
+        evidence_chain: Array.isArray(response.evidence_chain) ? response.evidence_chain : [],
+        evidence_summary: response.evidence_summary && typeof response.evidence_summary === 'object'
+            ? response.evidence_summary
+            : {},
+    };
 }
 
 /**

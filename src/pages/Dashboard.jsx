@@ -557,6 +557,253 @@ function PredictionTransparencyPanel({ result, isMobile = false }) {
   );
 }
 
+function getEvidenceStrengthMeta(score) {
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) {
+    return {
+      label: 'Unknown',
+      tone: 'border-theme text-theme-muted',
+    };
+  }
+
+  if (numeric >= 0.75) {
+    return {
+      label: 'Strong',
+      tone: 'border-risk-high/40 text-risk-high bg-risk-high/10',
+    };
+  }
+
+  if (numeric >= 0.45) {
+    return {
+      label: 'Moderate',
+      tone: 'border-risk-medium/40 text-risk-medium bg-risk-medium/10',
+    };
+  }
+
+  return {
+    label: 'Weak',
+    tone: 'border-risk-low/40 text-risk-low bg-risk-low/10',
+  };
+}
+
+function EvidenceChainTimeline({ interactionEvidence, compact = false }) {
+  const evidenceChain = Array.isArray(interactionEvidence?.evidence_chain)
+    ? interactionEvidence.evidence_chain
+    : [];
+
+  if (evidenceChain.length === 0) return null;
+
+  const maxItems = compact ? 3 : 5;
+  const visibleItems = evidenceChain.slice(0, maxItems);
+  const remainingCount = Math.max(0, evidenceChain.length - visibleItems.length);
+
+  return (
+    <div className="p-4 border border-theme-accent/30 relative bg-theme-accent/5">
+      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-theme-accent"></div>
+      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-theme-accent"></div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <GitBranch className="w-3.5 h-3.5 text-theme-accent" />
+        <span className="text-[10px] text-theme-muted uppercase tracking-widest">Why This Interaction</span>
+        <span className="ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border border-theme-accent/40 text-theme-accent">
+          Evidence Chain
+        </span>
+      </div>
+
+      <div className="space-y-2.5">
+        {visibleItems.map((item, index) => {
+          const strength = getEvidenceStrengthMeta(item?.strength_score);
+          const sourceLabel = item?.source?.label || item?.source?.id || 'Unknown Source';
+          const claim = typeof item?.claim === 'string' ? item.claim : 'Evidence item available.';
+          const caveat = Array.isArray(item?.caveats) ? item.caveats[0] : null;
+
+          return (
+            <div key={`evidence-${index}`} className="p-2.5 border border-theme/20 bg-theme-primary/70">
+              <div className="flex items-start gap-2">
+                <div className="mt-0.5">
+                  {item?.supports_interaction ? (
+                    <Check className="w-3 h-3 text-risk-low" />
+                  ) : (
+                    <AlertCircle className="w-3 h-3 text-risk-medium" />
+                  )}
+                </div>
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center flex-wrap gap-1.5 mb-1">
+                    <span className="text-[8px] text-theme-dim uppercase tracking-wider">Step {item?.step || index + 1}</span>
+                    <span className="text-[8px] text-theme-muted uppercase tracking-wider">{sourceLabel}</span>
+                    <span className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-wider ${strength.tone}`}>
+                      {strength.label}
+                    </span>
+                  </div>
+
+                  <p className="text-[11px] text-theme-secondary leading-relaxed">{claim}</p>
+
+                  {caveat && (
+                    <p className="text-[9px] text-risk-medium mt-1">Caveat: {caveat}</p>
+                  )}
+
+                  {item?.freshness?.update_frequency && (
+                    <p className="text-[8px] text-theme-dim mt-1 uppercase tracking-wider">
+                      Freshness: {item.freshness.update_frequency}
+                      {item?.freshness?.expected_lag ? ` / lag ${item.freshness.expected_lag}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {remainingCount > 0 && (
+        <p className="text-[9px] text-theme-dim mt-2 uppercase tracking-wider">
+          +{remainingCount} additional evidence step{remainingCount === 1 ? '' : 's'}
+        </p>
+      )}
+
+      {Array.isArray(interactionEvidence?.faers_data?.caveats) && interactionEvidence.faers_data.caveats.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-theme-accent/20">
+          <p className="text-[9px] text-theme-muted uppercase tracking-wider mb-1">FAERS Caveat</p>
+          <p className="text-[10px] text-theme-secondary">{interactionEvidence.faers_data.caveats[0]}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getEvidenceConfidenceTone(confidenceBand) {
+  const normalized = String(confidenceBand || '').toLowerCase();
+  if (normalized === 'high') {
+    return 'border-risk-low/40 text-risk-low bg-risk-low/10';
+  }
+  if (normalized === 'moderate') {
+    return 'border-risk-medium/40 text-risk-medium bg-risk-medium/10';
+  }
+  if (normalized === 'low') {
+    return 'border-risk-high/40 text-risk-high bg-risk-high/10';
+  }
+  return 'border-theme text-theme-muted';
+}
+
+function getDisagreementTone(level) {
+  const normalized = String(level || '').toLowerCase();
+  if (normalized === 'high') {
+    return 'border-risk-high/40 text-risk-high bg-risk-high/10';
+  }
+  if (normalized === 'moderate') {
+    return 'border-risk-medium/40 text-risk-medium bg-risk-medium/10';
+  }
+  return 'border-theme text-theme-muted';
+}
+
+function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
+  const summary = interactionEvidence?.evidence_summary && typeof interactionEvidence.evidence_summary === 'object'
+    ? interactionEvidence.evidence_summary
+    : null;
+
+  if (!summary) return null;
+
+  const weightedSupport = Number(summary.weighted_support_score);
+  const weightedUncertainty = Number(summary.weighted_uncertainty_score);
+  const confidenceBand = String(summary.confidence_band || 'unknown');
+  const disagreement = summary.disagreement && typeof summary.disagreement === 'object'
+    ? summary.disagreement
+    : {};
+  const coverage = summary.primary_source_coverage && typeof summary.primary_source_coverage === 'object'
+    ? summary.primary_source_coverage
+    : {};
+
+  const reasons = Array.isArray(summary.uncertainty_reasons) ? summary.uncertainty_reasons : [];
+  const visibleReasons = reasons.slice(0, compact ? 2 : 4);
+  const remainingReasonCount = Math.max(0, reasons.length - visibleReasons.length);
+
+  const hasConflict = Boolean(disagreement.has_conflict);
+  const disagreementLevel = String(disagreement.level || 'none');
+
+  const hasSummarySignals = Number.isFinite(weightedSupport)
+    || Number.isFinite(weightedUncertainty)
+    || reasons.length > 0
+    || hasConflict;
+
+  if (!hasSummarySignals) return null;
+
+  return (
+    <div className="p-4 border border-risk-medium/30 relative bg-risk-medium/5">
+      <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-risk-medium"></div>
+      <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-risk-medium"></div>
+
+      <div className="flex items-center gap-2 mb-3">
+        <AlertTriangle className="w-3.5 h-3.5 text-risk-medium" />
+        <span className="text-[10px] text-theme-muted uppercase tracking-widest">Uncertainty Reasons</span>
+        <span className={`ml-auto px-2 py-0.5 text-[8px] uppercase tracking-wider border ${getEvidenceConfidenceTone(confidenceBand)}`}>
+          {confidenceBand} confidence
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div className="p-2 border border-theme/20 bg-theme-primary/70">
+          <p className="text-[8px] text-theme-muted uppercase tracking-wider">Weighted Support</p>
+          <p className="text-[11px] text-theme-secondary mt-1">
+            {Number.isFinite(weightedSupport) ? `${(weightedSupport * 100).toFixed(1)}%` : 'N/A'}
+          </p>
+        </div>
+        <div className="p-2 border border-theme/20 bg-theme-primary/70">
+          <p className="text-[8px] text-theme-muted uppercase tracking-wider">Weighted Uncertainty</p>
+          <p className="text-[11px] text-theme-secondary mt-1">
+            {Number.isFinite(weightedUncertainty) ? `${(weightedUncertainty * 100).toFixed(1)}%` : 'N/A'}
+          </p>
+        </div>
+      </div>
+
+      {hasConflict && (
+        <div className="mb-3 p-2 border border-theme/20 bg-theme-primary/70">
+          <div className="flex items-center gap-2 mb-1">
+            <span className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-wider ${getDisagreementTone(disagreementLevel)}`}>
+              Conflict: {disagreementLevel}
+            </span>
+          </div>
+          {disagreement.narrative && (
+            <p className="text-[10px] text-theme-secondary leading-relaxed">{disagreement.narrative}</p>
+          )}
+        </div>
+      )}
+
+      {Number.isFinite(coverage.ratio) && (
+        <p className="text-[9px] text-theme-dim uppercase tracking-wider mb-2">
+          Primary Source Coverage: {(coverage.ratio * 100).toFixed(0)}%
+        </p>
+      )}
+
+      {visibleReasons.length > 0 ? (
+        <div className="space-y-2">
+          {visibleReasons.map((reason, index) => (
+            <div key={`uncertainty-reason-${index}`} className="p-2 border border-theme/20 bg-theme-primary/70">
+              <p className="text-[9px] text-theme-muted uppercase tracking-wider">
+                {reason?.source_label || reason?.source_id || 'Unknown Source'}
+              </p>
+              <p className="text-[10px] text-theme-secondary mt-1 leading-relaxed">
+                {reason?.reason || 'Uncertainty signal detected.'}
+              </p>
+              {reason?.caveat && (
+                <p className="text-[9px] text-risk-medium mt-1">Caveat: {reason.caveat}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-[10px] text-theme-dim">No explicit uncertainty reasons returned for this pair.</p>
+      )}
+
+      {remainingReasonCount > 0 && (
+        <p className="text-[9px] text-theme-dim mt-2 uppercase tracking-wider">
+          +{remainingReasonCount} additional uncertainty reason{remainingReasonCount === 1 ? '' : 's'}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function CalibrationQAPanel({ addLog, defaultExpanded = false }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [csvInput, setCsvInput] = useState(DEFAULT_CALIBRATION_CSV);
@@ -2890,6 +3137,9 @@ export default function Dashboard() {
             </div>
           )}
 
+          <EvidenceChainTimeline interactionEvidence={interactionEvidence} compact={true} />
+          <EvidenceUncertaintyPanel interactionEvidence={interactionEvidence} compact={true} />
+
           {/* FDA Evidence */}
           {interactionEvidence?.faers_data && (
             <div className="p-4 border border-theme-accent/30 bg-theme-accent/10 backdrop-blur-sm">
@@ -3894,6 +4144,9 @@ export default function Dashboard() {
                       )}
                     </div>
                   )}
+
+                  <EvidenceChainTimeline interactionEvidence={interactionEvidence} />
+                  <EvidenceUncertaintyPanel interactionEvidence={interactionEvidence} />
 
                   {/* Real-World Evidence from FDA FAERS */}
                   {interactionEvidence?.faers_data && (
