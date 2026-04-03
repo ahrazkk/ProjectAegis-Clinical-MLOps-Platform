@@ -6,7 +6,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Activity, Zap, AlertCircle, ListFilter, Eye, EyeOff } from 'lucide-react';
 
-import { enrichBodyMapData, getUniqueSideEffects } from './bodyMapDataService';
+import { enrichBodyMapData } from './bodyMapDataService';
 import { ORGAN_SYSTEMS, BODY_OUTLINE, SKELETAL_HINTS, ANATOMY_LANDMARKS, getSeverityColor } from './organRegistry';
 import HeatMapCanvas from './layers/HeatMapCanvas';
 import CirculatoryOverlay from './layers/CirculatoryOverlay';
@@ -277,7 +277,15 @@ function ClinicalIntelPanel({ organs, interactionEvidence, isMobile }) {
 }
 
 // ─── Systems intelligence rail (left panel) ───────────────────────────────
-function SystemsIntelligenceRail({ organs, selectedOrgan, onSelect, interactionEvidence, isMobile }) {
+function SystemsIntelligenceRail({
+  organs,
+  selectedOrgan,
+  hoveredOrgan,
+  onSelect,
+  onHover,
+  interactionEvidence,
+  isMobile,
+}) {
   const summary = interactionEvidence?.evidence_summary && typeof interactionEvidence.evidence_summary === 'object'
     ? interactionEvidence.evidence_summary
     : {};
@@ -343,6 +351,8 @@ function SystemsIntelligenceRail({ organs, selectedOrgan, onSelect, interactionE
         <div className={`px-2 py-2 overflow-y-auto ${isMobile ? 'max-h-[140px]' : 'max-h-[440px]'}`}>
           <div className="space-y-1.5">
             {systems.map((system) => {
+              const isSelected = selectedOrgan === system.key;
+              const isHovered = hoveredOrgan === system.key;
               const tone = system.severity > 0.7
                 ? 'from-red-500/20 to-red-500/5 border-red-500/35 text-red-200'
                 : system.severity > 0.4
@@ -355,7 +365,11 @@ function SystemsIntelligenceRail({ organs, selectedOrgan, onSelect, interactionE
                 <button
                   key={system.key}
                   onClick={() => onSelect?.(system.key)}
-                  className={`w-full text-left rounded-md border bg-gradient-to-r p-2 transition-all ${tone} ${selectedOrgan === system.key ? 'ring-1 ring-cyan-400/55 shadow-[0_0_12px_rgba(56,189,248,0.25)]' : 'hover:border-cyan-400/35'}`}
+                  onMouseEnter={() => onHover?.(system.key)}
+                  onMouseLeave={() => onHover?.(null)}
+                  onFocus={() => onHover?.(system.key)}
+                  onBlur={() => onHover?.(null)}
+                  className={`w-full text-left rounded-md border bg-gradient-to-r p-2 transition-all ${tone} ${isSelected ? 'ring-1 ring-cyan-400/55 shadow-[0_0_12px_rgba(56,189,248,0.25)]' : isHovered ? 'ring-1 ring-cyan-400/40 border-cyan-400/45 shadow-[0_0_10px_rgba(56,189,248,0.2)]' : 'hover:border-cyan-400/35'}`}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[9px] uppercase tracking-wider font-mono truncate">{system.name}</span>
@@ -385,12 +399,20 @@ function SystemsIntelligenceRail({ organs, selectedOrgan, onSelect, interactionE
 }
 
 // ─── Right-side evidence panel ────────────────────────────────────────────
-function RightEvidencePanel({ organs, selectedOrgan, interactionEvidence, isMobile }) {
+function RightEvidencePanel({
+  organs,
+  selectedOrgan,
+  interactionEvidence,
+  systemEvidence = {},
+  evidenceLens = 'clinical',
+  onChangeLens,
+  onRunUpliftAction,
+  upliftActionStatus = {},
+  onRunPriorityUplift,
+  priorityUpliftStatus = {},
+  isMobile,
+}) {
   if (isMobile) return null;
-
-  const summary = interactionEvidence?.evidence_summary && typeof interactionEvidence.evidence_summary === 'object'
-    ? interactionEvidence.evidence_summary
-    : {};
 
   const rankedKeys = Object.keys(organs)
     .sort((a, b) => ((organs[b]?.severity || 0) - (organs[a]?.severity || 0)));
@@ -398,90 +420,456 @@ function RightEvidencePanel({ organs, selectedOrgan, interactionEvidence, isMobi
   const activeKey = (selectedOrgan && organs[selectedOrgan]) ? selectedOrgan : rankedKeys[0];
   const activeOrgan = activeKey ? organs[activeKey] : null;
   const activeMeta = activeKey ? ORGAN_SYSTEMS[activeKey] : null;
+  const activeProfile = activeKey ? systemEvidence?.[activeKey] : null;
 
-  const findings = activeOrgan ? getUniqueSideEffects(activeOrgan).slice(0, 4) : [];
-  const detailSignals = activeOrgan?.details?.slice(0, 3) || [];
+  const evidenceChain = Array.isArray(interactionEvidence?.evidence_chain)
+    ? interactionEvidence.evidence_chain.slice(0, 3)
+    : [];
 
-  const coverage = Number(summary?.source_coverage?.ratio);
-  const support = Number(summary?.weighted_support_score);
-  const uncertainty = Number(summary?.weighted_uncertainty_score);
-  const confidenceBand = String(summary?.confidence_band || 'unknown');
-  const disagreementLevel = String(summary?.disagreement?.level || 'none');
+  const highlights = activeProfile?.evidenceHighlights || [];
+  const uncertaintyReasons = activeProfile?.uncertaintyReasons || [];
+  const uncertaintyTopDrivers = activeProfile?.uncertaintyTopDrivers || [];
+  const uncertaintyDecomposition = activeProfile?.uncertaintyDecomposition || {};
+  const monitoringFocus = activeProfile?.monitoringFocus || [];
+  const sources = activeProfile?.sources || [];
+  const sourceBreakdown = activeProfile?.sourceBreakdown || {};
+  const sourceRecencyByCategory = activeProfile?.sourceRecencyByCategory || {};
+
+  const impact = Number(activeOrgan?.severity);
+  const confidence = Number(activeProfile?.confidenceScore);
+  const certainty = Number(activeProfile?.certaintyScore);
+  const confidencePotential = Number(activeProfile?.confidencePotentialScore);
+  const sourceReliability = Number(activeProfile?.sourceReliabilityScore);
+  const sourceConsistency = Number(activeProfile?.sourceConsistencyTrend);
+  const sourceQuality = Number(activeProfile?.sourceQualityScore);
+  const recencyScore = Number(activeProfile?.recencyScore);
+  const support = Number(activeProfile?.support);
+  const uncertainty = Number(activeProfile?.uncertainty);
+  const coverage = Number(activeProfile?.coverage);
+  const disagreement = String(activeProfile?.disagreementLevel || 'none');
+  const confidenceBand = String(activeProfile?.confidenceBand || 'unknown');
+  const freshnessLabel = String(activeProfile?.freshnessLabel || 'unknown');
+  const evidenceCount = Number(activeProfile?.evidenceCount || 0);
+  const recommendation = String(activeProfile?.recommendation || 'Routine surveillance');
+  const confidenceUpliftPlan = activeProfile?.confidenceUpliftPlan || [];
+  const priorityRunIsRunning = priorityUpliftStatus?.state === 'running';
+  const priorityRunSummary = priorityUpliftStatus?.summary && typeof priorityUpliftStatus.summary === 'object'
+    ? priorityUpliftStatus.summary
+    : null;
+  const formatPercentPointDelta = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 'N/A';
+    const signed = numeric > 0 ? '+' : '';
+    return `${signed}${(numeric * 100).toFixed(1)}pp`;
+  };
+  const formatCountDelta = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 'N/A';
+    const signed = numeric > 0 ? '+' : '';
+    return `${signed}${numeric.toFixed(0)}`;
+  };
+  const formatRefreshTime = (value) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
+  const sourceBreakdownRows = Object.entries(sourceBreakdown)
+    .map(([key, value]) => ({ key, value: Number(value) || 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  const sourceRecencyRows = Object.entries(sourceRecencyByCategory)
+    .map(([key, value]) => ({ key, value: Number(value) || 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  const sourceLabelMap = {
+    knowledgeGraph: 'Knowledge Graph',
+    literature: 'Literature',
+    realWorld: 'Real-world',
+    mechanistic: 'Mechanistic',
+    modelSignals: 'Model Signals',
+  };
+
+  const uncertaintyBreakdownRows = Object.entries(uncertaintyDecomposition)
+    .map(([key, value]) => ({ key, value: Number(value) || 0 }))
+    .sort((a, b) => b.value - a.value);
+
+  const uncertaintyLabelMap = {
+    dataSparsity: 'Data sparsity',
+    sourceDisagreement: 'Source disagreement',
+    recencyRisk: 'Recency risk',
+    crossSourceVariance: 'Cross-source variance',
+    realWorldGap: 'RWE gap',
+  };
 
   const fmt = (value) => (Number.isFinite(value) ? `${Math.round(value * 100)}%` : 'N/A');
 
+  const confidenceTone = confidenceBand === 'high'
+    ? 'text-emerald-300 border-emerald-500/35 bg-emerald-500/10'
+    : confidenceBand === 'medium'
+      ? 'text-amber-300 border-amber-500/35 bg-amber-500/10'
+      : 'text-red-300 border-red-500/35 bg-red-500/10';
+
+  const freshnessTone = freshnessLabel === 'fresh'
+    ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+    : freshnessLabel === 'recent'
+      ? 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10'
+      : freshnessLabel === 'stale'
+        ? 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+        : 'text-slate-300 border-white/15 bg-white/[0.03]';
+
+  const disagreementTone = disagreement === 'high'
+    ? 'text-red-300'
+    : disagreement === 'medium'
+      ? 'text-amber-300'
+      : disagreement === 'low'
+        ? 'text-cyan-300'
+        : 'text-slate-400';
+
   return (
-    <div className="absolute z-20 right-4 top-24 bottom-4 w-[300px]">
+    <div className="absolute z-20 right-4 top-24 bottom-4 w-[320px]">
       <div className="h-full rounded-xl border border-cyan-500/20 bg-[#071022]/90 backdrop-blur-md shadow-[0_0_38px_rgba(25,90,170,0.28)] overflow-hidden flex flex-col">
         <div className="px-3 py-2 border-b border-cyan-500/20 bg-gradient-to-r from-cyan-500/10 to-transparent">
-          <p className="text-[9px] uppercase tracking-[0.2em] text-cyan-300/90 font-mono">Evidence Command</p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[9px] uppercase tracking-[0.2em] text-cyan-300/90 font-mono">Evidence Command</p>
+            <div className="flex items-center gap-1 rounded border border-white/10 bg-white/[0.02] p-0.5">
+              <button
+                onClick={() => onChangeLens?.('clinical')}
+                className={`px-1.5 py-0.5 text-[7px] uppercase tracking-wider font-mono rounded ${evidenceLens === 'clinical' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400 hover:text-slate-300'}`}
+              >
+                Clinical
+              </button>
+              <button
+                onClick={() => onChangeLens?.('research')}
+                className={`px-1.5 py-0.5 text-[7px] uppercase tracking-wider font-mono rounded ${evidenceLens === 'research' ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400 hover:text-slate-300'}`}
+              >
+                Research
+              </button>
+            </div>
+          </div>
           <p className="mt-1 text-[10px] text-slate-300 font-mono truncate">{activeMeta?.name || 'No active system selected'}</p>
         </div>
 
-        <div className="p-2 border-b border-white/10">
-          <div className="grid grid-cols-2 gap-1.5">
-            <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
-              <p className="text-[7px] text-slate-500 uppercase tracking-wider">Impact</p>
-              <p className="text-[9px] text-cyan-200 font-mono">{fmt(activeOrgan?.severity)}</p>
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <div className="p-2 border-b border-white/10">
+            <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">Risk Snapshot</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Impact</p>
+                <p className="text-[9px] text-cyan-200 font-mono">{fmt(impact)}</p>
+              </div>
+              <div className={`rounded border px-1.5 py-1 ${confidenceTone}`}>
+                <p className="text-[7px] uppercase tracking-wider">Confidence</p>
+                <p className="text-[9px] font-mono">{confidenceBand.toUpperCase()} · {fmt(confidence)}</p>
+              </div>
+              <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Evidence Nodes</p>
+                <p className="text-[9px] text-cyan-200 font-mono">{evidenceCount}</p>
+              </div>
+              <div className={`rounded border px-1.5 py-1 ${freshnessTone}`}>
+                <p className="text-[7px] uppercase tracking-wider">Freshness</p>
+                <p className="text-[9px] font-mono">{freshnessLabel.toUpperCase()}</p>
+              </div>
             </div>
-            <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
-              <p className="text-[7px] text-slate-500 uppercase tracking-wider">FAERS Cases</p>
-              <p className="text-[9px] text-cyan-200 font-mono">{activeOrgan?.faersCount || 0}</p>
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider">Certainty</p>
+                <p className="text-[9px] text-cyan-200 font-mono">{fmt(certainty)}</p>
+              </div>
+              <div className="rounded border border-cyan-500/25 bg-cyan-500/8 px-1.5 py-1">
+                <p className="text-[7px] text-cyan-300 uppercase tracking-wider">Confidence Potential</p>
+                <p className="text-[9px] text-cyan-100 font-mono">{fmt(confidencePotential)}</p>
+              </div>
             </div>
-            <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
-              <p className="text-[7px] text-slate-500 uppercase tracking-wider">Support</p>
-              <p className="text-[9px] text-cyan-200 font-mono">{fmt(support)}</p>
-            </div>
-            <div className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
-              <p className="text-[7px] text-slate-500 uppercase tracking-wider">Uncertainty</p>
-              <p className="text-[9px] text-cyan-200 font-mono">{fmt(uncertainty)}</p>
+            <div className="mt-1.5 flex items-center justify-between gap-2 text-[7px] uppercase tracking-wider font-mono">
+              <span className="text-slate-500">Recommendation</span>
+              <span className="text-cyan-200">{recommendation}</span>
             </div>
           </div>
-          <div className="mt-2 flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
-            <span>Confidence: {confidenceBand}</span>
-            <span>Coverage: {fmt(coverage)}</span>
-            <span>Disagree: {disagreementLevel}</span>
-          </div>
-        </div>
 
-        <div className="px-2 py-2 border-b border-white/10">
-          <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">High-Signal Findings</p>
-          <div className="space-y-1 max-h-[140px] overflow-y-auto pr-0.5">
-            {findings.length > 0 ? findings.map((finding, index) => {
-              const tone = finding.severity > 0.7
-                ? 'text-red-200 border-red-500/25 bg-red-500/10'
-                : finding.severity > 0.4
-                  ? 'text-orange-200 border-orange-500/25 bg-orange-500/10'
-                  : 'text-amber-200 border-amber-500/25 bg-amber-500/10';
-
-              return (
-                <div key={`${finding.name || 'finding'}-${index}`} className={`rounded border px-1.5 py-1 ${tone}`}>
+          <div className="px-2 py-2 border-b border-white/10">
+            <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">Why This System Is Highlighted</p>
+            <div className="space-y-1">
+              {highlights.length > 0 ? highlights.map((entry, index) => (
+                <div key={`${entry.title || 'evidence'}-${index}`} className="rounded border border-white/10 bg-white/[0.02] px-1.5 py-1">
                   <div className="flex items-center justify-between gap-1">
-                    <p className="text-[8px] font-mono truncate uppercase tracking-wider">{finding.name || 'Signal'}</p>
-                    <span className="text-[7px] font-mono">{fmt(finding.severity)}</span>
+                    <p className="text-[8px] text-slate-200 uppercase tracking-wider font-mono truncate">{entry.title || 'Evidence signal'}</p>
+                    <span className="text-[7px] text-cyan-300 font-mono">{fmt(entry.score)}</span>
                   </div>
-                  <p className="text-[7px] text-slate-400 mt-0.5">{finding.frequency || finding.source || 'clinical-signal'}</p>
+                  <div className="mt-0.5 flex items-center justify-between gap-1">
+                    <span className="text-[7px] text-slate-500 font-mono uppercase">{entry.source || 'signal'}</span>
+                    {evidenceLens === 'research' && (
+                      <span className="text-[7px] text-slate-500 truncate">{entry.detail || 'No additional note'}</span>
+                    )}
+                  </div>
                 </div>
-              );
-            }) : (
-              <p className="text-[8px] text-slate-500 font-mono">No side-effect findings available for this system yet.</p>
+              )) : (
+                <p className="text-[8px] text-slate-500 font-mono">No organ-specific evidence highlights available yet.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="px-2 py-2 border-b border-white/10">
+            <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">How Sure Are We</p>
+            <div className="space-y-1.5">
+              <div>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+                  <span>Support</span>
+                  <span>{fmt(support)}</span>
+                </div>
+                <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-emerald-300/80" style={{ width: `${Math.max(4, (Number.isFinite(support) ? support : 0) * 100)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+                  <span>Uncertainty</span>
+                  <span>{fmt(uncertainty)}</span>
+                </div>
+                <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-amber-300/80" style={{ width: `${Math.max(4, (Number.isFinite(uncertainty) ? uncertainty : 0) * 100)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+                  <span>Source Reliability</span>
+                  <span>{fmt(sourceReliability)}</span>
+                </div>
+                <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-cyan-300/80" style={{ width: `${Math.max(4, (Number.isFinite(sourceReliability) ? sourceReliability : 0) * 100)}%` }} />
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+                  <span>Recency Score</span>
+                  <span>{fmt(recencyScore)}</span>
+                </div>
+                <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-full rounded-full bg-blue-300/80" style={{ width: `${Math.max(4, (Number.isFinite(recencyScore) ? recencyScore : 0) * 100)}%` }} />
+                </div>
+              </div>
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+              <span>Coverage: {fmt(coverage)}</span>
+              <span className={disagreementTone}>Disagreement: {disagreement}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-500">
+              <span>Source quality: {fmt(sourceQuality)}</span>
+              <span>Consistency: {fmt(sourceConsistency)}</span>
+            </div>
+            {sources.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {sources.slice(0, 5).map((source) => (
+                  <span key={source} className="px-1 py-0.5 rounded border border-white/10 bg-white/[0.02] text-[7px] uppercase tracking-wider text-slate-400 font-mono">
+                    {source}
+                  </span>
+                ))}
+              </div>
             )}
           </div>
-        </div>
 
-        <div className="px-2 py-2 flex-1 min-h-0">
-          <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">Mechanistic Notes</p>
-          <div className="space-y-1 max-h-full overflow-y-auto pr-0.5">
-            {detailSignals.length > 0 ? detailSignals.map((detail, index) => (
-              <div key={`${detail.label || 'detail'}-${index}`} className="rounded border border-cyan-500/20 bg-cyan-500/5 px-1.5 py-1">
-                <div className="flex items-center justify-between gap-1">
-                  <p className="text-[8px] text-cyan-200 uppercase tracking-wider font-mono truncate">{detail.label || detail.type || 'Mechanistic Signal'}</p>
-                  <span className="text-[7px] text-cyan-300/80 font-mono">{fmt(detail.severity)}</span>
+          <div className="px-2 py-2">
+            <p className="text-[8px] text-slate-500 uppercase tracking-wider mb-1">Monitor Next</p>
+            <div className="space-y-1">
+              {monitoringFocus.slice(0, 3).map((item, index) => (
+                <div key={`${item}-${index}`} className="rounded border border-cyan-500/15 bg-cyan-500/5 px-1.5 py-1">
+                  <p className="text-[8px] text-cyan-100/90 leading-relaxed">{item}</p>
                 </div>
-                <p className="text-[7px] text-slate-400 mt-0.5 leading-relaxed">{detail.description || 'No detail text available.'}</p>
+              ))}
+            </div>
+
+            {confidenceUpliftPlan.length > 0 && (
+              <div className="mt-2 rounded border border-emerald-500/25 bg-emerald-500/5 px-1.5 py-1.5">
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-[7px] text-emerald-300 uppercase tracking-wider font-mono">Confidence Uplift Plan</p>
+                  {onRunPriorityUplift && (
+                    <button
+                      onClick={onRunPriorityUplift}
+                      disabled={priorityRunIsRunning}
+                      className="px-1.5 py-0.5 rounded border border-emerald-500/30 text-[7px] text-emerald-200 uppercase tracking-wider font-mono hover:bg-emerald-500/10 transition-colors disabled:opacity-50"
+                    >
+                      {priorityRunIsRunning ? 'Running...' : 'Run Priority'}
+                    </button>
+                  )}
+                </div>
+                {onRunUpliftAction && (
+                  <p className="text-[7px] text-slate-500 mb-1 leading-relaxed">
+                    Execute runs live evidence refresh and re-scores confidence for this regimen.
+                  </p>
+                )}
+                {priorityUpliftStatus?.message && (
+                  <p className="text-[7px] text-slate-400 mb-1 leading-relaxed">{priorityUpliftStatus.message}</p>
+                )}
+                {priorityRunSummary && (
+                  <div className="mb-1 rounded border border-emerald-500/15 bg-black/20 px-1 py-1 text-[7px] text-slate-400 font-mono leading-relaxed">
+                    <p>Support: {(priorityRunSummary.beforeSupport * 100).toFixed(1)}% to {(priorityRunSummary.afterSupport * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaSupport)})</p>
+                    <p>Uncertainty: {(priorityRunSummary.beforeUncertainty * 100).toFixed(1)}% to {(priorityRunSummary.afterUncertainty * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaUncertainty)})</p>
+                    <p>Coverage: {(priorityRunSummary.beforeCoverage * 100).toFixed(1)}% to {(priorityRunSummary.afterCoverage * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaCoverage)})</p>
+                    <p>Sources: {priorityRunSummary.beforeSources} to {priorityRunSummary.afterSources} ({formatCountDelta(priorityRunSummary.deltaSources)})</p>
+                    <p>Evidence nodes: {priorityRunSummary.beforeEvidenceNodes} to {priorityRunSummary.afterEvidenceNodes} ({formatCountDelta(priorityRunSummary.deltaEvidenceNodes)})</p>
+                    <p>Clinical signals: {priorityRunSummary.beforeSideEffectSignals} to {priorityRunSummary.afterSideEffectSignals} ({formatCountDelta(priorityRunSummary.deltaSideEffectSignals)})</p>
+                    <p>FAERS reports: {priorityRunSummary.beforeFaersReports} to {priorityRunSummary.afterFaersReports} ({formatCountDelta(priorityRunSummary.deltaFaersReports)})</p>
+                    <p>Refresh: {formatRefreshTime(priorityRunSummary.refreshedAt)}</p>
+                    {Array.isArray(priorityRunSummary.actionDiagnostics) && priorityRunSummary.actionDiagnostics.length > 0 && (
+                      <p>
+                        Actions: {priorityRunSummary.actionDiagnostics
+                          .map((action) => `${action.key}(${Array.isArray(action.changedFields) && action.changedFields.length > 0 ? action.changedFields.join('/') : 'none'})`)
+                          .join(', ')}
+                      </p>
+                    )}
+                    {priorityRunSummary.noObservableMetricChange && (
+                      <p className="mt-0.5 text-slate-500 leading-relaxed">
+                        {priorityRunSummary.note || 'No measurable metric change was detected after refresh.'}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-1">
+                  {confidenceUpliftPlan.map((step) => {
+                    const priorityTone = step.priority === 'high'
+                      ? 'text-red-300 border-red-500/25 bg-red-500/10'
+                      : step.priority === 'medium'
+                        ? 'text-amber-300 border-amber-500/25 bg-amber-500/10'
+                        : 'text-cyan-300 border-cyan-500/25 bg-cyan-500/10';
+                    const stepStatus = upliftActionStatus?.[step.key] || {};
+                    const isRunning = stepStatus.state === 'running';
+                    const isSuccess = stepStatus.state === 'success';
+                    const isError = stepStatus.state === 'error';
+
+                    return (
+                      <div key={step.key} className="rounded border border-white/10 bg-black/20 px-1.5 py-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[8px] text-slate-200 leading-relaxed">{step.action}</span>
+                          <span className="text-[7px] text-emerald-300 font-mono whitespace-nowrap">+{fmt(step.expectedGain)}</span>
+                        </div>
+                        <div className="mt-0.5">
+                          <span className={`inline-flex px-1 py-0.5 rounded border text-[7px] uppercase tracking-wider font-mono ${priorityTone}`}>
+                            {step.priority} priority
+                          </span>
+                          {onRunUpliftAction && (
+                            <button
+                              onClick={() => onRunUpliftAction(step.key)}
+                              disabled={isRunning}
+                              className="ml-1 inline-flex px-1 py-0.5 rounded border border-cyan-500/30 text-[7px] uppercase tracking-wider font-mono text-cyan-200 hover:bg-cyan-500/10 transition-colors disabled:opacity-50"
+                            >
+                              {isRunning ? 'Running...' : isSuccess ? 'Run Again' : 'Execute'}
+                            </button>
+                          )}
+                          {step.currentState && (
+                            <p className="mt-1 text-[7px] text-slate-500 leading-relaxed">{step.currentState}</p>
+                          )}
+                          {stepStatus?.message && (
+                            <p className={`mt-0.5 text-[7px] leading-relaxed ${isError ? 'text-red-300' : isSuccess ? 'text-emerald-300' : 'text-slate-500'}`}>
+                              {stepStatus.message}
+                            </p>
+                          )}
+                          {isError && (
+                            <p className="mt-0.5 text-[7px] text-red-300 uppercase tracking-wider">Action failed</p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            )) : (
-              <p className="text-[8px] text-slate-500 font-mono">No mechanistic detail signals available.</p>
+            )}
+
+            {uncertaintyReasons.length > 0 && (
+              <div className="mt-2 rounded border border-amber-500/20 bg-amber-500/5 px-1.5 py-1.5">
+                <p className="text-[7px] text-amber-300 uppercase tracking-wider font-mono mb-1">Uncertainty Reasons</p>
+                <div className="space-y-1">
+                  {uncertaintyReasons.slice(0, 3).map((reason, index) => (
+                    <p key={`${reason}-${index}`} className="text-[8px] text-slate-300 leading-relaxed">{reason}</p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {evidenceLens === 'research' && evidenceChain.length > 0 && (
+              <div className="mt-2 rounded border border-white/10 bg-white/[0.02] px-1.5 py-1.5">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider font-mono mb-1">Evidence Chain</p>
+                <div className="space-y-1">
+                  {evidenceChain.map((item, index) => (
+                    <div key={`chain-${index}`} className="rounded border border-white/10 bg-black/20 px-1.5 py-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[7px] text-cyan-300 uppercase tracking-wider font-mono">{item?.source || item?.source_name || 'source'}</span>
+                        <span className="text-[7px] text-slate-500 font-mono">{fmt(Number(item?.support ?? item?.strength))}</span>
+                      </div>
+                      <p className="mt-0.5 text-[8px] text-slate-300 leading-relaxed">
+                        {item?.claim || item?.summary || item?.evidence || item?.name || 'Evidence item'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {evidenceLens === 'research' && sourceBreakdownRows.length > 0 && (
+              <div className="mt-2 rounded border border-white/10 bg-white/[0.02] px-1.5 py-1.5">
+                <p className="text-[7px] text-slate-500 uppercase tracking-wider font-mono mb-1">Source Signal Mix</p>
+                <div className="space-y-1">
+                  {sourceBreakdownRows.slice(0, 5).map((row) => (
+                    <div key={row.key}>
+                      <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-400">
+                        <span>{sourceLabelMap[row.key] || row.key}</span>
+                        <span>{fmt(row.value)}</span>
+                      </div>
+                      <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-cyan-300/75" style={{ width: `${Math.max(4, row.value * 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {evidenceLens === 'research' && sourceRecencyRows.length > 0 && (
+              <div className="mt-2 rounded border border-cyan-500/20 bg-cyan-500/5 px-1.5 py-1.5">
+                <p className="text-[7px] text-cyan-300 uppercase tracking-wider font-mono mb-1">Source Recency Decay</p>
+                <div className="space-y-1">
+                  {sourceRecencyRows.slice(0, 5).map((row) => (
+                    <div key={row.key}>
+                      <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-400">
+                        <span>{sourceLabelMap[row.key] || row.key}</span>
+                        <span>{fmt(row.value)}</span>
+                      </div>
+                      <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-cyan-300/75" style={{ width: `${Math.max(4, row.value * 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {evidenceLens === 'research' && uncertaintyBreakdownRows.length > 0 && (
+              <div className="mt-2 rounded border border-amber-500/25 bg-amber-500/5 px-1.5 py-1.5">
+                <p className="text-[7px] text-amber-300 uppercase tracking-wider font-mono mb-1">Uncertainty Decomposition</p>
+                <div className="space-y-1">
+                  {uncertaintyBreakdownRows.slice(0, 4).map((row) => (
+                    <div key={row.key}>
+                      <div className="flex items-center justify-between text-[7px] uppercase tracking-wider font-mono text-slate-400">
+                        <span>{uncertaintyLabelMap[row.key] || row.key}</span>
+                        <span>{fmt(row.value)}</span>
+                      </div>
+                      <div className="mt-0.5 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-300/75" style={{ width: `${Math.max(4, row.value * 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {uncertaintyTopDrivers.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {uncertaintyTopDrivers.map((driver) => (
+                      <span key={driver.key} className="px-1 py-0.5 rounded border border-amber-500/20 bg-amber-500/10 text-[7px] text-amber-200 uppercase tracking-wider font-mono">
+                        {driver.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -498,10 +886,16 @@ export default function BodyMap({
   interactionEvidence = null,
   polypharmacyResult = null,
   result = null,
+  onRunUpliftAction,
+  upliftActionStatus = {},
+  onRunPriorityUplift,
+  priorityUpliftStatus = {},
   isMobile = false,
 }) {
   const [selectedOrgan, setSelectedOrgan] = useState(null);
+  const [hoveredOrgan, setHoveredOrgan] = useState(null);
   const [showOnlyAffected, setShowOnlyAffected] = useState(false);
+  const [evidenceLens, setEvidenceLens] = useState('clinical');
   const [layers, setLayers] = useState({
     circulatory: true,
     heatmap: true,
@@ -516,8 +910,9 @@ export default function BodyMap({
       drugInfoCache,
       interactionEvidence,
       polypharmacyResult,
+      result,
     });
-  }, [affectedSystems, drugs, drugInfoCache, interactionEvidence, polypharmacyResult]);
+  }, [affectedSystems, drugs, drugInfoCache, interactionEvidence, polypharmacyResult, result]);
 
   const handleOrganClick = useCallback((organKey) => {
     setSelectedOrgan(prev => prev === organKey ? null : organKey);
@@ -567,7 +962,9 @@ export default function BodyMap({
         <SystemsIntelligenceRail
           organs={enriched.organs}
           selectedOrgan={selectedOrgan}
+          hoveredOrgan={hoveredOrgan}
           onSelect={handleOrganClick}
+          onHover={setHoveredOrgan}
           interactionEvidence={interactionEvidence}
           isMobile={isMobile}
         />
@@ -591,6 +988,13 @@ export default function BodyMap({
           organs={enriched.organs}
           selectedOrgan={selectedOrgan}
           interactionEvidence={interactionEvidence}
+          systemEvidence={enriched.systemEvidence}
+          evidenceLens={evidenceLens}
+          onChangeLens={setEvidenceLens}
+          onRunUpliftAction={onRunUpliftAction}
+          upliftActionStatus={upliftActionStatus}
+          onRunPriorityUplift={onRunPriorityUplift}
+          priorityUpliftStatus={priorityUpliftStatus}
           isMobile={isMobile}
         />
       )}
@@ -615,6 +1019,7 @@ export default function BodyMap({
           <SegmentedBodyFigure
             organs={enriched.organs}
             selectedOrgan={selectedOrgan}
+            hoveredOrgan={hoveredOrgan}
             onSelectOrgan={setSelectedOrgan}
             showOnlyAffected={showOnlyAffected}
             showCirculatory={layers.circulatory && !enriched.isEmpty}

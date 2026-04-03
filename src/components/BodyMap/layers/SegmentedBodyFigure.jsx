@@ -190,6 +190,7 @@ function pickDominantSystem(systemIds, systemStates) {
 export default function SegmentedBodyFigure({
   organs = {},
   selectedOrgan = null,
+  hoveredOrgan = null,
   onSelectOrgan,
   showOnlyAffected = false,
   showCirculatory = true,
@@ -233,7 +234,13 @@ export default function SegmentedBodyFigure({
     return pickDominantSystem(candidates, systemStates);
   }, [hoveredPart, systemStates]);
 
-  const activeSystemId = hoveredSystemId || selectedSystemId;
+  const hoveredSystemFromRailId = useMemo(() => {
+    if (!hoveredOrgan) return null;
+    const candidates = ORGAN_TO_SYSTEM_CANDIDATES[hoveredOrgan] || [];
+    return pickDominantSystem(candidates, systemStates);
+  }, [hoveredOrgan, systemStates]);
+
+  const activeSystemId = hoveredSystemId || hoveredSystemFromRailId || selectedSystemId;
   const activeSystem = activeSystemId ? BODY_SYSTEMS[activeSystemId] : null;
 
   const handlePartClick = useCallback((partId) => {
@@ -354,6 +361,14 @@ export default function SegmentedBodyFigure({
               : isAffected
                 ? dominantSystem?.color || '#4a8fa8'
                 : '#4a8fa8';
+            const strokeColor = isActivePart
+              ? BODY_SYSTEMS[activeSystemId]?.color || '#7dd3fc'
+              : showSkeleton
+                ? 'rgba(188, 220, 255, 0.52)'
+                : 'rgba(130, 180, 230, 0.18)';
+            const strokeWidth = isActivePart
+              ? (showSkeleton ? 0.95 : 0.85)
+              : (showSkeleton ? 0.62 : 0.35);
 
             return (
               <svg
@@ -381,10 +396,11 @@ export default function SegmentedBodyFigure({
               >
                 <path
                   d={part.path}
-                  stroke={showSkeleton ? 'rgba(188, 220, 255, 0.52)' : 'rgba(130, 180, 230, 0.18)'}
-                  strokeWidth={showSkeleton ? 0.62 : 0.35}
+                  stroke={strokeColor}
+                  strokeWidth={strokeWidth}
                   strokeLinejoin="round"
                   strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
                   style={{ pointerEvents: 'auto', cursor: systemsForPart.length ? 'pointer' : 'default' }}
                   onMouseEnter={() => setHoveredPart(partId)}
                   onMouseLeave={() => setHoveredPart(null)}
@@ -415,7 +431,7 @@ export default function SegmentedBodyFigure({
 
       {!activeSystem && !hoveredPart && (
         <div className="absolute bottom-7 left-1/2 -translate-x-1/2 text-[10px] text-slate-500 font-mono uppercase tracking-[0.18em]">
-          Hover a region or click to inspect system evidence
+          Hover a region or systems list item, or click to inspect severity
         </div>
       )}
     </div>

@@ -51,7 +51,8 @@ import {
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
-import { searchDrugs, predictDDI, analyzePolypharmacy, analyzePolypharmacyDigitalTwin, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getDatabaseStats, computeCalibrationMetrics } from '../services/api';
+import { searchDrugs, predictDDI, analyzePolypharmacy, analyzePolypharmacyDigitalTwin, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getRealWorldEvidence, getDatabaseStats, computeCalibrationMetrics } from '../services/api';
+import { buildInteractionEvidenceUplift } from '../services/evidenceUplift';
 import { DEMO_DRUG_GROUPS, readDemoModeSetting } from '../config/demoMode';
 import GNNGalaxyViewer from '../components/GalaxyViewer';
 import MoleculeViewer2D from '../components/MoleculeViewer2D';
@@ -677,7 +678,7 @@ function getEvidenceConfidenceTone(confidenceBand) {
   if (normalized === 'high') {
     return 'border-risk-low/40 text-risk-low bg-risk-low/10';
   }
-  if (normalized === 'moderate') {
+  if (normalized === 'moderate' || normalized === 'medium') {
     return 'border-risk-medium/40 text-risk-medium bg-risk-medium/10';
   }
   if (normalized === 'low') {
@@ -691,7 +692,7 @@ function getDisagreementTone(level) {
   if (normalized === 'high') {
     return 'border-risk-high/40 text-risk-high bg-risk-high/10';
   }
-  if (normalized === 'moderate') {
+  if (normalized === 'moderate' || normalized === 'medium') {
     return 'border-risk-medium/40 text-risk-medium bg-risk-medium/10';
   }
   return 'border-theme text-theme-muted';
@@ -703,10 +704,12 @@ function getUncertaintyGuardrail({
   weightedSupport,
   coverageRatio,
 }) {
+  const normalizedDisagreement = String(disagreementLevel || 'none').toLowerCase();
+  const normalizedConfidence = String(confidenceBand || 'unknown').toLowerCase();
   const hasLowCoverage = Number.isFinite(coverageRatio) && coverageRatio < 0.5;
   const supportLow = Number.isFinite(weightedSupport) && weightedSupport < 0.45;
 
-  if (disagreementLevel === 'high' || confidenceBand === 'low' || supportLow || hasLowCoverage) {
+  if (normalizedDisagreement === 'high' || normalizedConfidence === 'low' || supportLow || hasLowCoverage) {
     return {
       label: 'Manual Review Required',
       tone: 'border-risk-high/40 text-risk-high bg-risk-high/10',
@@ -715,8 +718,10 @@ function getUncertaintyGuardrail({
   }
 
   if (
-    disagreementLevel === 'moderate'
-    || confidenceBand === 'moderate'
+    normalizedDisagreement === 'moderate'
+    || normalizedDisagreement === 'medium'
+    || normalizedConfidence === 'moderate'
+    || normalizedConfidence === 'medium'
     || (Number.isFinite(weightedSupport) && weightedSupport < 0.72)
   ) {
     return {
@@ -733,30 +738,82 @@ function getUncertaintyGuardrail({
   };
 }
 
-function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
+function EvidenceUncertaintyPanel({
+  interactionEvidence,
+  compact = false,
+  onRunUpliftAction,
+  upliftActionStatus = {},
+  onRunPriorityUplift,
+  priorityUpliftStatus = {},
+}) {
   const summary = interactionEvidence?.evidence_summary && typeof interactionEvidence.evidence_summary === 'object'
     ? interactionEvidence.evidence_summary
     : null;
 
   if (!summary) return null;
 
-  const weightedSupport = Number(summary.weighted_support_score);
-  const weightedUncertainty = Number(summary.weighted_uncertainty_score);
-  const confidenceBand = String(summary.confidence_band || 'unknown');
+  const uplift = interactionEvidence?.evidence_uplift && typeof interactionEvidence.evidence_uplift === 'object'
+    ? interactionEvidence.evidence_uplift
+    : buildInteractionEvidenceUplift(interactionEvidence);
+  const upliftMetrics = uplift?.metrics && typeof uplift.metrics === 'object'
+    ? uplift.metrics
+    : {};
+
+  const weightedSupportSummary = Number(summary.weighted_support_score);
+  const weightedUncertaintySummary = Number(summary.weighted_uncertainty_score);
+  const weightedSupport = Number.isFinite(weightedSupportSummary)
+    ? weightedSupportSummary
+    : Number(upliftMetrics.weightedSupport);
+  const weightedUncertainty = Number.isFinite(weightedUncertaintySummary)
+    ? weightedUncertaintySummary
+    : Number(upliftMetrics.weightedUncertainty);
+  const confidenceBand = String(summary.confidence_band || upliftMetrics.confidenceBand || 'unknown');
   const disagreement = summary.disagreement && typeof summary.disagreement === 'object'
     ? summary.disagreement
     : {};
   const coverage = summary.primary_source_coverage && typeof summary.primary_source_coverage === 'object'
     ? summary.primary_source_coverage
     : {};
+  const upliftPlan = Array.isArray(uplift?.upliftPlan) ? uplift.upliftPlan : [];
+  const visibleUpliftPlan = upliftPlan.slice(0, compact ? 2 : 4);
+  const remainingUpliftCount = Math.max(0, upliftPlan.length - visibleUpliftPlan.length);
 
   const reasons = Array.isArray(summary.uncertainty_reasons) ? summary.uncertainty_reasons : [];
   const visibleReasons = reasons.slice(0, compact ? 2 : 4);
   const remainingReasonCount = Math.max(0, reasons.length - visibleReasons.length);
 
   const hasConflict = Boolean(disagreement.has_conflict);
-  const disagreementLevel = String(disagreement.level || 'none');
-  const coverageRatio = Number(coverage.ratio);
+  const disagreementLevel = String(disagreement.level || upliftMetrics.disagreementLevel || 'none');
+  const coverageRatioSummary = Number(coverage.ratio);
+  const coverageRatioMetric = Number(upliftMetrics.coverageRatio);
+  const coverageRatio = Number.isFinite(coverageRatioSummary)
+    ? coverageRatioSummary
+    : coverageRatioMetric;
+  const upliftPotential = Number(uplift?.potentialGain);
+  const independentSourceCount = Number(upliftMetrics.independentSourceCount);
+  const freshnessLabel = String(upliftMetrics.freshnessLabel || 'unknown');
+  const priorityRunIsRunning = priorityUpliftStatus?.state === 'running';
+  const priorityRunSummary = priorityUpliftStatus?.summary && typeof priorityUpliftStatus.summary === 'object'
+    ? priorityUpliftStatus.summary
+    : null;
+  const formatPercentPointDelta = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 'N/A';
+    const signed = numeric > 0 ? '+' : '';
+    return `${signed}${(numeric * 100).toFixed(1)}pp`;
+  };
+  const formatCountDelta = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return 'N/A';
+    const signed = numeric > 0 ? '+' : '';
+    return `${signed}${numeric.toFixed(0)}`;
+  };
+  const formatRefreshTime = (value) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return String(value);
+    return parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
 
   const guardrail = getUncertaintyGuardrail({
     confidenceBand,
@@ -768,7 +825,8 @@ function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
   const hasSummarySignals = Number.isFinite(weightedSupport)
     || Number.isFinite(weightedUncertainty)
     || reasons.length > 0
-    || hasConflict;
+    || hasConflict
+    || upliftPlan.length > 0;
 
   if (!hasSummarySignals) return null;
 
@@ -852,6 +910,147 @@ function EvidenceUncertaintyPanel({ interactionEvidence, compact = false }) {
         <p className="text-[9px] text-theme-dim mt-2 uppercase tracking-wider">
           +{remainingReasonCount} additional uncertainty reason{remainingReasonCount === 1 ? '' : 's'}
         </p>
+      )}
+
+      {visibleUpliftPlan.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-theme-accent/20">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-3.5 h-3.5 text-theme-accent" />
+            <span className="text-[10px] text-theme-muted uppercase tracking-widest">Confidence Uplift Plan</span>
+            {Number.isFinite(upliftPotential) && (
+              <span className="ml-auto px-1.5 py-0.5 border border-theme-accent/40 text-[8px] text-theme-accent uppercase tracking-wider">
+                +{(upliftPotential * 100).toFixed(0)}% potential
+              </span>
+            )}
+          </div>
+
+          {onRunPriorityUplift && (
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                onClick={onRunPriorityUplift}
+                disabled={priorityRunIsRunning}
+                className="px-2 py-1 border border-theme-accent/50 text-[8px] text-theme-accent uppercase tracking-wider hover:bg-theme-accent/10 transition-colors disabled:opacity-50"
+              >
+                {priorityRunIsRunning ? 'Running Priority Sequence...' : 'Run Priority Sequence'}
+              </button>
+              {priorityUpliftStatus?.state === 'success' && (
+                <span className="text-[8px] text-risk-low uppercase tracking-wider">Sequence Complete</span>
+              )}
+              {priorityUpliftStatus?.state === 'error' && (
+                <span className="text-[8px] text-risk-high uppercase tracking-wider">Sequence Failed</span>
+              )}
+            </div>
+          )}
+
+          {priorityUpliftStatus?.message && (
+            <p className="text-[9px] text-theme-dim mb-2 leading-relaxed">{priorityUpliftStatus.message}</p>
+          )}
+
+          {priorityRunSummary && (
+            <div className="mb-2 p-2 border border-theme-accent/25 bg-theme-accent/5">
+              <p className="text-[8px] text-theme-muted uppercase tracking-wider mb-1">Priority Run Delta</p>
+              <div className="grid grid-cols-2 gap-1 text-[9px] text-theme-secondary">
+                <span>Support: {(priorityRunSummary.beforeSupport * 100).toFixed(1)}% to {(priorityRunSummary.afterSupport * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaSupport)})</span>
+                <span>Uncertainty: {(priorityRunSummary.beforeUncertainty * 100).toFixed(1)}% to {(priorityRunSummary.afterUncertainty * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaUncertainty)})</span>
+                <span>Coverage: {(priorityRunSummary.beforeCoverage * 100).toFixed(1)}% to {(priorityRunSummary.afterCoverage * 100).toFixed(1)}% ({formatPercentPointDelta(priorityRunSummary.deltaCoverage)})</span>
+                <span>Sources: {priorityRunSummary.beforeSources} to {priorityRunSummary.afterSources} ({formatCountDelta(priorityRunSummary.deltaSources)})</span>
+              </div>
+
+              <div className="mt-1 grid grid-cols-2 gap-1 text-[9px] text-theme-secondary">
+                <span>Evidence nodes: {priorityRunSummary.beforeEvidenceNodes} to {priorityRunSummary.afterEvidenceNodes} ({formatCountDelta(priorityRunSummary.deltaEvidenceNodes)})</span>
+                <span>Clinical signals: {priorityRunSummary.beforeSideEffectSignals} to {priorityRunSummary.afterSideEffectSignals} ({formatCountDelta(priorityRunSummary.deltaSideEffectSignals)})</span>
+                <span>FAERS reports: {priorityRunSummary.beforeFaersReports} to {priorityRunSummary.afterFaersReports} ({formatCountDelta(priorityRunSummary.deltaFaersReports)})</span>
+                <span>Freshness: {priorityRunSummary.beforeFreshnessLabel || 'unknown'} to {priorityRunSummary.afterFreshnessLabel || 'unknown'}</span>
+              </div>
+
+              {Array.isArray(priorityRunSummary.actionDiagnostics) && priorityRunSummary.actionDiagnostics.length > 0 && (
+                <div className="mt-1.5 space-y-1">
+                  <p className="text-[8px] text-theme-muted uppercase tracking-wider">Action Verification</p>
+                  {priorityRunSummary.actionDiagnostics.map((action) => (
+                    <div key={action.key} className="border border-theme/20 bg-theme-primary/70 px-1.5 py-1">
+                      <p className="text-[8px] text-theme-secondary uppercase tracking-wider">
+                        {action.key} · {action.ok ? 'ok' : 'failed'}
+                      </p>
+                      <p className="text-[8px] text-theme-dim leading-relaxed">
+                        Changed: {Array.isArray(action.changedFields) && action.changedFields.length > 0 ? action.changedFields.join(', ') : 'none'}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <p className="mt-1 text-[8px] text-theme-dim uppercase tracking-wider">
+                Last refresh: {formatRefreshTime(priorityRunSummary.refreshedAt)}
+              </p>
+
+              {priorityRunSummary.noObservableMetricChange && (
+                <p className="mt-1 text-[8px] text-theme-dim leading-relaxed">
+                  {priorityRunSummary.note || 'No measurable metric change was detected after refresh.'}
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2 mb-2 text-[8px] text-theme-dim uppercase tracking-wider">
+            {Number.isFinite(independentSourceCount) && (
+              <span className="px-1.5 py-0.5 border border-theme/20 bg-theme-primary/60">Sources: {independentSourceCount}</span>
+            )}
+            <span className="px-1.5 py-0.5 border border-theme/20 bg-theme-primary/60">Freshness: {freshnessLabel}</span>
+          </div>
+
+          <div className="space-y-1.5">
+            {visibleUpliftPlan.map((step) => {
+              const priorityTone = step.priority === 'high'
+                ? 'border-risk-high/40 text-risk-high bg-risk-high/10'
+                : step.priority === 'medium'
+                  ? 'border-risk-medium/40 text-risk-medium bg-risk-medium/10'
+                  : 'border-risk-low/40 text-risk-low bg-risk-low/10';
+              const stepStatus = upliftActionStatus?.[step.key] || {};
+              const isRunning = stepStatus.state === 'running';
+              const isSuccess = stepStatus.state === 'success';
+              const isError = stepStatus.state === 'error';
+
+              return (
+                <div key={step.key} className="p-2 border border-theme/20 bg-theme-primary/70">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[10px] text-theme-secondary leading-relaxed">{step.action}</p>
+                    <span className="text-[9px] text-theme-accent whitespace-nowrap">+{((Number(step.expectedGain) || 0) * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="mt-1 flex items-start gap-2">
+                    <span className={`px-1.5 py-0.5 border text-[8px] uppercase tracking-wider ${priorityTone}`}>
+                      {step.priority} priority
+                    </span>
+                    {step.currentState && (
+                      <span className="text-[9px] text-theme-dim leading-relaxed">{step.currentState}</span>
+                    )}
+                  </div>
+                  {onRunUpliftAction && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => onRunUpliftAction(step.key)}
+                        disabled={isRunning}
+                        className="px-2 py-1 border border-theme-accent/40 text-[8px] text-theme-accent uppercase tracking-wider hover:bg-theme-accent/10 transition-colors disabled:opacity-50"
+                      >
+                        {isRunning ? 'Running...' : isSuccess ? 'Run Again' : 'Execute'}
+                      </button>
+                      {isSuccess && <span className="text-[8px] text-risk-low uppercase tracking-wider">Completed</span>}
+                      {isError && <span className="text-[8px] text-risk-high uppercase tracking-wider">Failed</span>}
+                    </div>
+                  )}
+                  {stepStatus.message && (
+                    <p className="mt-1 text-[9px] text-theme-dim leading-relaxed">{stepStatus.message}</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {remainingUpliftCount > 0 && (
+            <p className="text-[9px] text-theme-dim mt-2 uppercase tracking-wider">
+              +{remainingUpliftCount} additional uplift action{remainingUpliftCount === 1 ? '' : 's'}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -2518,6 +2717,8 @@ export default function Dashboard() {
   const [drugInfoCache, setDrugInfoCache] = useState({});
   const [interactionEvidence, setInteractionEvidence] = useState(null);
   const [isLoadingDrugInfo, setIsLoadingDrugInfo] = useState(false);
+  const [upliftActionStatus, setUpliftActionStatus] = useState({});
+  const [priorityUpliftStatus, setPriorityUpliftStatus] = useState({ state: 'idle', message: '', summary: null });
 
   // UI State
   const [activeTab, setActiveTab] = useState('molecules2d');
@@ -2655,6 +2856,408 @@ export default function Dashboard() {
 
     window.localStorage.setItem(SELECTED_DRUGS_STORAGE_KEY, JSON.stringify(selectedDrugs));
   }, [selectedDrugs]);
+
+  useEffect(() => {
+    if (!interactionEvidence) {
+      setUpliftActionStatus({});
+      setPriorityUpliftStatus({ state: 'idle', message: '', summary: null });
+    }
+  }, [interactionEvidence]);
+
+  const getUpliftSnapshot = useCallback((evidence) => {
+    const uplift = evidence?.evidence_uplift && typeof evidence.evidence_uplift === 'object'
+      ? evidence.evidence_uplift
+      : null;
+    const fallbackUplift = buildInteractionEvidenceUplift(evidence);
+
+    const metrics = uplift?.metrics && typeof uplift.metrics === 'object'
+      ? uplift.metrics
+      : {};
+    const fallbackMetrics = fallbackUplift?.metrics && typeof fallbackUplift.metrics === 'object'
+      ? fallbackUplift.metrics
+      : {};
+
+    const supportPrimary = Number(metrics.weightedSupport);
+    const uncertaintyPrimary = Number(metrics.weightedUncertainty);
+    const coveragePrimary = Number(metrics.coverageRatio);
+    const sourceCountPrimary = Number(metrics.independentSourceCount);
+    const evidenceNodeCountPrimary = Number(metrics.evidenceNodeCount);
+    const sideEffectSignalsPrimary = Number(metrics.sideEffectSignals);
+    const faersReportsPrimary = Number(metrics.faersReports);
+
+    const evidenceChainCount = Array.isArray(evidence?.evidence_chain)
+      ? evidence.evidence_chain.length
+      : 0;
+    const sideEffectSignalCount = Array.isArray(evidence?.common_side_effects)
+      ? evidence.common_side_effects.length
+      : 0;
+    const fallbackFaersReports = Number(
+      evidence?.faers_data?.total_reports
+      ?? evidence?.faers_reports
+      ?? 0
+    );
+
+    const freshnessLabelPrimary = String(metrics.freshnessLabel || '').toLowerCase();
+    const freshnessLabelFallback = String(fallbackMetrics.freshnessLabel || '').toLowerCase();
+    const freshnessLabel = freshnessLabelPrimary || freshnessLabelFallback || 'unknown';
+
+    const support = Number.isFinite(supportPrimary)
+      ? supportPrimary
+      : Number(fallbackMetrics.weightedSupport);
+    const uncertainty = Number.isFinite(uncertaintyPrimary)
+      ? uncertaintyPrimary
+      : Number(fallbackMetrics.weightedUncertainty);
+    const coverage = Number.isFinite(coveragePrimary)
+      ? coveragePrimary
+      : Number(fallbackMetrics.coverageRatio);
+    const sourceCount = Number.isFinite(sourceCountPrimary)
+      ? sourceCountPrimary
+      : Number(fallbackMetrics.independentSourceCount);
+    const evidenceNodes = Number.isFinite(evidenceNodeCountPrimary)
+      ? evidenceNodeCountPrimary
+      : Number(fallbackMetrics.evidenceNodeCount);
+    const sideEffectSignals = Number.isFinite(sideEffectSignalsPrimary)
+      ? sideEffectSignalsPrimary
+      : Number(fallbackMetrics.sideEffectSignals);
+    const faersReports = Number.isFinite(faersReportsPrimary)
+      ? faersReportsPrimary
+      : Number(fallbackMetrics.faersReports);
+
+    const resolvedEvidenceNodes = Number.isFinite(evidenceNodes) ? evidenceNodes : evidenceChainCount;
+    const resolvedSideEffectSignals = Number.isFinite(sideEffectSignals) ? sideEffectSignals : sideEffectSignalCount;
+    const resolvedFaersReports = Number.isFinite(faersReports) ? faersReports : (Number.isFinite(fallbackFaersReports) ? fallbackFaersReports : 0);
+
+    const signature = [
+      Number.isFinite(support) ? support.toFixed(4) : 'na',
+      Number.isFinite(uncertainty) ? uncertainty.toFixed(4) : 'na',
+      Number.isFinite(coverage) ? coverage.toFixed(4) : 'na',
+      Number.isFinite(sourceCount) ? sourceCount : 0,
+      Number.isFinite(resolvedEvidenceNodes) ? resolvedEvidenceNodes : 0,
+      Number.isFinite(resolvedSideEffectSignals) ? resolvedSideEffectSignals : 0,
+      Number.isFinite(resolvedFaersReports) ? resolvedFaersReports : 0,
+      freshnessLabel,
+    ].join('|');
+
+    return {
+      support: Number.isFinite(support) ? support : 0,
+      uncertainty: Number.isFinite(uncertainty) ? uncertainty : 0,
+      coverage: Number.isFinite(coverage) ? coverage : 0,
+      sources: Number.isFinite(sourceCount) ? sourceCount : 0,
+      evidenceNodes: Number.isFinite(resolvedEvidenceNodes) ? resolvedEvidenceNodes : 0,
+      sideEffectSignals: Number.isFinite(resolvedSideEffectSignals) ? resolvedSideEffectSignals : 0,
+      faersReports: Number.isFinite(resolvedFaersReports) ? resolvedFaersReports : 0,
+      freshnessLabel,
+      signature,
+    };
+  }, []);
+
+  const evaluateEvidenceQualityScore = (evidence) => {
+    const summary = evidence?.evidence_summary && typeof evidence.evidence_summary === 'object'
+      ? evidence.evidence_summary
+      : {};
+
+    const support = Number(summary?.weighted_support_score);
+    const uncertainty = Number(summary?.weighted_uncertainty_score);
+    const coverage = Number(summary?.source_coverage?.ratio ?? summary?.primary_source_coverage?.ratio);
+    const disagreementLevel = String(summary?.disagreement?.level || 'none').toLowerCase();
+
+    const disagreementPenalty = disagreementLevel === 'high'
+      ? 0.14
+      : disagreementLevel === 'medium' || disagreementLevel === 'moderate'
+        ? 0.08
+        : disagreementLevel === 'low'
+          ? 0.03
+          : 0;
+
+    const supportTerm = Number.isFinite(support) ? support : 0.45;
+    const uncertaintyTerm = Number.isFinite(uncertainty) ? uncertainty : 0.42;
+    const coverageTerm = Number.isFinite(coverage) ? coverage : 0.38;
+
+    return (supportTerm * 0.52) + ((1 - uncertaintyTerm) * 0.28) + (coverageTerm * 0.2) - disagreementPenalty;
+  };
+
+  const runUpliftAction = useCallback(async (actionKey, options = {}) => {
+    const { suppressLogs = false } = options;
+
+    if (apiStatus !== 'online') {
+      if (!suppressLogs) addLog('Uplift actions require backend connectivity.', 'warning', 'SYSTEM');
+      return { ok: false, message: 'Backend is offline', evidence: interactionEvidence };
+    }
+
+    if (selectedDrugs.length < 2) {
+      if (!suppressLogs) addLog('Select at least two drugs before running uplift actions.', 'warning', 'SYSTEM');
+      return { ok: false, message: 'Need at least two selected drugs', evidence: interactionEvidence };
+    }
+
+    const drugA = selectedDrugs[0]?.name;
+    const drugB = selectedDrugs[1]?.name;
+    if (!drugA || !drugB) {
+      if (!suppressLogs) addLog('Unable to resolve selected drug names for uplift action.', 'error', 'SYSTEM');
+      return { ok: false, message: 'Selected drugs missing names', evidence: interactionEvidence };
+    }
+
+    setUpliftActionStatus((prev) => ({
+      ...prev,
+      [actionKey]: {
+        state: 'running',
+        message: 'Running action...',
+      },
+    }));
+
+    const refreshInteractionEvidence = async () => {
+      const refreshed = await getInteractionInfo(drugA, drugB, true);
+      setInteractionEvidence(refreshed);
+      return refreshed;
+    };
+
+    try {
+      let completionMessage = 'Action completed.';
+      let latestEvidence = interactionEvidence;
+
+      if (actionKey === 'real-world-enrichment') {
+        if (!suppressLogs) addLog('Uplift action: fetching OpenFDA FAERS evidence.', 'info', 'DATABASE');
+        const realWorldEvidence = await getRealWorldEvidence(drugA, drugB);
+        const refreshed = await refreshInteractionEvidence();
+        latestEvidence = refreshed;
+        const totalReports = Number(realWorldEvidence?.total_reports || refreshed?.faers_data?.total_reports || 0);
+        completionMessage = `Real-world evidence refreshed (${totalReports.toLocaleString()} reports).`;
+      } else if (actionKey === 'source-coverage' || actionKey === 'clinical-signal-density') {
+        if (!suppressLogs) addLog('Uplift action: expanding source coverage from drug evidence profiles.', 'info', 'DATABASE');
+
+        const profileResults = await Promise.all(
+          [drugA, drugB].map(async (name) => {
+            try {
+              const profile = await getDrugInfo(name, true);
+              return { name, profile, ok: true };
+            } catch {
+              return { name, profile: null, ok: false };
+            }
+          })
+        );
+
+        setDrugInfoCache((prev) => {
+          const next = { ...prev };
+          profileResults.forEach((entry) => {
+            if (entry.ok && entry.profile) {
+              next[String(entry.name).toLowerCase()] = entry.profile;
+            }
+          });
+          return next;
+        });
+
+        latestEvidence = await refreshInteractionEvidence();
+
+        const loadedProfiles = profileResults.filter((entry) => entry.ok).length;
+        const sideEffectSignalCount = profileResults
+          .filter((entry) => entry.ok && Array.isArray(entry.profile?.side_effects))
+          .reduce((sum, entry) => sum + entry.profile.side_effects.length, 0);
+
+        completionMessage = actionKey === 'clinical-signal-density'
+          ? `Validated clinical signals refreshed (${sideEffectSignalCount} side-effect entries, ${loadedProfiles}/2 profiles).`
+          : `Source coverage refreshed with ${loadedProfiles}/2 detailed drug profile(s).`;
+      } else if (actionKey === 'resolve-disagreement') {
+        if (!suppressLogs) addLog('Uplift action: running bidirectional evidence reconciliation.', 'info', 'AI');
+
+        const [forwardEvidence, reverseEvidence] = await Promise.all([
+          getInteractionInfo(drugA, drugB, true),
+          getInteractionInfo(drugB, drugA, true),
+        ]);
+
+        const forwardScore = evaluateEvidenceQualityScore(forwardEvidence);
+        const reverseScore = evaluateEvidenceQualityScore(reverseEvidence);
+        const winnerIsForward = forwardScore >= reverseScore;
+        latestEvidence = winnerIsForward ? forwardEvidence : reverseEvidence;
+        setInteractionEvidence(latestEvidence);
+
+        completionMessage = winnerIsForward
+          ? 'Disagreement reconciliation selected forward evidence path.'
+          : 'Disagreement reconciliation selected reverse evidence path.';
+      } else {
+        if (!suppressLogs) addLog('Uplift action: refreshing interaction evidence bundle.', 'info', 'DATABASE');
+        latestEvidence = await refreshInteractionEvidence();
+        completionMessage = 'Interaction evidence bundle refreshed.';
+      }
+
+      setUpliftActionStatus((prev) => ({
+        ...prev,
+        [actionKey]: {
+          state: 'success',
+          message: completionMessage,
+        },
+      }));
+      if (!suppressLogs) addLog(`Uplift complete: ${completionMessage}`, 'success', 'SYSTEM');
+      return { ok: true, message: completionMessage, evidence: latestEvidence };
+    } catch (err) {
+      const message = err?.message || 'Unknown uplift failure';
+      setUpliftActionStatus((prev) => ({
+        ...prev,
+        [actionKey]: {
+          state: 'error',
+          message,
+        },
+      }));
+      if (!suppressLogs) addLog(`Uplift action failed (${actionKey}): ${message}`, 'error', 'SYSTEM');
+      return { ok: false, message, evidence: interactionEvidence };
+    }
+  }, [apiStatus, selectedDrugs, addLog, interactionEvidence]);
+
+  const runPriorityUpliftSequence = useCallback(async () => {
+    if (!interactionEvidence) {
+      addLog('Run an analysis first to generate uplift actions.', 'warning', 'SYSTEM');
+      return;
+    }
+
+    const uplift = interactionEvidence?.evidence_uplift && typeof interactionEvidence.evidence_uplift === 'object'
+      ? interactionEvidence.evidence_uplift
+      : buildInteractionEvidenceUplift(interactionEvidence);
+    const plan = Array.isArray(uplift?.upliftPlan) ? uplift.upliftPlan : [];
+
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    const keysToRun = plan
+      .filter((step) => step?.key && (step.priority === 'high' || step.priority === 'medium'))
+      .sort((a, b) => {
+        const aOrder = priorityOrder[a.priority] ?? 3;
+        const bOrder = priorityOrder[b.priority] ?? 3;
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return (Number(b.expectedGain) || 0) - (Number(a.expectedGain) || 0);
+      })
+      .map((step) => step.key);
+
+    if (keysToRun.length === 0) {
+      setPriorityUpliftStatus({
+        state: 'success',
+        message: 'No high or medium priority uplift actions are currently pending.',
+        summary: null,
+      });
+      return;
+    }
+
+    const before = getUpliftSnapshot(interactionEvidence);
+    let latestEvidence = interactionEvidence;
+    let executed = 0;
+    let failed = 0;
+    const actionDiagnostics = [];
+
+    setPriorityUpliftStatus({
+      state: 'running',
+      message: `Running ${keysToRun.length} priority action(s)...`,
+      summary: null,
+    });
+
+    addLog(`Starting priority uplift sequence (${keysToRun.length} actions).`, 'info', 'SYSTEM');
+
+    for (const key of keysToRun) {
+      const actionBefore = getUpliftSnapshot(latestEvidence);
+      const outcome = await runUpliftAction(key, { suppressLogs: true });
+      const actionAfterEvidence = outcome?.ok && outcome?.evidence
+        ? outcome.evidence
+        : latestEvidence;
+      const actionAfter = getUpliftSnapshot(actionAfterEvidence);
+
+      const changedFields = [];
+      if (Math.abs(actionAfter.support - actionBefore.support) >= 0.001) changedFields.push('support');
+      if (Math.abs(actionAfter.uncertainty - actionBefore.uncertainty) >= 0.001) changedFields.push('uncertainty');
+      if (Math.abs(actionAfter.coverage - actionBefore.coverage) >= 0.001) changedFields.push('coverage');
+      if (actionAfter.sources !== actionBefore.sources) changedFields.push('sources');
+      if (actionAfter.evidenceNodes !== actionBefore.evidenceNodes) changedFields.push('evidence nodes');
+      if (actionAfter.sideEffectSignals !== actionBefore.sideEffectSignals) changedFields.push('clinical signals');
+      if (actionAfter.faersReports !== actionBefore.faersReports) changedFields.push('FAERS reports');
+      if (actionAfter.freshnessLabel !== actionBefore.freshnessLabel) changedFields.push('freshness');
+
+      actionDiagnostics.push({
+        key,
+        ok: Boolean(outcome?.ok),
+        message: String(outcome?.message || ''),
+        changedFields,
+        before: actionBefore,
+        after: actionAfter,
+      });
+
+      if (outcome?.ok) {
+        executed += 1;
+        if (outcome?.evidence) latestEvidence = outcome.evidence;
+      } else {
+        failed += 1;
+      }
+    }
+
+    const after = getUpliftSnapshot(latestEvidence);
+    const deltaSupport = after.support - before.support;
+    const deltaUncertainty = after.uncertainty - before.uncertainty;
+    const deltaCoverage = after.coverage - before.coverage;
+    const deltaSources = after.sources - before.sources;
+    const deltaEvidenceNodes = after.evidenceNodes - before.evidenceNodes;
+    const deltaSideEffectSignals = after.sideEffectSignals - before.sideEffectSignals;
+    const deltaFaersReports = after.faersReports - before.faersReports;
+    const noObservableMetricChange = Math.abs(deltaSupport) < 0.001
+      && Math.abs(deltaUncertainty) < 0.001
+      && Math.abs(deltaCoverage) < 0.001
+      && deltaSources === 0;
+    const structuralEvidenceChanged = deltaEvidenceNodes !== 0
+      || deltaSideEffectSignals !== 0
+      || deltaFaersReports !== 0
+      || before.freshnessLabel !== after.freshnessLabel
+      || before.signature !== after.signature;
+
+    let noChangeReason = '';
+    if (noObservableMetricChange) {
+      if (structuralEvidenceChanged) {
+        noChangeReason = 'Evidence content changed, but weighted support/uncertainty/coverage remained numerically stable.';
+      } else if (after.sources <= 1) {
+        noChangeReason = 'Only one independent source is available for this pair, so refresh has limited ability to raise confidence metrics.';
+      } else {
+        noChangeReason = 'Backend returned the same effective evidence payload for this pair (likely unchanged or cached at source).';
+      }
+    }
+
+    const summary = {
+      beforeSupport: before.support,
+      afterSupport: after.support,
+      deltaSupport,
+      beforeUncertainty: before.uncertainty,
+      afterUncertainty: after.uncertainty,
+      deltaUncertainty,
+      beforeCoverage: before.coverage,
+      afterCoverage: after.coverage,
+      deltaCoverage,
+      beforeSources: before.sources,
+      afterSources: after.sources,
+      deltaSources,
+      beforeEvidenceNodes: before.evidenceNodes,
+      afterEvidenceNodes: after.evidenceNodes,
+      deltaEvidenceNodes,
+      beforeSideEffectSignals: before.sideEffectSignals,
+      afterSideEffectSignals: after.sideEffectSignals,
+      deltaSideEffectSignals,
+      beforeFaersReports: before.faersReports,
+      afterFaersReports: after.faersReports,
+      deltaFaersReports,
+      beforeFreshnessLabel: before.freshnessLabel,
+      afterFreshnessLabel: after.freshnessLabel,
+      structuralEvidenceChanged,
+      noObservableMetricChange,
+      noChangeReason,
+      actionDiagnostics,
+      refreshedAt: new Date().toISOString(),
+      note: noObservableMetricChange
+        ? noChangeReason || 'Evidence refresh completed, but upstream support/coverage inputs were unchanged for this drug pair.'
+        : '',
+    };
+
+    const state = failed > 0 ? 'error' : 'success';
+    const baseMessage = `Priority sequence finished: ${executed} succeeded, ${failed} failed.`;
+    const message = noObservableMetricChange && failed === 0
+      ? `${baseMessage} Evidence was refreshed, but no measurable metric delta was detected.`
+      : baseMessage;
+
+    setPriorityUpliftStatus({ state, message, summary });
+
+    if (failed > 0) {
+      addLog(`${message} Check individual action statuses for details.`, 'warning', 'SYSTEM');
+    } else {
+      addLog(message, 'success', 'SYSTEM');
+    }
+  }, [interactionEvidence, runUpliftAction, getUpliftSnapshot, addLog]);
 
   const addDrug = async (drug) => {
     setSelectedDrugs(prev => [...prev, drug]);
@@ -3191,7 +3794,14 @@ export default function Dashboard() {
           )}
 
           <EvidenceChainTimeline interactionEvidence={interactionEvidence} compact={true} />
-          <EvidenceUncertaintyPanel interactionEvidence={interactionEvidence} compact={true} />
+          <EvidenceUncertaintyPanel
+            interactionEvidence={interactionEvidence}
+            compact={true}
+            onRunUpliftAction={runUpliftAction}
+            upliftActionStatus={upliftActionStatus}
+            onRunPriorityUplift={runPriorityUpliftSequence}
+            priorityUpliftStatus={priorityUpliftStatus}
+          />
 
           {/* FDA Evidence */}
           {interactionEvidence?.faers_data && (
@@ -3491,6 +4101,10 @@ export default function Dashboard() {
                           interactionEvidence={interactionEvidence}
                           polypharmacyResult={polypharmacyResult}
                           result={result}
+                          onRunUpliftAction={runUpliftAction}
+                          upliftActionStatus={upliftActionStatus}
+                          onRunPriorityUplift={runPriorityUpliftSequence}
+                          priorityUpliftStatus={priorityUpliftStatus}
                           isMobile={true}
                         />
                       </div>
@@ -3965,6 +4579,10 @@ export default function Dashboard() {
                   interactionEvidence={interactionEvidence}
                   polypharmacyResult={polypharmacyResult}
                   result={result}
+                  onRunUpliftAction={runUpliftAction}
+                  upliftActionStatus={upliftActionStatus}
+                  onRunPriorityUplift={runPriorityUpliftSequence}
+                  priorityUpliftStatus={priorityUpliftStatus}
                 />
               </div>
             ) : activeTab === 'polyTwin' ? (
@@ -4199,7 +4817,13 @@ export default function Dashboard() {
                   )}
 
                   <EvidenceChainTimeline interactionEvidence={interactionEvidence} />
-                  <EvidenceUncertaintyPanel interactionEvidence={interactionEvidence} />
+                  <EvidenceUncertaintyPanel
+                    interactionEvidence={interactionEvidence}
+                    onRunUpliftAction={runUpliftAction}
+                    upliftActionStatus={upliftActionStatus}
+                    onRunPriorityUplift={runPriorityUpliftSequence}
+                    priorityUpliftStatus={priorityUpliftStatus}
+                  />
 
                   {/* Real-World Evidence from FDA FAERS */}
                   {interactionEvidence?.faers_data && (

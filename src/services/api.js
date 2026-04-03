@@ -10,6 +10,8 @@
  * - /api/v1/health/ - System health check
  */
 
+import { buildInteractionEvidenceUplift } from './evidenceUplift';
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 const API_TIMEOUT_MS = 30000;
@@ -257,7 +259,7 @@ export async function getInteractionInfo(drug1, drug2, includeFaers = true) {
         serious_outcomes: {},
     };
 
-    return {
+    const normalizedInteractionInfo = {
         ...response,
         faers_data: response.faers_data && typeof response.faers_data === 'object'
             ? response.faers_data
@@ -266,6 +268,11 @@ export async function getInteractionInfo(drug1, drug2, includeFaers = true) {
         evidence_summary: response.evidence_summary && typeof response.evidence_summary === 'object'
             ? response.evidence_summary
             : {},
+    };
+
+    return {
+        ...normalizedInteractionInfo,
+        evidence_uplift: buildInteractionEvidenceUplift(normalizedInteractionInfo),
     };
 }
 
