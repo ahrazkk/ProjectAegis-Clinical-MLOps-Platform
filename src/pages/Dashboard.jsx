@@ -1235,6 +1235,7 @@ function CalibrationQAPanel({ addLog, defaultExpanded = false }) {
 }
 
 const WHAT_IF_SNAPSHOTS_STORAGE_KEY = 'aegis:what-if-snapshots:v1';
+const REGIMEN_INFO_HEADER_ANCHOR = 'regimen-risk-info-header';
 
 const SCENARIO_SEVERITY_RANKS = {
   no_interaction: 0,
@@ -1392,9 +1393,7 @@ function formatScenarioTimestamp(isoDate) {
 
 async function evaluateScenarioRegimen(drugs) {
   const regimen = dedupeScenarioDrugs(drugs);
-  const pairs = buildScenarioPairs(regimen);
-
-  if (!pairs.length) {
+  if (regimen.length < 2) {
     return {
       regimen,
       pairCount: 0,
@@ -1408,49 +1407,44 @@ async function evaluateScenarioRegimen(drugs) {
     };
   }
 
-  const settledResults = await Promise.allSettled(
-    pairs.map(([drugA, drugB]) => predictDDI(
-      { name: drugA.name, smiles: drugA.smiles },
-      { name: drugB.name, smiles: drugB.smiles }
-    ))
+  const response = await analyzePolypharmacy(
+    regimen.map((drug) => ({ name: drug.name, smiles: drug.smiles }))
   );
 
-  const interactions = [];
-  let failedPairs = 0;
-
-  settledResults.forEach((result, idx) => {
-    const [drugA, drugB] = pairs[idx];
-    if (result.status !== 'fulfilled') {
-      failedPairs += 1;
-      return;
-    }
-
-    const response = result.value || {};
-    const provenance = response.provenance && typeof response.provenance === 'object'
-      ? response.provenance
-      : {};
-    const normalizedSeverity = normalizeScenarioSeverity(response.severity || response.risk_level);
+  const apiInteractions = Array.isArray(response?.interactions) ? response.interactions : [];
+  const interactions = apiInteractions.map((edge) => {
+    const source = String(edge?.source || '').trim();
+    const target = String(edge?.target || '').trim();
+    const pairSource = source || 'Unknown Drug';
+    const pairTarget = target || 'Unknown Drug';
+    const normalizedSeverity = normalizeScenarioSeverity(edge?.severity || edge?.risk_level);
     const rank = getScenarioSeverityRank(normalizedSeverity);
-    const numericRisk = Number(response.risk_score);
-    const rawScore = Number(response.raw_score);
-    const calibratedScore = Number(response.calibrated_score);
+    const numericRisk = Number(edge?.risk_score);
+    const rawScore = Number(edge?.raw_score);
+    const calibratedScore = Number(edge?.calibrated_score);
+    const confidence = Number(edge?.confidence);
+    const provenance = edge?.provenance && typeof edge.provenance === 'object'
+      ? edge.provenance
+      : {};
 
-    interactions.push({
-      key: buildScenarioPairKey(drugA.name, drugB.name),
-      pair: `${drugA.name} + ${drugB.name}`,
-      source: drugA.name,
-      target: drugB.name,
+    return {
+      key: buildScenarioPairKey(pairSource, pairTarget),
+      pair: `${pairSource} + ${pairTarget}`,
+      source: pairSource,
+      target: pairTarget,
       severity: normalizedSeverity,
       rank,
       riskScore: Number.isFinite(numericRisk) ? numericRisk : 0,
-      confidence: Number.isFinite(response.confidence) ? response.confidence : null,
-      mechanism: response.mechanism_hypothesis || null,
+      confidence: Number.isFinite(confidence) ? confidence : null,
+      mechanism: edge?.mechanism || edge?.mechanism_hypothesis || null,
       rawScore: Number.isFinite(rawScore) ? rawScore : null,
       calibratedScore: Number.isFinite(calibratedScore) ? calibratedScore : null,
       modelUsed: typeof provenance.model_used === 'string' ? provenance.model_used : null,
-      predictionPath: typeof provenance.prediction_path === 'string' ? provenance.prediction_path : null,
+      predictionPath: typeof provenance.prediction_path === 'string'
+        ? provenance.prediction_path
+        : (typeof edge?.source_type === 'string' ? edge.source_type : null),
       fallbackReason: typeof provenance.fallback_reason === 'string' ? provenance.fallback_reason : null,
-    });
+    };
   });
 
   interactions.sort((a, b) => {
@@ -1460,19 +1454,41 @@ async function evaluateScenarioRegimen(drugs) {
 
   const significant = interactions.filter((edge) => edge.rank > 0 || edge.riskScore >= 0.25);
   const maxRank = significant.reduce((current, edge) => Math.max(current, edge.rank), 0);
-  const maxRiskScore = significant.reduce((current, edge) => Math.max(current, edge.riskScore), 0);
-  const density = pairs.length ? significant.length / pairs.length : 0;
-  const combinedRiskScore = Math.min(1, Number((maxRiskScore * 0.75 + density * 0.25).toFixed(3)));
+  const responseMetrics = response?.risk_metrics && typeof response.risk_metrics === 'object'
+    ? response.risk_metrics
+    : {};
+  const regimenCompositeScore = Number(
+    responseMetrics.regimen_composite_score
+    ?? response?.regimen_risk_score
+  );
+  const failedPairCount = Number(
+    responseMetrics.failed_pair_count
+    ?? response?.failed_pairs
+  );
+  const fallbackMaxRiskScore = significant.reduce((current, edge) => Math.max(current, edge.riskScore), 0);
+  const pairCount = Number(response?.total_pairs);
+  const resolvedPairCount = Number.isFinite(pairCount) && pairCount >= 0
+    ? pairCount
+    : buildScenarioPairs(regimen).length;
+  const riskScore = Number.isFinite(regimenCompositeScore)
+    ? regimenCompositeScore
+    : fallbackMaxRiskScore;
+  const responseRiskLevel = String(
+    responseMetrics.regimen_risk_level
+    || response?.regimen_risk_level
+    || response?.overall_risk_level
+    || getScenarioRiskLabelFromRank(maxRank)
+  ).toLowerCase();
 
   return {
     regimen,
-    pairCount: pairs.length,
-    failedPairs,
+    pairCount: resolvedPairCount,
+    failedPairs: Number.isFinite(failedPairCount) && failedPairCount > 0 ? failedPairCount : 0,
     interactions,
     significant,
-    maxRank,
-    riskScore: combinedRiskScore,
-    riskLevel: getScenarioRiskLabelFromRank(maxRank),
+    maxRank: Math.max(maxRank, getScenarioSeverityRank(responseRiskLevel)),
+    riskScore,
+    riskLevel: responseRiskLevel,
     highRiskCount: significant.filter((edge) => edge.rank >= 3 || edge.riskScore >= 0.7).length,
   };
 }
@@ -3461,7 +3477,7 @@ export default function Dashboard() {
         }
       } else {
         // Polypharmacy analysis
-        addLog('Initiating Graph Neural Network (GNN) for polypharmacy...', 'info', 'AI');
+        addLog('Initiating unified polypharmacy pipeline (categorical/KG + AI model fallback)...', 'info', 'AI');
         const drugs = selectedDrugs.map(d => ({ name: d.name, smiles: d.smiles }));
         const response = await analyzePolypharmacy(drugs);
         setPolypharmacyResult(response);
@@ -3486,24 +3502,81 @@ export default function Dashboard() {
           addLog('Digital Twin unavailable for this run', 'warning', 'AI');
         }
 
-        // Set summary result
-        if (response.interactions && response.interactions.length > 0) {
-          const topInteraction = response.interactions.sort((a, b) => b.risk_score - a.risk_score)[0];
-          setResult({
-            drug_a: topInteraction.source,
-            drug_b: topInteraction.target,
-            risk_score: response.max_risk_score,
-            risk_level: response.overall_risk_level,
-            severity: topInteraction.severity,
-            confidence: 0.85,
-            mechanism_hypothesis: `${response.total_interactions} interactions detected. ${response.hub_drug} is the hub drug with ${response.hub_interaction_count} interactions.`,
-            affected_systems: Object.entries(response.body_map || {}).map(([system, severity]) => ({
-              system,
-              severity,
-              symptoms: []
-            }))
-          });
-        }
+        // Set summary result (including low-risk regimens with no significant edges)
+        const interactions = Array.isArray(response.interactions) ? [...response.interactions] : [];
+        const topInteraction = interactions.length > 0
+          ? interactions.sort((a, b) => b.risk_score - a.risk_score)[0]
+          : null;
+        const riskMetrics = response?.risk_metrics && typeof response.risk_metrics === 'object'
+          ? response.risk_metrics
+          : {};
+        const peakPairRisk = Number(response.max_risk_score);
+        const regimenCompositeRisk = Number(
+          riskMetrics.regimen_composite_score
+          ?? response.regimen_risk_score
+        );
+        const displayRiskScore = Number.isFinite(regimenCompositeRisk)
+          ? regimenCompositeRisk
+          : (Number.isFinite(peakPairRisk) ? peakPairRisk : 0);
+        const displayRiskLevel = String(
+          riskMetrics.regimen_risk_level
+          || response.regimen_risk_level
+          || response.overall_risk_level
+          || topInteraction?.severity
+          || 'low'
+        ).toLowerCase();
+        const clinicalAlertLevel = String(
+          response.clinical_alert_level
+          || response.overall_risk_level
+          || topInteraction?.risk_level
+          || displayRiskLevel
+        ).toLowerCase();
+        const unknownSeverityPairCount = Number(riskMetrics.unknown_severity_pair_count || 0);
+        const clinicalReviewRequired = Boolean(riskMetrics.clinical_review_required || unknownSeverityPairCount > 0);
+        const clinicalReviewNotes = Array.isArray(riskMetrics.clinical_review_notes)
+          ? riskMetrics.clinical_review_notes
+          : [];
+
+        const fallbackPairLabel = `${selectedDrugs[0]?.name || 'Drug A'} + ${selectedDrugs[1]?.name || 'Drug B'}`;
+        const peakPairLabel = topInteraction
+          ? `${topInteraction.source} + ${topInteraction.target}`
+          : fallbackPairLabel;
+        const detectedInteractions = Number(response.total_interactions || interactions.length || 0);
+        const mechanismSummary = topInteraction
+          ? `${detectedInteractions} interactions detected. ${response.hub_drug} is the hub drug with ${response.hub_interaction_count} interactions. Peak pair ${peakPairLabel} at ${Number.isFinite(peakPairRisk) ? (peakPairRisk * 100).toFixed(1) : '0.0'}%.`
+          : `No significant interaction pathways crossed the display threshold. Composite risk reflects baseline regimen burden across ${response.total_pairs || 0} evaluated pairs.`;
+
+        setResult({
+          drug_a: topInteraction?.source || selectedDrugs[0]?.name,
+          drug_b: topInteraction?.target || selectedDrugs[1]?.name,
+          risk_score: displayRiskScore,
+          risk_level: displayRiskLevel,
+          severity: topInteraction?.severity || 'no_interaction',
+          confidence: topInteraction ? 0.85 : 0.9,
+          mechanism_hypothesis: mechanismSummary,
+          risk_mode: 'regimen_composite',
+          risk_mode_label: 'Regimen Composite',
+          regimen_composite_score: displayRiskScore,
+          clinical_alert_level: clinicalAlertLevel,
+          peak_pair_risk_score: Number.isFinite(peakPairRisk) ? peakPairRisk : 0,
+          peak_pair_label: peakPairLabel,
+          unknown_severity_pair_count: unknownSeverityPairCount,
+          clinical_review_required: clinicalReviewRequired,
+          clinical_review_notes: clinicalReviewNotes,
+          affected_systems: Object.entries(response.body_map || {}).map(([system, severity]) => ({
+            system,
+            severity,
+            symptoms: []
+          }))
+        });
+
+        addLog(
+          topInteraction
+            ? `Regimen composite risk ${(displayRiskScore * 100).toFixed(1)}% | peak pair ${peakPairLabel} ${(Number.isFinite(peakPairRisk) ? peakPairRisk * 100 : 0).toFixed(1)}%`
+            : `Regimen composite risk ${(displayRiskScore * 100).toFixed(1)}% | no significant pairwise edges`,
+          'info',
+          'AI'
+        );
       }
     } catch (err) {
       console.error('Analysis failed:', err);
@@ -3573,6 +3646,57 @@ export default function Dashboard() {
       bodyMap[sys.system] = sys.severity || 0.5;
     });
     return bodyMap;
+  };
+
+  const RegimenInterpretationPanel = ({ resultData, compact = false, anchorId = null }) => {
+    if (!resultData || resultData.risk_mode !== 'regimen_composite') return null;
+
+    const riskLevel = String(resultData.risk_level || 'medium').toLowerCase();
+    const peakPairLabel = String(
+      resultData.peak_pair_label
+      || `${resultData.drug_a || 'Drug A'} + ${resultData.drug_b || 'Drug B'}`
+    );
+    const peakPairRisk = (Number(resultData.peak_pair_risk_score) || 0) * 100;
+    const clinicalAlertLevel = String(resultData.clinical_alert_level || riskLevel || 'medium').toUpperCase();
+    const unknownSeverityCount = Number(resultData.unknown_severity_pair_count) || 0;
+    const reviewRequired = Boolean(resultData.clinical_review_required || unknownSeverityCount > 0);
+    const reviewNotes = Array.isArray(resultData.clinical_review_notes)
+      ? resultData.clinical_review_notes.slice(0, 2)
+      : [];
+
+    return (
+      <div id={anchorId || undefined} className={`border border-theme bg-theme-panel/70 ${compact ? 'p-3' : 'p-4'} space-y-2`}>
+        <p className="text-[10px] uppercase tracking-widest text-theme-muted">Info Header</p>
+        <p className="text-sm font-normal uppercase tracking-wider text-theme-primary">
+          {riskLevel} Composite Burden
+        </p>
+        <p className="text-xs text-theme-secondary uppercase tracking-wider">Peak Pair: {peakPairLabel}</p>
+        <p className="text-xs text-theme-secondary uppercase tracking-wider">Peak Pair Risk: {peakPairRisk.toFixed(1)}%</p>
+        <p className="text-xs text-theme-secondary uppercase tracking-wider">Clinical Alert Level: {clinicalAlertLevel}</p>
+        {reviewRequired && (
+          <p className="text-xs text-risk-medium uppercase tracking-wider">
+            Review Advised: {unknownSeverityCount} pair(s) have unspecified severity evidence
+          </p>
+        )}
+
+        <p className="text-[10px] uppercase tracking-widest text-theme-muted pt-1">How To Read This</p>
+        <p className="text-xs text-theme-secondary leading-relaxed">
+          Composite Burden blends peak-pair risk with overall regimen interaction density. Clinical Alert Level reflects the single most concerning pair.
+        </p>
+        {reviewRequired && (
+          <p className="text-xs text-risk-medium leading-relaxed">
+            Review advised because one or more interaction evidence rows do not specify a severity tier.
+          </p>
+        )}
+        {reviewNotes.length > 0 && (
+          <div className="space-y-1">
+            {reviewNotes.map((note, idx) => (
+              <p key={`review-note-${idx}`} className="text-[11px] text-theme-muted leading-relaxed">- {note}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const DemoGroupPanel = ({ compact = false }) => {
@@ -3734,21 +3858,45 @@ export default function Dashboard() {
               )}
               <div>
                 <p className="text-base font-normal uppercase tracking-wider">
-                  {result.severity === 'no_interaction' ? 'No Significant Interaction' : `${result.risk_level || result.severity} Risk`}
+                  {result.risk_mode === 'regimen_composite'
+                    ? `${result.risk_level || 'medium'} Composite Burden`
+                    : result.severity === 'no_interaction'
+                      ? 'No Significant Interaction'
+                      : `${result.risk_level || result.severity} Risk`}
                 </p>
                 <p className="text-xs opacity-70 mt-1">
-                  {result.drug_a || selectedDrugs[0]?.name} + {result.drug_b || selectedDrugs[1]?.name}
+                  {result.risk_mode === 'regimen_composite'
+                    ? `Peak Pair: ${result.peak_pair_label || `${result.drug_a || selectedDrugs[0]?.name} + ${result.drug_b || selectedDrugs[1]?.name}`}`
+                    : `${result.drug_a || selectedDrugs[0]?.name} + ${result.drug_b || selectedDrugs[1]?.name}`}
                 </p>
+                {result.risk_mode === 'regimen_composite' && (
+                  <a
+                    href={`#${REGIMEN_INFO_HEADER_ANCHOR}`}
+                    className="inline-block text-xs mt-1 text-theme-accent uppercase tracking-wider hover:opacity-80"
+                  >
+                    See info header below for why
+                  </a>
+                )}
               </div>
             </div>
             
             {/* Risk Score Visual */}
             {result.risk_score !== undefined && (
               <div className="mb-4">
-                <RiskGauge score={result.risk_score} riskLevel={result.risk_level || result.severity} />
+                <RiskGauge
+                  score={result.risk_score}
+                  riskLevel={result.risk_level || result.severity}
+                  labelText={result.risk_mode === 'regimen_composite' ? 'Composite Burden' : null}
+                />
               </div>
             )}
           </div>
+
+          <RegimenInterpretationPanel
+            resultData={result}
+            compact={true}
+            anchorId={REGIMEN_INFO_HEADER_ANCHOR}
+          />
 
           <PredictionTransparencyPanel result={result} isMobile={true} />
 
@@ -4114,6 +4262,7 @@ export default function Dashboard() {
                         <PolypharmacyDigitalTwin
                           drugs={selectedDrugs}
                           twinResult={digitalTwinResult}
+                          polypharmacyResult={polypharmacyResult}
                           isMobile={true}
                         />
                       </div>
@@ -4590,6 +4739,7 @@ export default function Dashboard() {
                 <PolypharmacyDigitalTwin
                   drugs={selectedDrugs}
                   twinResult={digitalTwinResult}
+                  polypharmacyResult={polypharmacyResult}
                 />
               </div>
             ) : selectedDrugs.length === 0 ? (
@@ -4693,13 +4843,25 @@ export default function Dashboard() {
                       )}
                       <div>
                         <p className="text-sm font-normal uppercase tracking-wider">
-                          {result.severity === 'no_interaction'
-                            ? 'No Significant Interaction'
-                            : `${result.risk_level || result.severity} Risk`}
+                          {result.risk_mode === 'regimen_composite'
+                            ? `${result.risk_level || 'medium'} Composite Burden`
+                            : result.severity === 'no_interaction'
+                              ? 'No Significant Interaction'
+                              : `${result.risk_level || result.severity} Risk`}
                         </p>
                         <p className="text-[10px] opacity-70 mt-1 uppercase tracking-wider">
-                          {result.drug_a || selectedDrugs[0]?.name} + {result.drug_b || selectedDrugs[1]?.name}
+                          {result.risk_mode === 'regimen_composite'
+                            ? `Peak Pair: ${result.peak_pair_label || `${result.drug_a || selectedDrugs[0]?.name} + ${result.drug_b || selectedDrugs[1]?.name}`}`
+                            : `${result.drug_a || selectedDrugs[0]?.name} + ${result.drug_b || selectedDrugs[1]?.name}`}
                         </p>
+                        {result.risk_mode === 'regimen_composite' && (
+                          <a
+                            href={`#${REGIMEN_INFO_HEADER_ANCHOR}`}
+                            className="inline-block text-[10px] mt-1 text-theme-accent uppercase tracking-wider hover:opacity-80"
+                          >
+                            See info header below for why
+                          </a>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -4707,9 +4869,18 @@ export default function Dashboard() {
                   {/* Risk Score */}
                   {result.risk_score !== undefined && (
                     <div className="mb-6">
-                      <RiskGauge score={result.risk_score} riskLevel={result.risk_level || result.severity} />
+                      <RiskGauge
+                        score={result.risk_score}
+                        riskLevel={result.risk_level || result.severity}
+                        labelText={result.risk_mode === 'regimen_composite' ? 'Composite Burden' : null}
+                      />
                     </div>
                   )}
+
+                  <RegimenInterpretationPanel
+                    resultData={result}
+                    anchorId={REGIMEN_INFO_HEADER_ANCHOR}
+                  />
 
                   <PredictionTransparencyPanel result={result} />
 

@@ -385,8 +385,24 @@ export async function compareDrugs(drugNames) {
  * @property {Array<string>} drugs - List of drug names
  * @property {Array<InteractionEdge>} interactions - Network edges
  * @property {number} total_interactions - Count of interactions
+ * @property {number} total_pairs - Number of analyzed pair combinations
  * @property {number} max_risk_score - Highest risk score
  * @property {string} overall_risk_level - Overall risk level
+ * @property {string} clinical_alert_level - Clinician-oriented alert level derived from peak pair risk
+ * @property {number} regimen_risk_score - Canonical regimen composite risk score
+ * @property {string} regimen_risk_level - Canonical regimen composite risk level
+ * @property {number} pairwise_baseline_score - Pairwise baseline score (max/avg blend)
+ * @property {number} average_pair_risk - Average risk across all analyzed pairs
+ * @property {Object} risk_metrics - Expanded scoring diagnostics for cross-view consistency
+ * @property {number} risk_metrics.average_pair_confidence - Mean confidence across all analyzed pairs
+ * @property {number} risk_metrics.unknown_severity_pair_count - Count of pairs with known evidence but unspecified severity
+ * @property {number} risk_metrics.unknown_severity_pair_density - Ratio of unspecified-severity pairs
+ * @property {number} risk_metrics.raw_regimen_composite_score - Composite score before uncertainty penalty
+ * @property {number} risk_metrics.uncertainty_penalty_factor - Multiplicative penalty applied for uncertainty-heavy regimens
+ * @property {boolean} risk_metrics.clinical_review_required - Whether manual review is recommended
+ * @property {Array<string>} risk_metrics.clinical_review_notes - Human-readable review notes
+ * @property {Object.<string, number>} risk_metrics.source_type_distribution - Count of pair paths by source type
+ * @property {Object} risk_metrics.scoring_policy - Effective policy constants used by backend scoring
  * @property {string} hub_drug - Drug with most interactions
  * @property {number} hub_interaction_count - Hub interaction count
  * @property {Object} body_map - Organ system risk mapping
@@ -397,8 +413,13 @@ export async function compareDrugs(drugNames) {
  * @property {string} source - Source drug name
  * @property {string} target - Target drug name
  * @property {number} risk_score - Edge risk score
+ * @property {number} raw_score - Raw model score for the pair
+ * @property {number} calibrated_score - Calibrated score used for risk output
  * @property {string} severity - Severity level
  * @property {Array<string>} affected_systems - Affected organs
+ * @property {string} source_type - Upstream source path for the pair
+ * @property {number} confidence - Pair-level confidence score in [0,1]
+ * @property {Object} provenance - Pair-level provenance payload
  */
 
 /**

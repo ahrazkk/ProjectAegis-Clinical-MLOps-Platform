@@ -205,6 +205,26 @@
 - Git
 - 8GB+ RAM recommended (for model loading)
 
+### Required Environment Variables (Aura Scripts)
+
+For local data/export/enrichment scripts that connect to Neo4j Aura, set these variables before running:
+
+```bash
+export NEO4J_URI='neo4j+s://<your-instance>.databases.neo4j.io'
+export NEO4J_USER='neo4j'
+export NEO4J_PASSWORD='<your-password>'
+```
+
+PowerShell example:
+
+```powershell
+$env:NEO4J_URI = 'neo4j+s://<your-instance>.databases.neo4j.io'
+$env:NEO4J_USER = 'neo4j'
+$env:NEO4J_PASSWORD = '<your-password>'
+```
+
+Without these values, Aura helper scripts now fail fast instead of using implicit defaults.
+
 ### One-Command Setup
 
 ```bash

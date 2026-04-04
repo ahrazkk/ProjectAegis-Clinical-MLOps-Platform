@@ -1,10 +1,12 @@
 """Add therapeutic classes to drugs in Neo4j Aura."""
+import os
+
 from neo4j import GraphDatabase
 
 # Neo4j Aura connection
-URI = 'neo4j+s://ca47aebc.databases.neo4j.io'
-USER = 'neo4j'
-PASSWORD = 'BYKmHWoR2DeEiiiwO6qBAET273OIaaGv1ZatYpU_vtM'
+URI = os.getenv('NEO4J_URI', '')
+USER = os.getenv('NEO4J_USER', 'neo4j')
+PASSWORD = os.getenv('NEO4J_PASSWORD', '')
 
 # Drug class patterns based on suffixes
 DRUG_CLASS_PATTERNS = {
@@ -264,6 +266,11 @@ def main():
     print('THERAPEUTIC CLASS ENRICHMENT FOR NEO4J AURA')
     print('=' * 60)
     print(f'\nConnecting to Neo4j Aura...')
+    
+    if not URI:
+        raise ValueError('NEO4J_URI environment variable is required')
+    if not PASSWORD:
+        raise ValueError('NEO4J_PASSWORD environment variable is required')
     
     driver = GraphDatabase.driver(URI, auth=(USER, PASSWORD))
     

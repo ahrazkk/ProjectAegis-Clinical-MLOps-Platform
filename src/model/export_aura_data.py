@@ -4,6 +4,7 @@ Export DDI data from Neo4j Aura for GNN training.
 Pulls all drug-drug interactions where both drugs have SMILES,
 generates balanced negative samples, and saves train/val splits.
 """
+import os
 import json
 import random
 import logging
@@ -21,9 +22,9 @@ OUTPUT_DIR = PROJECT_ROOT / 'web' / 'data' / 'gnn_training'
 RANDOM_SEED = 42
 
 # Aura connection
-NEO4J_URI = 'neo4j+s://39312fd4.databases.neo4j.io'
-NEO4J_USER = 'neo4j'
-NEO4J_PASSWORD = '1vlj-fnbN3x_56x4Cty4xBF9v9deOMj-NpFu2dg9Oro'
+NEO4J_URI = os.getenv('NEO4J_URI', '')
+NEO4J_USER = os.getenv('NEO4J_USER', 'neo4j')
+NEO4J_PASSWORD = os.getenv('NEO4J_PASSWORD', '')
 
 SEVERITY_MAP = {
     'minor': 'minor',
@@ -38,6 +39,10 @@ def export_from_aura():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     random.seed(RANDOM_SEED)
 
+    if not NEO4J_URI:
+        raise ValueError("Missing Neo4j URI. Set NEO4J_URI environment variable.")
+    if not NEO4J_PASSWORD:
+        raise ValueError("Missing Neo4j password. Set NEO4J_PASSWORD environment variable.")
     driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
     # ================================================================

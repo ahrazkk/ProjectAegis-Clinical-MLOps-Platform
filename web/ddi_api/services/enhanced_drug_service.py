@@ -78,7 +78,9 @@ def normalize_drug_name(name: str) -> Tuple[str, str]:
         'tylenol': 'acetaminophen', 'advil': 'ibuprofen', 'motrin': 'ibuprofen',
         'aleve': 'naproxen', 'lipitor': 'atorvastatin', 'zocor': 'simvastatin',
         'crestor': 'rosuvastatin', 'prilosec': 'omeprazole', 'nexium': 'esomeprazole',
-        'coumadin': 'warfarin', 'plavix': 'clopidogrel', 'xarelto': 'rivaroxaban',
+        'coumadin': 'warfarin', 'warafin': 'warfarin',
+        'asa': 'aspirin', 'acetylsalicylic acid': 'aspirin', 'acetylsalicylate': 'aspirin',
+        'plavix': 'clopidogrel', 'xarelto': 'rivaroxaban',
     }
     if normalized in brand_to_generic:
         normalized = brand_to_generic[normalized]
@@ -687,9 +689,10 @@ class EnhancedDrugService:
                     ''', {'drug1': norm1, 'drug2': norm2})
                     if results:
                         matched_normalized = True
-                
-                # If still no match, try CONTAINS for partial matches
-                if not results:
+
+                # If still no match, try CONTAINS for partial matches.
+                # Guard against short acronyms (e.g., "asa") causing spurious matches.
+                if not results and len(norm1) >= 4 and len(norm2) >= 4:
                     results = KG.run_query('''
                         MATCH (d1:Drug)-[r:INTERACTS_WITH]-(d2:Drug)
                         WHERE toLower(d1.name) CONTAINS toLower($drug1)
@@ -699,16 +702,36 @@ class EnhancedDrugService:
                     ''', {'drug1': norm1, 'drug2': norm2})
                 
                 if results:
-                    info.severity = results[0].get('severity', 'unknown')
-                    info.mechanism = results[0].get('mechanism', '') or results[0].get('description', '')
+                    raw_severity = results[0].get('severity', 'unknown')
+                    raw_mechanism = results[0].get('mechanism', '')
+                    raw_description = results[0].get('description', '')
+                    info.mechanism = raw_mechanism or raw_description
                     evidence.append('knowledge_graph')
 
-                    severity_text = str(info.severity or 'unknown').lower()
+                    if raw_severity is None:
+                        description_text = str(raw_description or '').strip().lower()
+                        mechanism_text = str(raw_mechanism or '').strip().lower()
+                        looks_like_placeholder_only = (
+                            not mechanism_text and (
+                                not description_text
+                                or description_text.startswith('e.g.')
+                                or 'no clinically significant interaction' in description_text
+                            )
+                        )
+                        severity_text = 'no_interaction' if looks_like_placeholder_only else 'unknown'
+                    else:
+                        severity_text = str(raw_severity or 'unknown').lower().strip().replace(' ', '_')
+
+                    if severity_text in {'none', 'no-interaction'}:
+                        severity_text = 'no_interaction'
+
+                    info.severity = 'no_interaction' if severity_text == 'no_interaction' else (raw_severity or 'unknown')
                     severity_strength = {
                         'severe': 0.95,
                         'major': 0.9,
                         'moderate': 0.75,
                         'minor': 0.55,
+                        'no_interaction': 0.2,
                         'unknown': 0.5,
                     }.get(severity_text, 0.5)
                     info.risk_score = {
@@ -716,19 +739,24 @@ class EnhancedDrugService:
                         'major': 0.82,
                         'moderate': 0.65,
                         'minor': 0.4,
+                        'no_interaction': 0.08,
                     }.get(severity_text, info.risk_score)
 
                     add_evidence_item(
                         claim_type='curated_knowledge_graph_relation',
                         claim=(
-                            f"Knowledge Graph contains a curated relation for {drug1} + {drug2} "
-                            f"with severity '{info.severity}'."
+                            f"Knowledge Graph indicates no clinically significant interaction for {drug1} + {drug2}."
+                            if severity_text == 'no_interaction'
+                            else (
+                                f"Knowledge Graph contains a curated relation for {drug1} + {drug2} "
+                                f"with severity '{info.severity}'."
+                            )
                         ),
                         source_id='knowledge_graph',
                         source_label='Neo4j Knowledge Graph',
                         source_category='curated_ddi_relation',
                         strength_score=severity_strength,
-                        supports_interaction=True,
+                        supports_interaction=severity_text != 'no_interaction',
                         details={
                             'severity': info.severity,
                             'mechanism': info.mechanism,

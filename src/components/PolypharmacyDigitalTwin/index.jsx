@@ -131,7 +131,7 @@ function FactorBar({ label, description, formula, score = 0, weight = 0, contrib
   );
 }
 
-export default function PolypharmacyDigitalTwin({ drugs = [], twinResult, isMobile = false }) {
+export default function PolypharmacyDigitalTwin({ drugs = [], twinResult, polypharmacyResult = null, isMobile = false }) {
   if (!drugs || drugs.length === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center p-6">
@@ -168,6 +168,12 @@ export default function PolypharmacyDigitalTwin({ drugs = [], twinResult, isMobi
 
   const weights = twinResult.explainability?.weights || DEFAULT_WEIGHTS;
   const weightedContributions = twinResult.explainability?.weighted_contributions || {};
+  const referenceMetrics = polypharmacyResult?.risk_metrics && typeof polypharmacyResult.risk_metrics === 'object'
+    ? polypharmacyResult.risk_metrics
+    : null;
+  const regimenCompositeReference = Number(referenceMetrics?.regimen_composite_score ?? polypharmacyResult?.regimen_risk_score);
+  const peakPairReference = Number(referenceMetrics?.max_pair_risk ?? polypharmacyResult?.max_risk_score);
+  const pairwiseBaselineReference = Number(referenceMetrics?.pairwise_baseline_score ?? polypharmacyResult?.pairwise_baseline_score);
 
   const factorRows = FACTOR_ORDER.map((key) => {
     const score = clampScore(factors[key]?.score || 0);
@@ -242,6 +248,35 @@ export default function PolypharmacyDigitalTwin({ drugs = [], twinResult, isMobi
           </p>
         </div>
       </div>
+
+      {(Number.isFinite(regimenCompositeReference) || Number.isFinite(peakPairReference)) && (
+        <div className="mt-4 border border-theme bg-theme-panel p-4">
+          <p className="text-[10px] uppercase tracking-widest text-theme-muted mb-2">Cross-Pipeline Risk Reference</p>
+          <p className="text-xs text-theme-secondary leading-relaxed">
+            These values come from the same polypharmacy analysis pipeline used by the main analysis and What-If tools.
+          </p>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="border border-theme bg-theme-primary/70 p-3">
+              <p className="text-[9px] uppercase tracking-wider text-theme-muted">Regimen Composite</p>
+              <p className="text-base font-mono text-theme-primary mt-1">
+                {Number.isFinite(regimenCompositeReference) ? asPct(regimenCompositeReference, 1) : 'N/A'}
+              </p>
+            </div>
+            <div className="border border-theme bg-theme-primary/70 p-3">
+              <p className="text-[9px] uppercase tracking-wider text-theme-muted">Peak Pair Risk</p>
+              <p className="text-base font-mono text-theme-primary mt-1">
+                {Number.isFinite(peakPairReference) ? asPct(peakPairReference, 1) : 'N/A'}
+              </p>
+            </div>
+            <div className="border border-theme bg-theme-primary/70 p-3">
+              <p className="text-[9px] uppercase tracking-wider text-theme-muted">Pairwise Baseline Factor</p>
+              <p className="text-base font-mono text-theme-primary mt-1">
+                {Number.isFinite(pairwiseBaselineReference) ? asPct(pairwiseBaselineReference, 1) : 'N/A'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="mt-4 border border-theme bg-theme-panel p-4">
         <p className="text-[10px] uppercase tracking-widest text-theme-muted mb-3">Factor Breakdown</p>

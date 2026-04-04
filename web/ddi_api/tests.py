@@ -11,7 +11,19 @@ from rest_framework.test import APIRequestFactory
 from .services.calibration_metrics import expected_calibration_error, generate_calibration_report
 from .services.enhanced_drug_service import EnhancedDrugService
 from .services.gnn_predictor import GNNDDIPredictor, GNNPrediction
-from .views import DDIPredictionView, DatabaseStatsView, CalibrationMetricsView, PolypharmacyDigitalTwinView
+from .views import DDIPredictionView, DatabaseStatsView, CalibrationMetricsView, PolypharmacyDigitalTwinView, PolypharmacyView, normalize_drug_name
+
+
+class DrugNameNormalizationRegressionTests(SimpleTestCase):
+	"""Ensure common aliases/misspellings normalize to canonical drug names."""
+
+	def test_alias_asa_maps_to_aspirin(self):
+		normalized, _original = normalize_drug_name('ASA')
+		self.assertEqual(normalized, 'aspirin')
+
+	def test_misspelling_warafin_maps_to_warfarin(self):
+		normalized, _original = normalize_drug_name('warafin')
+		self.assertEqual(normalized, 'warfarin')
 
 
 class GNNPolypharmacyContractTests(SimpleTestCase):
@@ -180,6 +192,127 @@ class PolypharmacyDigitalTwinEndpointTests(SimpleTestCase):
 		self.assertIn('drugs', response.data)
 
 
+class PolypharmacyEndpointConsistencyTests(SimpleTestCase):
+	"""Regression tests for canonical polypharmacy risk metrics and pipeline provenance."""
+
+	def setUp(self):
+		self.factory = APIRequestFactory()
+
+	@patch('ddi_api.views.lookup_drug')
+	@patch('ddi_api.views.build_pair_prediction_response')
+	@patch('ddi_api.views.get_gnn_predictor')
+	@patch('ddi_api.views.PredictionLog.objects.create')
+	def test_endpoint_returns_canonical_risk_metrics(
+		self,
+		mock_log_create,
+		mock_get_predictor,
+		mock_build_pair_response,
+		mock_lookup_drug,
+	):
+		mock_lookup_drug.side_effect = lambda d: {
+			'name': d.get('name', 'Unknown'),
+			'smiles': d.get('smiles', ''),
+			'drugbank_id': d.get('drugbank_id', ''),
+			'therapeutic_class': d.get('therapeutic_class', ''),
+		}
+
+		mock_get_predictor.return_value = Mock()
+
+		pair_payloads = [
+			{
+				'drug_a': 'Aspirin',
+				'drug_b': 'Warfarin',
+				'risk_score': 0.92,
+				'raw_score': 0.92,
+				'calibrated_score': 0.92,
+				'risk_level': 'critical',
+				'severity': 'severe',
+				'confidence': 0.95,
+				'mechanism_hypothesis': 'High-risk overlap.',
+				'affected_systems': [{'system': 'Metabolic/CYP450', 'severity': 0.92, 'symptoms': []}],
+				'source': 'knowledge_graph',
+				'provenance': {'prediction_path': 'knowledge_graph'},
+			},
+			{
+				'drug_a': 'Aspirin',
+				'drug_b': 'Omeprazole',
+				'risk_score': 0.18,
+				'raw_score': 0.18,
+				'calibrated_score': 0.18,
+				'risk_level': 'low',
+				'severity': 'no_interaction',
+				'confidence': 0.72,
+				'mechanism_hypothesis': 'No significant interaction.',
+				'affected_systems': [{'system': 'Systemic', 'severity': 0.18, 'symptoms': []}],
+				'source': 'macroscopic_gnn',
+				'provenance': {'prediction_path': 'gnn_predictor'},
+			},
+			{
+				'drug_a': 'Warfarin',
+				'drug_b': 'Omeprazole',
+				'risk_score': 0.64,
+				'raw_score': 0.64,
+				'calibrated_score': 0.64,
+				'risk_level': 'high',
+				'severity': 'moderate',
+				'confidence': 0.88,
+				'mechanism_hypothesis': 'Moderate pathway competition.',
+				'affected_systems': [{'system': 'Pharmacodynamic', 'severity': 0.64, 'symptoms': []}],
+				'source': 'macroscopic_gnn',
+				'provenance': {'prediction_path': 'gnn_predictor'},
+			},
+		]
+		mock_build_pair_response.side_effect = pair_payloads
+
+		request = self.factory.post(
+			'/api/v1/polypharmacy/',
+			{
+				'drugs': [
+					{'name': 'Aspirin'},
+					{'name': 'Warfarin'},
+					{'name': 'Omeprazole'},
+				]
+			},
+			format='json',
+		)
+
+		response = PolypharmacyView.as_view()(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['total_pairs'], 3)
+		self.assertEqual(response.data['total_interactions'], 2)
+		self.assertAlmostEqual(response.data['max_risk_score'], 0.92, places=4)
+
+		risk_metrics = response.data.get('risk_metrics', {})
+		expected_avg = (0.92 + 0.18 + 0.64) / 3
+		expected_density = 2 / 3
+		expected_pairwise_baseline = min(1.0, (0.70 * 0.92) + (0.30 * expected_avg))
+		expected_regimen = min(1.0, (0.75 * 0.92) + (0.25 * expected_density))
+
+		self.assertAlmostEqual(risk_metrics.get('average_pair_risk'), expected_avg, places=4)
+		expected_avg_confidence = (0.95 + 0.72 + 0.88) / 3
+		self.assertAlmostEqual(risk_metrics.get('average_pair_confidence'), expected_avg_confidence, places=4)
+		self.assertAlmostEqual(risk_metrics.get('pairwise_baseline_score'), expected_pairwise_baseline, places=4)
+		self.assertAlmostEqual(risk_metrics.get('raw_regimen_composite_score'), expected_regimen, places=4)
+		self.assertAlmostEqual(risk_metrics.get('uncertainty_penalty_factor'), 1.0, places=4)
+		self.assertAlmostEqual(risk_metrics.get('regimen_composite_score'), expected_regimen, places=4)
+		self.assertEqual(risk_metrics.get('regimen_risk_level'), 'critical')
+		self.assertIn('source_type_distribution', risk_metrics)
+		self.assertIn('clinical_review_required', risk_metrics)
+		self.assertIn('clinical_review_notes', risk_metrics)
+		self.assertIn('scoring_policy', risk_metrics)
+		self.assertEqual(response.data.get('clinical_alert_level'), response.data.get('overall_risk_level'))
+
+		first_edge = response.data['interactions'][0]
+		self.assertIn('source_type', first_edge)
+		self.assertIn('provenance', first_edge)
+		self.assertEqual(first_edge['source'], 'Aspirin')
+		self.assertEqual(first_edge['target'], 'Warfarin')
+
+		self.assertEqual(mock_build_pair_response.call_count, 3)
+		mock_log_create.assert_called_once()
+
+
 class DDIPredictionObservabilityContractTests(SimpleTestCase):
 	"""Regression tests for provenance and score observability in /predict/."""
 
@@ -275,6 +408,177 @@ class DDIPredictionObservabilityContractTests(SimpleTestCase):
 		self.assertEqual(response.data['provenance']['prediction_path'], 'categorical_rule_engine')
 		self.assertEqual(response.data['provenance']['calibration_method'], 'none')
 		self.assertEqual(response.data['raw_score'], response.data['calibrated_score'])
+		mock_log_create.assert_called_once()
+
+	@patch('ddi_api.views.lookup_drug')
+	@patch('ddi_api.views.get_known_interaction')
+	@patch('ddi_api.views.get_gnn_predictor')
+	@patch('ddi_api.views.PredictionLog.objects.create')
+	def test_predict_known_interaction_null_severity_placeholder_is_low_risk(
+		self,
+		mock_log_create,
+		mock_get_predictor,
+		mock_get_known_interaction,
+		mock_lookup_drug,
+	):
+		mock_lookup_drug.side_effect = lambda d: {
+			'name': d.get('name', 'Unknown'),
+			'smiles': d.get('smiles', ''),
+			'drugbank_id': f"DB-{d.get('name', 'Unknown').upper()}",
+			'therapeutic_class': d.get('therapeutic_class', ''),
+		}
+
+		mock_get_known_interaction.return_value = {
+			'severity': None,
+			'mechanism': None,
+			'description': 'e.g. Iron deficiency anaemia',
+		}
+
+		mock_predictor = Mock()
+		mock_get_predictor.return_value = mock_predictor
+
+		request = self.factory.post(
+			'/api/v1/predict/',
+			{
+				'drug_a': {'name': 'Amoxicillin'},
+				'drug_b': {'name': 'Acetaminophen'},
+				'include_explanation': True,
+			},
+			format='json'
+		)
+
+		response = DDIPredictionView.as_view()(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['source'], 'knowledge_graph')
+		self.assertEqual(response.data['severity'], 'no_interaction')
+		self.assertAlmostEqual(response.data['risk_score'], 0.08, places=4)
+		self.assertEqual(response.data['risk_level'], 'low')
+		self.assertIn('provenance', response.data)
+		self.assertTrue(response.data['provenance']['known_interaction_is_negative'])
+		self.assertTrue(response.data['provenance']['known_interaction_severity_inferred_from_null'])
+
+		mock_predictor.predict.assert_not_called()
+		mock_log_create.assert_called_once()
+
+	@patch('ddi_api.views.lookup_drug')
+	@patch('ddi_api.views.get_known_interaction')
+	@patch('ddi_api.views.get_gnn_predictor')
+	@patch('ddi_api.views.PredictionLog.objects.create')
+	def test_predict_known_interaction_none_severity_skips_ai_fusion(
+		self,
+		mock_log_create,
+		mock_get_predictor,
+		mock_get_known_interaction,
+		mock_lookup_drug,
+	):
+		mock_lookup_drug.side_effect = lambda d: {
+			'name': d.get('name', 'Unknown'),
+			'smiles': d.get('smiles', ''),
+			'drugbank_id': f"DB-{d.get('name', 'Unknown').upper()}",
+			'therapeutic_class': d.get('therapeutic_class', ''),
+		}
+
+		mock_get_known_interaction.return_value = {
+			'severity': 'None',
+			'mechanism': None,
+			'description': 'No clinically significant interaction found in curated knowledge graph relation.',
+		}
+
+		mock_predictor = Mock()
+		mock_get_predictor.return_value = mock_predictor
+
+		request = self.factory.post(
+			'/api/v1/predict/',
+			{
+				'drug_a': {'name': 'Amoxicillin'},
+				'drug_b': {'name': 'Acetaminophen'},
+				'include_explanation': True,
+			},
+			format='json'
+		)
+
+		response = DDIPredictionView.as_view()(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['source'], 'knowledge_graph')
+		self.assertEqual(response.data['severity'], 'no_interaction')
+		self.assertAlmostEqual(response.data['risk_score'], 0.08, places=4)
+		self.assertEqual(response.data['risk_level'], 'low')
+		self.assertIn('provenance', response.data)
+		self.assertEqual(response.data['provenance']['prediction_path'], 'knowledge_graph')
+		self.assertFalse(response.data['provenance']['known_interaction_severity_unknown'])
+		self.assertTrue(response.data['provenance']['known_interaction_is_negative'])
+
+		mock_predictor.predict.assert_not_called()
+		mock_log_create.assert_called_once()
+
+	@patch('ddi_api.views.lookup_drug')
+	@patch('ddi_api.views.get_known_interaction')
+	@patch('ddi_api.views.get_gnn_predictor')
+	@patch('ddi_api.views.PredictionLog.objects.create')
+	def test_predict_known_interaction_unknown_severity_uses_ai_fusion(
+		self,
+		mock_log_create,
+		mock_get_predictor,
+		mock_get_known_interaction,
+		mock_lookup_drug,
+	):
+		mock_lookup_drug.side_effect = lambda d: {
+			'name': d.get('name', 'Unknown'),
+			'smiles': d.get('smiles', ''),
+			'drugbank_id': f"DB-{d.get('name', 'Unknown').upper()}",
+			'therapeutic_class': d.get('therapeutic_class', ''),
+		}
+
+		mock_get_known_interaction.return_value = {
+			'severity': 'unknown',
+			'mechanism': 'Graph relationship exists without severity tier.',
+		}
+
+		mock_predictor = Mock()
+		mock_predictor.predict.return_value = GNNPrediction(
+			drug1='AlphaDrug',
+			drug2='BetaDrug',
+			interaction_probability=0.96,
+			interaction_type='advise',
+			confidence=0.9,
+			severity='minor',
+			model_used='macroscopic_gnn',
+			smiles1='CCO',
+			smiles2='CCN',
+			fingerprint_similarity=0.41,
+			mechanism_hypothesis='Model indicates moderate caution signal.',
+			raw_interaction_probability=0.96,
+			calibration_method='none',
+			calibration_version='none',
+			fallback_reason=None,
+			provenance={'prediction_path': 'macroscopic_gnn'},
+		)
+		mock_get_predictor.return_value = mock_predictor
+
+		request = self.factory.post(
+			'/api/v1/predict/',
+			{
+				'drug_a': {'name': 'AlphaDrug'},
+				'drug_b': {'name': 'BetaDrug'},
+				'include_explanation': True,
+			},
+			format='json'
+		)
+
+		response = DDIPredictionView.as_view()(request)
+
+		self.assertEqual(response.status_code, 200)
+		self.assertEqual(response.data['source'], 'knowledge_graph_ai_fusion')
+		self.assertAlmostEqual(response.data['risk_score'], 0.59, places=4)
+		self.assertIn('Clinical review is recommended', response.data.get('mechanism_hypothesis', ''))
+		self.assertIn('provenance', response.data)
+		self.assertEqual(response.data['provenance']['prediction_path'], 'knowledge_graph_ai_fusion')
+		self.assertTrue(response.data['provenance']['known_interaction_detected'])
+		self.assertTrue(response.data['provenance']['known_interaction_severity_unknown'])
+		self.assertAlmostEqual(response.data['provenance']['uncertainty_fusion_cap'], 0.59, places=4)
+
 		mock_log_create.assert_called_once()
 
 

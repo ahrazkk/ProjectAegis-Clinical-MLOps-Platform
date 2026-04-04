@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 
-export default function RiskGauge({ score, riskLevel }) {
+export default function RiskGauge({ score, riskLevel, labelText = null }) {
     // Score is 0-1
     const percentage = Math.round(score * 100);
 
@@ -16,6 +16,7 @@ export default function RiskGauge({ score, riskLevel }) {
     };
 
     const colors = getColors(riskLevel);
+    const centerLabel = labelText || `${riskLevel} Risk`;
     const radius = 80;
     const strokeWidth = 2;
     const circumference = 2 * Math.PI * radius;
@@ -94,7 +95,7 @@ export default function RiskGauge({ score, riskLevel }) {
                             className={`text-[10px] font-normal px-3 py-1 mt-2 uppercase tracking-widest border`}
                             style={{ color: colors.main, borderColor: `${colors.main}50` }}
                         >
-                            {riskLevel} Risk
+                            {centerLabel}
                         </span>
                     </motion.div>
                 </div>

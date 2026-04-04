@@ -42,6 +42,12 @@ from .services.calibration_metrics import generate_calibration_report
 
 logger = logging.getLogger(__name__)
 
+# Clinical scoring policy constants for uncertain known-interaction evidence.
+UNKNOWN_SEVERITY_EVIDENCE_PRIOR = 0.30
+UNKNOWN_SEVERITY_MAX_FUSED_SCORE = 0.59
+REGIMEN_UNKNOWN_SEVERITY_PENALTY_WEIGHT = 0.40
+REGIMEN_MIN_UNCERTAINTY_FACTOR = 0.60
+
 
 # ============== Drug Name Normalization ==============
 
@@ -86,6 +92,8 @@ def normalize_drug_name(name: str) -> Tuple[str, str]:
         'aleve': 'naproxen', 'lipitor': 'atorvastatin', 'zocor': 'simvastatin',
         'crestor': 'rosuvastatin', 'prilosec': 'omeprazole', 'nexium': 'esomeprazole',
         'zantac': 'ranitidine', 'pepcid': 'famotidine', 'coumadin': 'warfarin',
+        'warafin': 'warfarin',
+        'asa': 'aspirin', 'acetylsalicylic acid': 'aspirin', 'acetylsalicylate': 'aspirin',
         'plavix': 'clopidogrel', 'xarelto': 'rivaroxaban', 'eliquis': 'apixaban',
         'pradaxa': 'dabigatran', 'lasix': 'furosemide', 'lopressor': 'metoprolol',
         'toprol': 'metoprolol', 'norvasc': 'amlodipine', 'prozac': 'fluoxetine',
@@ -124,15 +132,7 @@ def search_drug_with_normalization(name: str) -> Optional[Dict]:
     
     normalized_name, original_name = normalize_drug_name(name)
     
-    # Try exact match first
-    results = kg.search_drugs(name, limit=1)
-    if results:
-        drug = results[0]
-        drug['matched_as'] = 'exact'
-        drug['original_query'] = name
-        return drug
-    
-    # Try normalized name
+    # If normalization transforms the query (e.g., ASA -> aspirin), prioritize that.
     if normalized_name and normalized_name != name.lower():
         results = kg.search_drugs(normalized_name, limit=1)
         if results:
@@ -141,6 +141,14 @@ def search_drug_with_normalization(name: str) -> Optional[Dict]:
             drug['original_query'] = name
             drug['normalized_to'] = normalized_name
             return drug
+
+    # Fallback to the original query.
+    results = kg.search_drugs(name, limit=1)
+    if results:
+        drug = results[0]
+        drug['matched_as'] = 'exact'
+        drug['original_query'] = name
+        return drug
     
     return None
 
@@ -348,62 +356,141 @@ def check_categorical_interaction(drug_a: Dict, drug_b: Dict) -> Dict:
     return None
 
 
-class DDIPredictionView(APIView):
-    """
-    POST /api/v1/predict/
-    
-    Predict drug-drug interaction between two drugs.
-    Returns risk score, severity, affected systems, and mechanism hypothesis.
-    Uses Knowledge Graph for known interactions, AI model for novel pairs.
-    """
-    
-    def post(self, request):
-        try:
-            return self._internal_post_logic(request)
-        except Exception as e:
-            import traceback
-            logger.error(f"Prediction failed: {e}\n{traceback.format_exc()}")
-            return Response(
-                {'error': 'Internal server error during prediction', 'details': str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+def _normalize_prediction_severity(value: str) -> str:
+    normalized = str(value or '').strip().lower().replace(' ', '_')
+    if normalized in {'none', 'no_interaction', 'no-interaction'}:
+        return 'no_interaction'
+    if normalized in {'major', 'high'}:
+        return 'severe'
+    if normalized in {'minor', 'moderate', 'severe', 'critical'}:
+        return normalized
+    return normalized or 'unknown'
+
+
+def _is_significant_prediction(risk_score: float, severity: str) -> bool:
+    normalized_severity = _normalize_prediction_severity(severity)
+    return float(risk_score or 0.0) >= 0.25 or normalized_severity not in {'no_interaction', 'unknown'}
+
+
+def _safe_create_prediction_log(context: str, **payload) -> None:
+    """Persist prediction logs without breaking API responses when storage is unavailable."""
+    try:
+        PredictionLog.objects.create(**payload)
+    except Exception:
+        logger.exception('Failed to log %s prediction', context)
+
+
+def _build_gnn_pair_prediction(
+    drug_a: Dict,
+    drug_b: Dict,
+    original_name_a: str = None,
+    original_name_b: str = None,
+    gnn_service=None,
+) -> Dict:
+    """Run AI inference for a pair and normalize to the shared response contract."""
+    name_a = original_name_a or drug_a.get('name', '')
+    name_b = original_name_b or drug_b.get('name', '')
+
+    logger.info('Using Macroscopic GraphSAGE model for DDI prediction')
+    predictor = gnn_service or get_gnn_predictor()
+    prediction = predictor.predict(
+        drug_a.get('name', name_a),
+        drug_b.get('name', name_b),
+        drug_a.get('smiles', ''),
+        drug_b.get('smiles', ''),
+    )
+    model_used = getattr(prediction, 'model_used', 'macroscopic_gnn')
+    calibrated_score = float(getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)))
+    raw_score = float(getattr(prediction, 'raw_interaction_probability', calibrated_score))
+    calibration_method = getattr(prediction, 'calibration_method', 'none')
+    calibration_version = getattr(prediction, 'calibration_version', 'none')
+    fallback_reason = getattr(prediction, 'fallback_reason', None)
+    predictor_provenance = getattr(prediction, 'provenance', {}) or {}
+    interaction_type = getattr(prediction, 'interaction_type', 'Systemic')
+
+    return {
+        'drug_a': prediction.drug1 if hasattr(prediction, 'drug1') else getattr(prediction, 'drug_a', drug_a.get('name', name_a)),
+        'drug_b': prediction.drug2 if hasattr(prediction, 'drug2') else getattr(prediction, 'drug_b', drug_b.get('name', name_b)),
+        'risk_score': calibrated_score,
+        'raw_score': raw_score,
+        'calibrated_score': calibrated_score,
+        'risk_level': get_risk_level(calibrated_score),
+        'severity': _normalize_prediction_severity(getattr(prediction, 'severity', 'unknown')),
+        'confidence': getattr(prediction, 'confidence', 0.9),
+        'mechanism_hypothesis': getattr(prediction, 'mechanism_hypothesis', 'Potential interaction based on structural and network features.'),
+        'affected_systems': [
+            {'system': interaction_type, 'severity': calibrated_score, 'symptoms': []}
+        ],
+        'source': model_used,
+        'provenance': {
+            'model_version': f'aegis-{model_used}-v1',
+            'prediction_path': 'gnn_predictor',
+            'model_used': model_used,
+            'calibration_method': calibration_method,
+            'calibration_version': calibration_version,
+            'fallback_reason': fallback_reason,
+            'predictor_provenance': predictor_provenance,
+            'known_interaction_detected': False,
+            'known_interaction_severity_unknown': False,
+        },
+    }
+
+
+def build_pair_prediction_response(
+    drug_a: Dict,
+    drug_b: Dict,
+    original_name_a: str = None,
+    original_name_b: str = None,
+    gnn_service=None,
+) -> Dict:
+    """Build a canonical pairwise response used by both /predict and /polypharmacy endpoints."""
+    name_a = original_name_a or drug_a.get('name', '')
+    name_b = original_name_b or drug_b.get('name', '')
+
+    known_interaction = check_categorical_interaction(drug_a, drug_b)
+    interaction_source = known_interaction.get('source', 'categorical_rule_engine') if known_interaction else None
+
+    if not known_interaction and drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
+        known_interaction = get_known_interaction(
+            drug_a['drugbank_id'],
+            drug_b['drugbank_id'],
+            name_a,
+            name_b,
+        )
+        interaction_source = 'knowledge_graph'
+
+    if known_interaction:
+        raw_severity = known_interaction.get('severity', 'moderate')
+        mechanism_text = str(known_interaction.get('mechanism') or '').strip()
+        description_text = str(known_interaction.get('description') or '').strip().lower()
+        if raw_severity is None:
+            looks_like_placeholder_only = (
+                not mechanism_text and (
+                    not description_text
+                    or description_text.startswith('e.g.')
+                    or 'no clinically significant interaction' in description_text
+                )
             )
+            raw_severity = 'none' if looks_like_placeholder_only else 'unknown'
 
-    def _internal_post_logic(self, request):
-        serializer = DDIPredictionRequestSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        data = serializer.validated_data
-        start_time = time.time()
-        
-        # Look up drugs
-        drug_a = lookup_drug(data['drug_a'])
-        drug_b = lookup_drug(data['drug_b'])
-        
-        # Get original input names for normalization fallback
-        original_name_a = data['drug_a'].get('name', drug_a.get('name', ''))
-        original_name_b = data['drug_b'].get('name', drug_b.get('name', ''))
+        severity = _normalize_prediction_severity(raw_severity)
+        mechanism = (
+            known_interaction.get('mechanism')
+            or known_interaction.get('description')
+            or 'Known interaction from clinical database.'
+        )
+        if severity == 'no_interaction' and mechanism == 'Known interaction from clinical database.':
+            mechanism = 'Curated knowledge graph relation indicates no clinically significant interaction for this pair.'
+        severity_scores = {
+            'no_interaction': 0.08,
+            'low': 0.25,
+            'minor': 0.4,
+            'moderate': 0.65,
+            'severe': 0.92,
+            'critical': 0.97,
+        }
 
-        # Check for known interaction in Knowledge Graph first
-        # Pass both IDs and original names so we can try normalized lookups
-        known_interaction = check_categorical_interaction(drug_a, drug_b)
-        interaction_source = known_interaction.get('source', 'categorical_rule_engine') if known_interaction else None
-
-        if not known_interaction and drug_a.get('drugbank_id') and drug_b.get('drugbank_id'):
-            known_interaction = get_known_interaction(
-                drug_a['drugbank_id'],
-                drug_b['drugbank_id'],
-                original_name_a,
-                original_name_b
-            )
-            interaction_source = 'knowledge_graph'
-
-        if known_interaction:
-            # Use known interaction from Knowledge Graph or Rules
-            severity = known_interaction.get('severity', 'moderate')
-            mechanism = known_interaction.get('mechanism', 'Known interaction from clinical database.')
-
-            severity_scores = {'minor': 0.4, 'moderate': 0.65, 'severe': 0.92}
+        if severity in severity_scores:
             risk_score = severity_scores.get(severity, 0.5)
             model_version = (
                 'aegis-kg-lookup-v1'
@@ -411,9 +498,9 @@ class DDIPredictionView(APIView):
                 else 'aegis-categorical-rule-v1'
             )
 
-            response_data = {
-                'drug_a': drug_a['name'],
-                'drug_b': drug_b['name'],
+            return {
+                'drug_a': drug_a.get('name', name_a),
+                'drug_b': drug_b.get('name', name_b),
                 'risk_score': risk_score,
                 'raw_score': risk_score,
                 'calibrated_score': risk_score,
@@ -422,9 +509,12 @@ class DDIPredictionView(APIView):
                 'confidence': 0.95 if interaction_source == 'knowledge_graph' else 0.88,
                 'mechanism_hypothesis': mechanism,
                 'affected_systems': [
-                    {'system': 'Systemic/Categorical', 'severity': risk_score, 'symptoms': []}
+                    {
+                        'system': 'No Significant Interaction' if severity == 'no_interaction' else 'Systemic/Categorical',
+                        'severity': risk_score,
+                        'symptoms': [],
+                    }
                 ],
-                'inference_time_ms': (time.time() - start_time) * 1000,
                 'source': interaction_source,
                 'provenance': {
                     'model_version': model_version,
@@ -433,54 +523,115 @@ class DDIPredictionView(APIView):
                     'calibration_version': 'none',
                     'fallback_reason': None,
                     'evidence_source': interaction_source,
+                    'known_interaction_detected': True,
+                    'known_interaction_source': interaction_source,
+                    'known_interaction_severity': severity,
+                    'known_interaction_severity_unknown': False,
+                    'known_interaction_is_negative': severity == 'no_interaction',
+                    'known_interaction_severity_inferred_from_null': known_interaction.get('severity') is None,
                 },
             }
-        else:
-            # Use Macroscopic GraphSAGE model for prediction
-            logger.info("Using Macroscopic GraphSAGE model for DDI prediction")
-            gnn_service = get_gnn_predictor()
-            prediction = gnn_service.predict(
-                drug_a['name'],
-                drug_b['name'],
-                drug_a.get('smiles', ''),
-                drug_b.get('smiles', '')
-            )
-            model_used = getattr(prediction, 'model_used', 'macroscopic_gnn')
-            calibrated_score = float(getattr(prediction, 'interaction_probability', getattr(prediction, 'risk_score', 0.5)))
-            raw_score = float(getattr(prediction, 'raw_interaction_probability', calibrated_score))
-            calibration_method = getattr(prediction, 'calibration_method', 'none')
-            calibration_version = getattr(prediction, 'calibration_version', 'none')
-            fallback_reason = getattr(prediction, 'fallback_reason', None)
-            predictor_provenance = getattr(prediction, 'provenance', {}) or {}
 
-            # Map our new robust model format to the frontend interface pattern seamlessly
-            response_data = {
-                'drug_a': prediction.drug1 if hasattr(prediction, 'drug1') else getattr(prediction, 'drug_a', drug_a['name']),
-                'drug_b': prediction.drug2 if hasattr(prediction, 'drug2') else getattr(prediction, 'drug_b', drug_b['name']),
-                'risk_score': calibrated_score,
-                'raw_score': raw_score,
-                'calibrated_score': calibrated_score,
-                'risk_level': get_risk_level(calibrated_score),
-                'severity': getattr(prediction, 'severity', 'Unknown'),
-                'confidence': getattr(prediction, 'confidence', 0.9),
-                'mechanism_hypothesis': getattr(prediction, 'mechanism_hypothesis', 'Potential interaction based on structural and network features.'),
-                'affected_systems': [
-                    {'system': getattr(prediction, 'interaction_type', 'Systemic'), 'severity': calibrated_score, 'symptoms': []}
-                ],
-                'inference_time_ms': (time.time() - start_time) * 1000,
-                'source': model_used,
-                'provenance': {
-                    'model_version': f'aegis-{model_used}-v1',
-                    'prediction_path': 'gnn_predictor',
-                    'model_used': model_used,
-                    'calibration_method': calibration_method,
-                    'calibration_version': calibration_version,
-                    'fallback_reason': fallback_reason,
-                    'predictor_provenance': predictor_provenance,
-                },
-            }
+        # Known interaction exists, but severity is unspecified. Fall back to AI scoring
+        # and preserve an explicit uncertainty trail in provenance for clinical review.
+        ai_response = _build_gnn_pair_prediction(
+            drug_a=drug_a,
+            drug_b=drug_b,
+            original_name_a=original_name_a,
+            original_name_b=original_name_b,
+            gnn_service=gnn_service,
+        )
+        model_estimate = float(ai_response.get('risk_score', 0.0) or 0.0)
+        evidence_prior = UNKNOWN_SEVERITY_EVIDENCE_PRIOR
+        fused_score = min(UNKNOWN_SEVERITY_MAX_FUSED_SCORE, max(model_estimate, evidence_prior))
+        ai_response['risk_score'] = fused_score
+        ai_response['calibrated_score'] = fused_score
+        ai_response['risk_level'] = get_risk_level(fused_score)
+        normalized_ai_severity = _normalize_prediction_severity(ai_response.get('severity', 'unknown'))
+        if normalized_ai_severity in {'unknown', 'no_interaction'} and fused_score >= 0.3:
+            ai_response['severity'] = 'moderate'
+        ai_confidence = float(ai_response.get('confidence', 0.8) or 0.8)
+        ai_response['confidence'] = min(0.85, max(0.55, ai_confidence * 0.8))
+        ai_response['source'] = 'knowledge_graph_ai_fusion'
+        ai_response['mechanism_hypothesis'] = (
+            'Known interaction evidence exists, but severity is unspecified in the source graph. '
+            f"Evidence note: {mechanism} "
+            f"AI estimate: {ai_response.get('mechanism_hypothesis', 'Potential interaction based on structural and network features.')} "
+            'Clinical review is recommended before making treatment decisions.'
+        )
+        ai_provenance = ai_response.get('provenance', {}) or {}
+        ai_provenance.update({
+            'model_version': 'aegis-kg-ai-fusion-v1',
+            'prediction_path': 'knowledge_graph_ai_fusion',
+            'evidence_source': interaction_source,
+            'known_interaction_detected': True,
+            'known_interaction_source': interaction_source,
+            'known_interaction_severity': severity,
+            'known_interaction_severity_unknown': True,
+            'known_interaction_mechanism': mechanism,
+            'model_estimate_score': model_estimate,
+            'evidence_prior_score': evidence_prior,
+            'uncertainty_fusion_cap': UNKNOWN_SEVERITY_MAX_FUSED_SCORE,
+        })
+        ai_response['provenance'] = ai_provenance
+        return ai_response
+
+    return _build_gnn_pair_prediction(
+        drug_a=drug_a,
+        drug_b=drug_b,
+        original_name_a=original_name_a,
+        original_name_b=original_name_b,
+        gnn_service=gnn_service,
+    )
+
+
+class DDIPredictionView(APIView):
+    """
+    POST /api/v1/predict/
+
+    Predict drug-drug interaction between two drugs.
+    Returns risk score, severity, affected systems, and mechanism hypothesis.
+    Uses Knowledge Graph for known interactions, AI model for novel pairs.
+    """
+
+    def post(self, request):
+        try:
+            return self._internal_post_logic(request)
+        except Exception as e:
+            import traceback
+            logger.error(f"Prediction failed: {e}\n{traceback.format_exc()}")
+            return Response(
+                {'error': 'Internal server error during prediction', 'details': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _internal_post_logic(self, request):
+        serializer = DDIPredictionRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        start_time = time.time()
+
+        # Look up drugs
+        drug_a = lookup_drug(data['drug_a'])
+        drug_b = lookup_drug(data['drug_b'])
+
+        # Get original input names for normalization fallback
+        original_name_a = data['drug_a'].get('name', drug_a.get('name', ''))
+        original_name_b = data['drug_b'].get('name', drug_b.get('name', ''))
+
+        gnn_service = get_gnn_predictor()
+        response_data = build_pair_prediction_response(
+            drug_a=drug_a,
+            drug_b=drug_b,
+            original_name_a=original_name_a,
+            original_name_b=original_name_b,
+            gnn_service=gnn_service,
+        )
+        response_data['inference_time_ms'] = (time.time() - start_time) * 1000
         inference_time = response_data['inference_time_ms']
-        
+
         # Include explanation if requested
         if data.get('include_explanation', True):
             provenance = response_data.get('provenance', {})
@@ -493,23 +644,21 @@ class DDIPredictionView(APIView):
                 },
                 'fallback_reason': provenance.get('fallback_reason'),
             }
-        
+
         # Log prediction
-        try:
-            provenance = response_data.get('provenance', {})
-            PredictionLog.objects.create(
-                drug_list=[drug_a['name'], drug_b['name']],
-                risk_score=float(response_data['risk_score']),
-                raw_score=response_data.get('raw_score'),
-                calibrated_score=response_data.get('calibrated_score', response_data['risk_score']),
-                severity_prediction=response_data['severity'],
-                model_version=provenance.get('model_version', 'v1.0'),
-                inference_time_ms=inference_time,
-                provenance=provenance,
-            )
-        except Exception as e:
-            logger.warning(f"Failed to log prediction: {e}")
-        
+        provenance = response_data.get('provenance', {})
+        _safe_create_prediction_log(
+            'pairwise',
+            drug_list=[drug_a['name'], drug_b['name']],
+            risk_score=float(response_data['risk_score']),
+            raw_score=response_data.get('raw_score'),
+            calibrated_score=response_data.get('calibrated_score', response_data['risk_score']),
+            severity_prediction=response_data['severity'],
+            model_version=provenance.get('model_version', 'v1.0'),
+            inference_time_ms=inference_time,
+            provenance=provenance,
+        )
+
         return Response(response_data)
 
 
@@ -532,52 +681,182 @@ class PolypharmacyView(APIView):
         # Look up all drugs
         drugs = [lookup_drug(d) for d in data['drugs']]
         
-        # Get prediction service
-        service = get_gnn_predictor()
-        # Analyze polypharmacy
-        result = service.predict_polypharmacy(drugs)
+        gnn_service = get_gnn_predictor()
+        interactions = []
+        pair_scores: List[float] = []
+        pair_confidences: List[float] = []
+        total_pairs = len(drugs) * (len(drugs) - 1) // 2
+        pair_failures = 0
+        unknown_severity_pair_count = 0
+        source_type_counts: Dict[str, int] = {}
+
+        for i in range(len(drugs)):
+            for j in range(i + 1, len(drugs)):
+                input_name_a = data['drugs'][i].get('name', drugs[i].get('name', ''))
+                input_name_b = data['drugs'][j].get('name', drugs[j].get('name', ''))
+                try:
+                    pair_response = build_pair_prediction_response(
+                        drug_a=drugs[i],
+                        drug_b=drugs[j],
+                        original_name_a=input_name_a,
+                        original_name_b=input_name_b,
+                        gnn_service=gnn_service,
+                    )
+                except Exception:
+                    pair_failures += 1
+                    logger.exception('Pair prediction failed for %s + %s', input_name_a, input_name_b)
+                    continue
+
+                risk_score = float(pair_response.get('risk_score', 0.0) or 0.0)
+                pair_scores.append(risk_score)
+                confidence = float(pair_response.get('confidence', 0.75) or 0.75)
+                confidence = max(0.0, min(1.0, confidence))
+                pair_confidences.append(confidence)
+                source_type = str(pair_response.get('source', 'unknown') or 'unknown')
+                source_type_counts[source_type] = source_type_counts.get(source_type, 0) + 1
+                pair_provenance = pair_response.get('provenance', {}) or {}
+                if bool(pair_provenance.get('known_interaction_severity_unknown')):
+                    unknown_severity_pair_count += 1
+
+                severity = _normalize_prediction_severity(pair_response.get('severity', 'unknown'))
+                if not _is_significant_prediction(risk_score, severity):
+                    continue
+
+                affected_systems = []
+                for item in pair_response.get('affected_systems', []):
+                    system = item.get('system') if isinstance(item, dict) else item
+                    if system:
+                        affected_systems.append(system)
+                if not affected_systems:
+                    affected_systems = ['Systemic']
+
+                interactions.append({
+                    'source': pair_response.get('drug_a', drugs[i].get('name', 'Unknown')),
+                    'target': pair_response.get('drug_b', drugs[j].get('name', 'Unknown')),
+                    'risk_score': risk_score,
+                    'raw_score': float(pair_response.get('raw_score', risk_score) or risk_score),
+                    'calibrated_score': float(pair_response.get('calibrated_score', risk_score) or risk_score),
+                    'risk_level': get_risk_level(risk_score),
+                    'severity': severity,
+                    'confidence': confidence,
+                    'mechanism': pair_response.get('mechanism_hypothesis'),
+                    'affected_systems': affected_systems,
+                    'source_type': source_type,
+                    'provenance': pair_provenance,
+                })
+
+        interactions.sort(key=lambda edge: edge['risk_score'], reverse=True)
+
+        max_risk_score = max(pair_scores) if pair_scores else 0.0
+        average_pair_risk = (sum(pair_scores) / total_pairs) if total_pairs else 0.0
+        average_pair_confidence = (sum(pair_confidences) / total_pairs) if total_pairs else 0.0
+        significant_pair_count = len(interactions)
+        significant_pair_density = (significant_pair_count / total_pairs) if total_pairs else 0.0
+        failed_pair_density = (pair_failures / total_pairs) if total_pairs else 0.0
+        unknown_severity_pair_density = (unknown_severity_pair_count / total_pairs) if total_pairs else 0.0
+        pairwise_baseline_score = min(1.0, (0.70 * max_risk_score) + (0.30 * average_pair_risk))
+        raw_regimen_composite_score = min(1.0, (0.75 * max_risk_score) + (0.25 * significant_pair_density))
+        uncertainty_penalty_factor = max(
+            REGIMEN_MIN_UNCERTAINTY_FACTOR,
+            1.0 - (REGIMEN_UNKNOWN_SEVERITY_PENALTY_WEIGHT * unknown_severity_pair_density),
+        )
+        regimen_composite_score = min(1.0, raw_regimen_composite_score * uncertainty_penalty_factor)
+        clinical_review_notes = []
+        if unknown_severity_pair_count > 0:
+            clinical_review_notes.append(
+                f'{unknown_severity_pair_count} pair(s) have known-interaction evidence with unspecified severity; verify before prescribing.'
+            )
+            clinical_review_notes.append('Composite burden is uncertainty-adjusted due to missing severity tiers in upstream evidence.')
+        if max_risk_score >= 0.8:
+            clinical_review_notes.append('At least one pair reached critical risk thresholds and requires clinician review.')
+        if pair_failures > 0:
+            clinical_review_notes.append(
+                f'{pair_failures} pair prediction(s) failed and were omitted from aggregate scoring.'
+            )
+        clinical_review_required = bool(clinical_review_notes)
+
+        drug_counts = {}
+        for inter in interactions:
+            drug_counts[inter['source']] = drug_counts.get(inter['source'], 0) + 1
+            drug_counts[inter['target']] = drug_counts.get(inter['target'], 0) + 1
+        hub_drug = max(drug_counts, key=drug_counts.get) if drug_counts else None
+        hub_interaction_count = drug_counts.get(hub_drug, 0) if hub_drug else 0
         
         inference_time = (time.time() - start_time) * 1000
         
         # Build body map (aggregate affected systems)
         body_map = {}
-        for interaction in result['interactions']:
+        for interaction in interactions:
             for system in interaction['affected_systems']:
                 if system not in body_map:
                     body_map[system] = 0
                 body_map[system] = max(body_map[system], interaction['risk_score'])
+
+        risk_metrics = {
+            'total_pairs': total_pairs,
+            'significant_pair_count': significant_pair_count,
+            'significant_pair_density': significant_pair_density,
+            'failed_pair_count': pair_failures,
+            'failed_pair_density': failed_pair_density,
+            'max_pair_risk': max_risk_score,
+            'average_pair_risk': average_pair_risk,
+            'average_pair_confidence': average_pair_confidence,
+            'pairwise_baseline_score': pairwise_baseline_score,
+            'raw_regimen_composite_score': raw_regimen_composite_score,
+            'uncertainty_penalty_factor': uncertainty_penalty_factor,
+            'regimen_composite_score': regimen_composite_score,
+            'regimen_risk_level': get_risk_level(regimen_composite_score),
+            'unknown_severity_pair_count': unknown_severity_pair_count,
+            'unknown_severity_pair_density': unknown_severity_pair_density,
+            'source_type_distribution': source_type_counts,
+            'clinical_review_required': clinical_review_required,
+            'clinical_review_notes': clinical_review_notes,
+            'scoring_policy': {
+                'unknown_severity_evidence_prior': UNKNOWN_SEVERITY_EVIDENCE_PRIOR,
+                'unknown_severity_max_fused_score': UNKNOWN_SEVERITY_MAX_FUSED_SCORE,
+                'regimen_unknown_severity_penalty_weight': REGIMEN_UNKNOWN_SEVERITY_PENALTY_WEIGHT,
+                'regimen_min_uncertainty_factor': REGIMEN_MIN_UNCERTAINTY_FACTOR,
+            },
+        }
         
         response_data = {
-            'drugs': result['drugs'],
-            'interactions': result['interactions'],
-            'total_interactions': result['total_interactions'],
-            'max_risk_score': result['max_risk_score'],
-            'overall_risk_level': get_risk_level(result['max_risk_score']),
-            'hub_drug': result['hub_drug'],
-            'hub_interaction_count': result['hub_interaction_count'],
+            'drugs': [drug.get('name', 'Unknown') for drug in drugs],
+            'interactions': interactions,
+            'total_interactions': significant_pair_count,
+            'total_pairs': total_pairs,
+            'failed_pairs': pair_failures,
+            'max_risk_score': max_risk_score,
+            'overall_risk_level': get_risk_level(max_risk_score),
+            'clinical_alert_level': get_risk_level(max_risk_score),
+            'regimen_risk_score': regimen_composite_score,
+            'regimen_risk_level': get_risk_level(regimen_composite_score),
+            'pairwise_baseline_score': pairwise_baseline_score,
+            'average_pair_risk': average_pair_risk,
+            'hub_drug': hub_drug,
+            'hub_interaction_count': hub_interaction_count,
+            'risk_metrics': risk_metrics,
             'body_map': body_map,
             'inference_time_ms': inference_time
         }
         
         # Log prediction
-        try:
-            PredictionLog.objects.create(
-                drug_list=result['drugs'],
-                risk_score=result['max_risk_score'],
-                raw_score=result['max_risk_score'],
-                calibrated_score=result['max_risk_score'],
-                severity_prediction=get_risk_level(result['max_risk_score']),
-                model_version='aegis-polypharmacy-v1',
-                inference_time_ms=inference_time,
-                provenance={
-                    'model_version': 'aegis-polypharmacy-v1',
-                    'prediction_path': 'polypharmacy_network',
-                    'calibration_method': 'none',
-                    'calibration_version': 'none',
-                },
-            )
-        except Exception as e:
-            logger.warning(f"Failed to log prediction: {e}")
+        _safe_create_prediction_log(
+            'polypharmacy',
+            drug_list=response_data['drugs'],
+            risk_score=response_data['regimen_risk_score'],
+            raw_score=response_data['max_risk_score'],
+            calibrated_score=response_data['regimen_risk_score'],
+            severity_prediction=response_data['regimen_risk_level'],
+            model_version='aegis-polypharmacy-v1',
+            inference_time_ms=inference_time,
+            provenance={
+                'model_version': 'aegis-polypharmacy-v1',
+                'prediction_path': 'polypharmacy_network',
+                'risk_metrics': risk_metrics,
+                'calibration_method': 'none',
+                'calibration_version': 'none',
+            },
+        )
         
         return Response(response_data)
 
@@ -610,26 +889,24 @@ class PolypharmacyDigitalTwinView(APIView):
             'inference_time_ms': inference_time,
         }
 
-        try:
-            summary = twin_result.get('summary', {})
-            PredictionLog.objects.create(
-                drug_list=twin_result.get('drugs', []),
-                risk_score=summary.get('toxicity_score', 0.0),
-                raw_score=summary.get('toxicity_score', 0.0),
-                calibrated_score=summary.get('toxicity_score', 0.0),
-                severity_prediction=summary.get('risk_level', 'low'),
-                model_version='aegis-digital-twin-v1',
-                inference_time_ms=inference_time,
-                provenance={
-                    'model_version': 'aegis-digital-twin-v1',
-                    'prediction_path': 'polypharmacy_digital_twin',
-                    'calibration_method': 'none',
-                    'calibration_version': 'none',
-                    'factor_weights': twin_result.get('metadata', {}).get('weights', {}),
-                },
-            )
-        except Exception as e:
-            logger.warning(f"Failed to log digital twin prediction: {e}")
+        summary = twin_result.get('summary', {})
+        _safe_create_prediction_log(
+            'digital_twin',
+            drug_list=twin_result.get('drugs', []),
+            risk_score=summary.get('toxicity_score', 0.0),
+            raw_score=summary.get('toxicity_score', 0.0),
+            calibrated_score=summary.get('toxicity_score', 0.0),
+            severity_prediction=summary.get('risk_level', 'low'),
+            model_version='aegis-digital-twin-v1',
+            inference_time_ms=inference_time,
+            provenance={
+                'model_version': 'aegis-digital-twin-v1',
+                'prediction_path': 'polypharmacy_digital_twin',
+                'calibration_method': 'none',
+                'calibration_version': 'none',
+                'factor_weights': twin_result.get('metadata', {}).get('weights', {}),
+            },
+        )
 
         return Response(response_data)
 
