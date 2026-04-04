@@ -15,6 +15,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from django.conf import settings
+from django.db import OperationalError, ProgrammingError
 from rest_framework import status, viewsets
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
@@ -47,6 +48,9 @@ UNKNOWN_SEVERITY_EVIDENCE_PRIOR = 0.30
 UNKNOWN_SEVERITY_MAX_FUSED_SCORE = 0.59
 REGIMEN_UNKNOWN_SEVERITY_PENALTY_WEIGHT = 0.40
 REGIMEN_MIN_UNCERTAINTY_FACTOR = 0.60
+PREDICTION_LOG_OPTIONAL_FIELDS = {'raw_score', 'provenance'}
+
+_prediction_log_schema_warning_emitted = False
 
 
 # ============== Drug Name Normalization ==============
@@ -374,8 +378,37 @@ def _is_significant_prediction(risk_score: float, severity: str) -> bool:
 
 def _safe_create_prediction_log(context: str, **payload) -> None:
     """Persist prediction logs without breaking API responses when storage is unavailable."""
+    global _prediction_log_schema_warning_emitted
+
     try:
         PredictionLog.objects.create(**payload)
+    except (OperationalError, ProgrammingError) as exc:
+        message = str(exc or '').lower()
+        missing_optional_column = (
+            'ddi_api_predictionlog' in message
+            and ('no column named raw_score' in message or 'no column named provenance' in message)
+        )
+
+        if missing_optional_column:
+            fallback_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in PREDICTION_LOG_OPTIONAL_FIELDS
+            }
+            try:
+                PredictionLog.objects.create(**fallback_payload)
+                if not _prediction_log_schema_warning_emitted:
+                    logger.warning(
+                        'PredictionLog schema is missing optional columns (raw_score/provenance). '
+                        'Fallback logging applied; run migrations to restore full observability.'
+                    )
+                    _prediction_log_schema_warning_emitted = True
+                return
+            except Exception:
+                logger.exception('Failed to log %s prediction after schema fallback', context)
+                return
+
+        logger.exception('Failed to log %s prediction', context)
     except Exception:
         logger.exception('Failed to log %s prediction', context)
 
@@ -658,6 +691,14 @@ class DDIPredictionView(APIView):
             inference_time_ms=inference_time,
             provenance=provenance,
         )
+        
+        try:
+            from .models import SystemStats
+            stats, _ = SystemStats.objects.get_or_create(name='global')
+            stats.total_scans += 1
+            stats.save()
+        except:
+            pass
 
         return Response(response_data)
 
@@ -857,6 +898,16 @@ class PolypharmacyView(APIView):
                 'calibration_version': 'none',
             },
         )
+        
+        try:
+            from .models import SystemStats
+            stats, _ = SystemStats.objects.get_or_create(name='global')
+            stats.total_scans += 1
+            stats.save()
+        except:
+            pass
+
+        return Response(response_data)
         
         return Response(response_data)
 
@@ -1329,11 +1380,18 @@ class DatabaseStatsView(APIView):
             try:
                 from django.utils import timezone
                 from datetime import timedelta
+                from .models import PredictionLog, SystemStats
+                
                 recent = PredictionLog.objects.filter(
                     created_at__gte=timezone.now() - timedelta(hours=24)
                 ).count()
                 stats['recent_predictions'] = recent
+                
+                # Fetch global total scans count
+                global_stats, _ = SystemStats.objects.get_or_create(name='global')
+                stats['total_scans'] = global_stats.total_scans
             except:
+                stats['total_scans'] = 0
                 pass
             
             return Response(stats)

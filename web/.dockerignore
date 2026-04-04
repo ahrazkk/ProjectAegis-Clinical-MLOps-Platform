@@ -11,7 +11,10 @@ DDI_Model_Final/
 molecular-ai.worktrees/
 *.pt
 *.safetensors
-# db.sqlite3
+db.sqlite3
+db.sqlite3-*
+*.sqlite3
+*.sqlite3-*
 
 data/pill_yolo/
 

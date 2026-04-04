@@ -32,6 +32,6 @@ COPY . /app/
 # Expose port
 EXPOSE 8000
 
-# Run with gunicorn.
+# Run migrations on container startup, then launch gunicorn.
 # PubMedBERT model initialization can exceed the default 30s worker timeout on cold starts.
-CMD ["gunicorn", "ProjectAegis.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "180", "--graceful-timeout", "180"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && gunicorn ProjectAegis.wsgi:application --bind 0.0.0.0:8000 --timeout 180 --graceful-timeout 180"]

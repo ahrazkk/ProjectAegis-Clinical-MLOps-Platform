@@ -352,7 +352,7 @@ function RotatingCompactStats({ stats, onExpand }) {
     ],
     [ // Slot 2
       { icon: Activity, label: 'DDIs', value: stats.total_interactions?.toLocaleString() },
-      { icon: TrendingUp, label: 'Scans', value: stats.recent_predictions?.toLocaleString() || '0' },
+      { icon: TrendingUp, label: 'Scans', value: stats.total_scans?.toLocaleString() || '0' },
       { icon: Layers, label: 'Model', value: 'Loaded' }
     ],
     [ // Slot 3
@@ -522,7 +522,7 @@ export default function StatsDashboard({ compact = false, onExpand }) {
         <MetricCard icon={Pill} label="Total Drugs" value={stats.total_drugs} subtitle="In knowledge graph" color="cyan" delay={0} />
         <MetricCard icon={Activity} label="Interactions" value={stats.total_interactions} subtitle="Known drug pairs" color="emerald" delay={0.1} />
         <MetricCard icon={Atom} label="With Structures" value={stats.drugs_with_smiles} subtitle={`${((stats.drugs_with_smiles / stats.total_drugs) * 100).toFixed(1)}% coverage`} color="purple" delay={0.2} />
-        <MetricCard icon={Zap} label="Today's Predictions" value={stats.recent_predictions || 0} subtitle="Last 24 hours" color="amber" delay={0.3} />
+        <MetricCard icon={Zap} label="Total Scans" value={stats.total_scans || 0} subtitle="Global predictions run" color="amber" delay={0.3} />
       </div>
 
       {/* Charts Row */}

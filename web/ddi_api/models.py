@@ -165,6 +165,18 @@ class SideEffect(models.Model):
         return f"{self.name} ({self.organ_system})"
 
 
+class SystemStats(models.Model):
+    """
+    Global system statistics for the dashboard.
+    Tracks total scans run by all users.
+    """
+    name = models.CharField(max_length=50, unique=True, default='global')
+    total_scans = models.PositiveIntegerField(default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} stats (Scans: {self.total_scans})"
+
 class PredictionLog(models.Model):
     """
     Log of DDI predictions made by the system.
