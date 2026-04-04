@@ -9,6 +9,20 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes tvStatic {
+  0% { transform: translate(0,0) }
+  10% { transform: translate(-2px, 2px) }
+  20% { transform: translate(-2px, -2px) }
+  30% { transform: translate(2px, 2px) }
+  40% { transform: translate(2px, -2px) }
+  50% { transform: translate(-1px, 2px) }
+  60% { transform: translate(1px, -2px) }
+  70% { transform: translate(-1px, -1px) }
+  80% { transform: translate(2px, -1px) }
+  90% { transform: translate(-2px, 1px) }
+  100% { transform: translate(0,0) }
+}
+
 /* ========================================
    FUI BLUEPRINT - CSS FOUNDATION
    Dark Schematic / Tactical Dashboard Theme
@@ -64,6 +78,17 @@
 
 /* Light Theme - Clean Clinical White */
 .light-theme {
+  /* FUI Grays - Darkened for high contrast in light mode */
+  --fui-gray-100: #333333;
+  --fui-gray-200: #333333;
+  --fui-gray-300: #222222;
+  --fui-gray-400: #111111;
+  --fui-gray-500: #000000;
+  --fui-gray-600: #000000;
+  --fui-gray-700: #000000;
+  --fui-gray-800: #000000;
+  --fui-gray-900: #000000;
+
   /* Core backgrounds - Pure WHITE base */
   --bg-primary: #FFFFFF;
   --bg-secondary: #F8FAFC;
@@ -85,9 +110,9 @@
 
   /* Text - Dark readable palette */
   --text-primary: #000000;
-  --text-secondary: #111827;
-  --text-muted: #374151;
-  --text-dim: #4B5563;
+  --text-secondary: #0a0a0a;
+  --text-muted: #111111;
+  --text-dim: #222222;
 
   /* Accent Colors - Vibrant clinical */
   --accent-primary: #000000;

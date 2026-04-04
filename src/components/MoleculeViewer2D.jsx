@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState, useId } from 'react';
 import SmilesDrawer from 'smiles-drawer';
+import { useTheme } from '../hooks/useTheme';
 
 // 2D Organic Chemistry Skeletal Formula Viewer
 // Renders molecules as they appear in chemistry textbooks
@@ -42,7 +43,7 @@ export const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme 
       fontSizeLarge: 12,
       fontSizeSmall: 8,
       padding: 20,
-      // Dark theme colors
+      // Dark and Light theme colors
       themes: {
         dark: {
           C: '#E2E8F0',
@@ -57,6 +58,20 @@ export const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme 
           H: '#94A3B8',
           BACKGROUND: 'transparent',
           BOND: '#94A3B8'
+        },
+        light: {
+          C: '#0F172A',
+          O: '#DC2626',
+          N: '#2563EB',
+          S: '#D97706',
+          P: '#EA580C',
+          F: '#16A34A',
+          Cl: '#059669',
+          Br: '#B91C1C',
+          I: '#9333EA',
+          H: '#64748B',
+          BACKGROUND: 'transparent',
+          BOND: '#475569'
         }
       }
     };
@@ -65,7 +80,10 @@ export const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme 
     const drawLabel = () => {
       ctx.font = 'bold 14px Inter, system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = isHighlighted ? '#60A5FA' : '#E2E8F0';
+      
+      let baseColor = theme === 'light' ? '#0F172A' : '#E2E8F0';
+      ctx.fillStyle = isHighlighted ? '#60A5FA' : baseColor;
+      
       ctx.fillText(name, width / 2, height - 12);
     };
 
@@ -98,22 +116,37 @@ export const MoleculeCanvas = ({ smiles, name, width = 300, height = 250, theme 
   }, [smiles, name, width, height, theme, isHighlighted, canvasId]);
 
   return (
-    <div className={`relative transition-all duration-300 ${isHighlighted ? 'scale-105' : ''}`}>
+    <div className="relative group rounded-xl overflow-hidden bg-theme-panel border border-theme" style={{ width, height }}>
+      {/* CRT / Static Overlay Effect */}
+      <div 
+        className="absolute inset-0 pointer-events-none opacity-5 mix-blend-screen"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")`,
+          animation: 'tvStatic 0.2s steps(2) infinite'
+        }}
+      />
+      {/* Scanline Effect */}
+      <div 
+        className="absolute inset-0 pointer-events-none opacity-10"
+        style={{
+          background: 'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))',
+          backgroundSize: '100% 2px, 3px 100%'
+        }}
+      />
+      
       <canvas
         id={canvasId}
         ref={canvasRef}
         width={width}
         height={height}
-        className="rounded-xl"
+        className={`rounded-xl transition-all duration-500 origin-center ${isHighlighted ? 'scale-110 brightness-125' : 'grayscale-[0.2]'}`}
         style={{ background: 'transparent' }}
       />
+      
+      {/* Subtle styling overlay for "active" look instead of glowing box */}
       {isHighlighted && (
         <div
-          className="absolute inset-0 rounded-xl pointer-events-none"
-          style={{
-            boxShadow: '0 0 30px rgba(96, 165, 250, 0.3)',
-            border: '1px solid rgba(96, 165, 250, 0.2)'
-          }}
+          className="absolute inset-0 rounded-xl pointer-events-none border border-theme-accent/20 transition-all duration-300"
         />
       )}
     </div>
@@ -221,6 +254,8 @@ const InteractionArrow = ({ riskLevel, className = '' }) => {
 
 // Main 2D Viewer Component
 export default function MoleculeViewer2D({ drugs = [], result, isMobile = false }) {
+  const { theme } = useTheme();
+  
   const hasResult = result && result.severity !== 'no_interaction';
   const riskLevel = result?.risk_level || 'low';
 
@@ -261,7 +296,7 @@ export default function MoleculeViewer2D({ drugs = [], result, isMobile = false 
                 name={drug.name}
                 width={canvasWidth}
                 height={canvasHeight}
-                theme="dark"
+                theme={theme}
                 isHighlighted={hasResult}
               />
 
@@ -280,9 +315,9 @@ export default function MoleculeViewer2D({ drugs = [], result, isMobile = false 
       {/* Polypharmacy grid for 3+ drugs */}
       {drugs.length > 2 && hasResult && !isMobile && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2">
-          <div className="px-4 py-2 bg-slate-800/80 backdrop-blur-sm rounded-xl border border-white/10">
-            <p className="text-sm text-slate-300 text-center">
-              <span className="text-amber-400 font-semibold">{drugs.length} drugs</span> —
+          <div className="px-4 py-2 bg-theme-panel backdrop-blur-sm border border-theme shadow-sm">
+            <p className="text-[10px] uppercase tracking-widest text-theme-muted text-center font-mono">
+              <span className="text-theme-accent font-semibold">{drugs.length} drugs</span> —
               Check Knowledge Graph tab for interaction network
             </p>
           </div>
@@ -299,34 +334,34 @@ export default function MoleculeViewer2D({ drugs = [], result, isMobile = false 
           ].map(({ color, label }) => (
             <div
               key={label}
-              className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5"
+              className="flex items-center gap-2 px-3 py-2 bg-theme-panel backdrop-blur-sm border border-theme shadow-sm"
             >
-              <span className="text-sm font-bold" style={{ color }}>{label.split(' ')[1]}</span>
-              <span className="text-xs text-slate-500">{label.split(' ')[0]}</span>
+              <span className="text-xs font-bold font-mono" style={{ color: theme === 'light' ? '#0F172A' : color }}>{label.split(' ')[1]}</span>
+              <span className="text-[10px] uppercase font-mono tracking-widest text-theme-muted">{label.split(' ')[0]}</span>
             </div>
           ))}
-          <div className="flex items-center gap-2 px-3 py-2 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5">
-            <span className="text-sm text-slate-400">—</span>
-            <span className="text-xs text-slate-500">C-C bonds (carbons hidden)</span>
+          <div className="flex items-center gap-2 px-3 py-2 bg-theme-panel backdrop-blur-sm border border-theme shadow-sm">
+            <span className="text-xs font-mono text-theme-muted">—</span>
+            <span className="text-[10px] uppercase tracking-widest font-mono text-theme-muted">C-C bonds (carbons hidden)</span>
           </div>
         </div>
       )}
 
       {/* View mode indicator */}
-      <div className={`absolute ${isMobile ? 'top-2 right-2' : 'top-4 right-4'} px-2 py-1 bg-blue-500/10 backdrop-blur-sm rounded-lg border border-blue-500/20`}>
-        <p className={`${isMobile ? 'text-[10px]' : 'text-xs'} text-blue-400 font-medium flex items-center gap-1`}>
+      <div className={`absolute ${isMobile ? 'top-2 right-2' : 'top-4 right-4'} px-2 py-1 bg-theme-accent/5 backdrop-blur-sm border border-theme-accent/30 shadow-sm`}>
+        <p className={`${isMobile ? 'text-[10px]' : 'text-[10px] uppercase tracking-widest'} text-theme-accent font-mono flex items-center gap-1.5`}>
           <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
               d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
             />
           </svg>
-          2D Skeletal Formula
+          2D FORMULA
         </p>
       </div>
 
       {/* Controls hint - simplified for mobile */}
-      <div className={`absolute ${isMobile ? 'bottom-2 right-2 left-2' : 'bottom-4 right-4'} px-3 py-1.5 bg-slate-900/80 backdrop-blur-sm rounded-xl border border-white/5`}>
-        <p className={`${isMobile ? 'text-[9px] text-center' : 'text-xs'} text-slate-500`}>
+      <div className={`absolute ${isMobile ? 'bottom-2 right-2 left-2' : 'bottom-4 right-4'} px-3 py-1.5 bg-theme-panel backdrop-blur-sm border border-theme shadow-sm`}>
+        <p className={`${isMobile ? 'text-[9px] text-center uppercase tracking-widest' : 'text-[10px] uppercase tracking-widest'} font-mono text-theme-muted`}>
           {isMobile ? 'Organic chemistry notation' : 'Standard organic chemistry notation • Hydrogens implicit'}
         </p>
       </div>

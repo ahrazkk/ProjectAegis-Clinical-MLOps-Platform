@@ -22,7 +22,8 @@ import {
   ArrowDown,
   Shield,
   Clock,
-  FileText
+  FileText,
+  Brain
 } from 'lucide-react';
 import { getDatabaseStats } from '../services/api';
 
@@ -335,6 +336,84 @@ function SeverityItem({ color, label, value, total }) {
   );
 }
 
+// Rotating Compact Stats Display
+function RotatingCompactStats({ stats, onExpand }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const coverage = stats.total_drugs ? ((stats.drugs_with_smiles / stats.total_drugs) * 100).toFixed(0) : 0;
+  
+  // Arrange metrics into 3 continuous slots to fit exactly the same size.
+  // Words are shortened to prevent overflow.
+  const slots = [
+    [ // Slot 1
+      { icon: Pill, label: 'Drugs', value: stats.total_drugs?.toLocaleString() },
+      { icon: AlertTriangle, label: 'Alerts', value: stats.severity_distribution?.severe?.toLocaleString() || '0' },
+      { icon: Database, label: 'AuraDB', value: 'Online' }
+    ],
+    [ // Slot 2
+      { icon: Activity, label: 'DDIs', value: stats.total_interactions?.toLocaleString() },
+      { icon: TrendingUp, label: 'Scans', value: stats.recent_predictions?.toLocaleString() || '0' },
+      { icon: Layers, label: 'Model', value: 'Loaded' }
+    ],
+    [ // Slot 3
+      { icon: Atom, label: 'Coverage', value: `${coverage}%` },
+      { icon: Target, label: 'Pipeline', value: 'Active' },
+      { icon: Brain, label: 'NLP', value: 'Online' }
+    ]
+  ];
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % 3);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-2">
+      {slots.map((slotItems, index) => {
+        const metric = slotItems[currentIndex];
+        const Icon = metric.icon;
+        
+        return (
+          <div 
+            key={index} 
+            className="relative overflow-hidden w-[130px] h-[30px] border border-theme bg-theme-panel"
+          >
+            {/* AnimatePresence with 'popLayout' handles sliding in/out over each other nicely */}
+            <AnimatePresence mode="popLayout" initial={false}>
+              <motion.div
+                key={currentIndex}
+                initial={{ y: 30, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                exit={{ y: -30, opacity: 0 }}
+                transition={{ duration: 0.5, ease: "anticipate" }}
+                className="absolute inset-0 flex items-center justify-between gap-1.5 px-3 py-1 text-[10px] font-normal uppercase tracking-widest whitespace-nowrap"
+              >
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  <Icon size={12} className="text-theme-secondary shrink-0" />
+                  <span className="text-theme-muted shrink-0">{metric.label}</span>
+                </div>
+                <span className="font-bold text-theme-primary truncate">{metric.value}</span>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        );
+      })}
+
+      {onExpand && (
+        <button
+          onClick={onExpand}
+          className="flex items-center gap-1 px-3 h-[30px] text-[10px] font-normal uppercase tracking-widest border border-fui-gray-500/30 text-fui-gray-400 hover:border-fui-accent-cyan/50 hover:text-fui-accent-cyan transition-colors bg-theme-panel"
+        >
+          Stats
+          <ChevronRight size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Main Stats Dashboard Component
 export default function StatsDashboard({ compact = false, onExpand }) {
   const [stats, setStats] = useState(null);
@@ -400,43 +479,9 @@ export default function StatsDashboard({ compact = false, onExpand }) {
 
   const total = (stats.severity_distribution?.severe || 0) + (stats.severity_distribution?.moderate || 0) + (stats.severity_distribution?.minor || 0);
 
-  // Compact Mode for Header - FUI Style matching "Connected" status box
+  // Compact Mode for Header (Dynamic rotating stats)
   if (compact) {
-    const coverage = stats.total_drugs ? ((stats.drugs_with_smiles / stats.total_drugs) * 100).toFixed(0) : 0;
-    return (
-      <div className="flex items-center gap-2">
-        {/* Drugs Count */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
-          <Pill size={12} />
-          <span className="text-theme-muted">Drugs</span>
-          <span className="font-bold text-theme-primary">{stats.total_drugs?.toLocaleString()}</span>
-        </div>
-
-        {/* Interactions Count */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
-          <Activity size={12} />
-          <span className="text-theme-muted">DDIs</span>
-          <span className="font-bold text-theme-primary">{stats.total_interactions?.toLocaleString()}</span>
-        </div>
-
-        {/* Coverage */}
-        <div className="flex items-center gap-2 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-theme text-theme-secondary">
-          <Atom size={12} />
-          <span className="text-theme-muted">Coverage</span>
-          <span className="font-bold text-theme-primary">{coverage}%</span>
-        </div>
-
-        {onExpand && (
-          <button
-            onClick={onExpand}
-            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-normal uppercase tracking-widest border border-fui-gray-500/30 text-fui-gray-400 hover:border-fui-accent-cyan/50 hover:text-fui-accent-cyan transition-colors"
-          >
-            Stats
-            <ChevronRight size={12} />
-          </button>
-        )}
-      </div>
-    );
+    return <RotatingCompactStats stats={stats} onExpand={onExpand} />;
   }
 
   // Full Dashboard View

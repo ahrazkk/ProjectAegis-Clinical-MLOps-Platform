@@ -81,12 +81,22 @@ function hexPath(x1, y1, x2, y2) {
 export default function BiologyEdge({ edge, x1, y1, x2, y2, isConflict }) {
   const style = EDGE_STYLES[edge.type] || EDGE_STYLES.causes;
   const effectiveStyle = isConflict ? EDGE_STYLES.conflict : style;
+  const confidence = Number.isFinite(Number(edge.confidence)) ? Number(edge.confidence) : null;
+  const confidencePct = confidence !== null ? Math.round(confidence * 100) : null;
+  const baseOpacity = isConflict
+    ? 0.85
+    : confidence !== null
+      ? Math.max(0.22, Math.min(0.86, 0.12 + confidence * 0.75))
+      : 0.4;
 
   const path = hexPath(x1, y1, x2, y2);
 
   // Label at midpoint
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
+  const labelText = edge.label
+    ? confidencePct !== null ? `${edge.label} ${confidencePct}%` : edge.label
+    : confidencePct !== null ? `${confidencePct}%` : '';
 
   return (
     <g>
@@ -96,10 +106,10 @@ export default function BiologyEdge({ edge, x1, y1, x2, y2, isConflict }) {
         stroke={effectiveStyle.stroke}
         strokeWidth={effectiveStyle.width}
         strokeDasharray={effectiveStyle.dasharray === 'none' ? undefined : effectiveStyle.dasharray}
-        opacity={isConflict ? 0.8 : 0.4}
+        opacity={baseOpacity}
         strokeLinejoin="round"
       />
-      {edge.label && (
+      {labelText && (
         <text
           x={mx}
           y={my - 6}
@@ -107,9 +117,9 @@ export default function BiologyEdge({ edge, x1, y1, x2, y2, isConflict }) {
           fill={effectiveStyle.stroke}
           fontSize={6}
           fontFamily="monospace"
-          opacity={0.5}
+          opacity={Math.max(0.4, baseOpacity - 0.1)}
         >
-          {edge.label}
+          {labelText}
         </text>
       )}
       {isConflict && (

@@ -20,8 +20,9 @@ except Exception:  # pragma: no cover
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-if load_dotenv is not None:
+if load_dotenv is not None and not os.environ.get('K_SERVICE'):
     # Allow local scripts (outside docker compose) to reuse web/.env values.
+    # On Cloud Run, rely on service environment variables and ignore bundled .env.
     load_dotenv(BASE_DIR / '.env', override=False)
 
 

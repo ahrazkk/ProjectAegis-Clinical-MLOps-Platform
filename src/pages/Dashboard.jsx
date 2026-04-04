@@ -47,7 +47,8 @@ import {
   Home,
   FlaskConical,
   Camera,
-  ScanLine
+  ScanLine,
+  Download
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
@@ -64,6 +65,7 @@ import StatsDashboard from '../components/StatsDashboard';
 import DrugComparison from '../components/DrugComparison';
 import TherapeuticAlternatives from '../components/TherapeuticAlternatives';
 import { DrugScanner } from '../components/DrugScanner';
+import { generateDetailedReport } from '../utils/exportReport';
 
 // Debounce hook
 function useDebounce(value, delay) {
@@ -3633,7 +3635,7 @@ export default function Dashboard() {
   const getRiskBgColor = (riskLevel) => {
     switch (riskLevel) {
       case 'critical': return 'border-risk-critical/50 text-risk-critical';
-      case 'high': return 'border-risk-high/50 text-risk-high';
+      case 'high': return 'border-theme border-2 text-risk-high'; // Make border explicitly darker like requested
       case 'medium': return 'border-risk-medium/50 text-risk-medium';
       default: return 'border-risk-low/50 text-risk-low';
     }
@@ -4382,6 +4384,24 @@ export default function Dashboard() {
               ))}
             </div>
 
+            {(result !== null || polypharmacyResult !== null) && (
+              <button 
+                onClick={() => generateDetailedReport({
+                  drugs: selectedDrugs,
+                  result,
+                  polypharmacyResult,
+                  digitalTwinResult,
+                  bodyMapData: getBodyMapData?.(),
+                  evidence: interactionEvidence
+                })}
+                className="flex items-center gap-2 px-4 h-8 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary text-[10px] uppercase tracking-widest"
+                title="Download Comprehensive Research Report"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export Research Report
+              </button>
+            )}
+
             <button 
               onClick={toggleTheme}
               className="p-2 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary"
@@ -4832,7 +4852,7 @@ export default function Dashboard() {
               {result ? (
                 <div className="space-y-4">
                   {/* Risk Card */}
-                  <div className={`p-4 border ${getRiskBgColor(result.risk_level)} relative`}>
+                  <div className={`p-4 border ${getRiskBgColor(result.risk_level)} bg-theme-panel relative`}>
                     <div className="absolute -top-px -left-px w-2 h-2 border-t border-l border-current opacity-50"></div>
                     <div className="absolute -bottom-px -right-px w-2 h-2 border-b border-r border-current opacity-50"></div>
                     <div className="flex items-start gap-3">

@@ -35,9 +35,14 @@ function SafetyBadge({ score }) {
     label = 'Risk';
   }
 
+  // Use risk colors mapping to match the tactical theme
+  const borderClass = score >= 75 ? 'border-risk-low' : score >= 50 ? 'border-risk-medium' : 'border-risk-high';
+  const textClass = score >= 75 ? 'text-risk-low' : score >= 50 ? 'text-risk-medium' : 'text-risk-high';
+  const bgClass = score >= 75 ? 'bg-risk-low/10' : score >= 50 ? 'bg-risk-medium/10' : 'bg-risk-high/10';
+
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs
-      bg-${color}-500/20 text-${color}-400 border border-${color}-500/30`}>
+    <span className={`inline-flex shrink-0 items-center justify-center gap-1.5 px-2 py-1 text-[10px] uppercase font-mono tracking-widest
+      ${bgClass} ${textClass} border ${borderClass} shadow-sm min-w-[70px]`}>
       {icon}
       {score}%
     </span>
@@ -49,59 +54,63 @@ function AlternativeCard({ alternative, rank, originalDrug, interactingDrug }) {
   const [expanded, setExpanded] = useState(false);
   
   const severityColors = {
-    no_interaction: 'emerald',
-    minor: 'yellow',
-    moderate: 'orange',
-    severe: 'red',
-    unknown: 'gray'
+    no_interaction: 'risk-low',
+    minor: 'risk-low',
+    moderate: 'risk-medium',
+    severe: 'risk-high',
+    unknown: 'theme-dim'
   };
 
-  const color = severityColors[alternative.interaction_severity] || 'gray';
+  const themeColor = severityColors[alternative.interaction_severity] || 'theme-dim';
 
   return (
     <motion.div
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: rank * 0.1 }}
-      className={`p-4 rounded-xl border transition-all cursor-pointer
+      className={`p-4 border transition-all cursor-pointer bg-theme-panel shadow-sm
         ${alternative.is_safer 
-          ? 'bg-gradient-to-br from-emerald-500/10 to-green-500/5 border-emerald-500/30 hover:border-emerald-400'
-          : `bg-gradient-to-br from-${color}-500/10 to-${color}-500/5 border-${color}-500/30`
+          ? 'border-risk-low hover:border-risk-low/70'
+          : `border-${themeColor} hover:opacity-80`
         }`}
       onClick={() => setExpanded(!expanded)}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
           {/* Rank badge */}
-          <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm
-            ${rank === 0 ? 'bg-emerald-500 text-white' :
-              rank === 1 ? 'bg-emerald-400/80 text-white' :
-              rank === 2 ? 'bg-emerald-400/60 text-white' :
-              'bg-gray-700 text-gray-300'}`}>
+          <div className={`w-8 h-8 shrink-0 flex items-center justify-center font-mono text-[10px] border
+            ${rank === 0 ? 'bg-risk-low text-theme-base border-risk-low' :
+              rank === 1 ? 'bg-risk-low/80 text-theme-base border-risk-low' :
+              rank === 2 ? 'bg-risk-low/60 text-theme-base border-risk-low' :
+              'bg-theme-panel text-theme-muted border-theme'}`}>
             {rank + 1}
           </div>
           
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="font-medium text-white">{alternative.name}</h4>
-              {alternative.is_safer && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-xs">
-                  <Sparkles size={10} />
-                  Safer
-                </span>
-              )}
+          <div className="min-w-0">
+            <div className="flex flex-col items-start gap-1.5 mt-0.5">
+              <h4 className="font-mono text-[11px] uppercase tracking-widest text-theme-primary leading-snug">{alternative.name}</h4>
+              <div className="flex items-center gap-2 flex-wrap">
+                {alternative.is_safer && (
+                  <span className="flex shrink-0 items-center gap-1 px-2 py-0.5 border border-risk-low bg-risk-low/10 text-risk-low text-[9px] uppercase font-mono tracking-widest">
+                    <Sparkles size={10} />
+                    Safer
+                  </span>
+                )}
+                {alternative.drugbank_id && (
+                  <span className="text-[9px] uppercase font-mono tracking-widest text-theme-dim">
+                    {alternative.drugbank_id}
+                  </span>
+                )}
+              </div>
             </div>
-            {alternative.drugbank_id && (
-              <p className="text-xs text-gray-500">{alternative.drugbank_id}</p>
-            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 mt-1">
           <SafetyBadge score={alternative.safety_score} />
           <ChevronRight 
             size={16} 
-            className={`text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            className={`text-theme-dim transition-transform shrink-0 ${expanded ? 'rotate-90' : ''}`}
           />
         </div>
       </div>
@@ -113,38 +122,38 @@ function AlternativeCard({ alternative, rank, originalDrug, interactingDrug }) {
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="mt-4 pt-4 border-t border-white/10 space-y-3"
+            className="mt-4 pt-4 border-t border-theme space-y-3"
           >
             {/* Interaction with the problematic drug */}
             {interactingDrug && (
-              <div className={`p-3 rounded-lg bg-${color}-500/10 border border-${color}-500/20`}>
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="text-gray-400">Interaction with {interactingDrug}:</span>
-                  <span className={`font-medium text-${color}-400 capitalize`}>
+              <div className={`p-3 bg-${themeColor}/10 border border-${themeColor}/30`}>
+                <div className="flex items-center gap-2 text-[10px] uppercase font-mono tracking-widest">
+                  <span className="text-theme-dim">Interaction with {interactingDrug}:</span>
+                  <span className={`font-semibold text-${themeColor}`}>
                     {alternative.interaction_severity?.replace('_', ' ') || 'Unknown'}
                   </span>
                 </div>
                 {alternative.mechanism && (
-                  <p className="text-xs text-gray-500 mt-1">{alternative.mechanism}</p>
+                  <p className="text-[9px] font-mono tracking-widest text-theme-muted mt-2 leading-relaxed">{alternative.mechanism}</p>
                 )}
               </div>
             )}
 
             {/* SMILES indicator */}
             {alternative.smiles && (
-              <div className="flex items-center gap-1 text-xs text-emerald-400">
+               <div className="flex items-center gap-1 text-[9px] uppercase font-mono tracking-widest text-theme-accent">
                 <Atom size={12} />
                 Molecular structure available
               </div>
             )}
 
             {/* Comparison summary */}
-            <div className="flex items-center gap-2 text-xs text-gray-400">
-              <span className="text-gray-500">{originalDrug}</span>
-              <ArrowRight size={12} />
-              <span className="text-cyan-400">{alternative.name}</span>
+            <div className="flex items-center gap-2 text-[9px] uppercase font-mono tracking-widest text-theme-dim">
+              <span className="text-theme-muted">{originalDrug}</span>
+              <ArrowRight size={12} className="text-theme-accent" />
+              <span className="text-theme-accent">{alternative.name}</span>
               {alternative.is_safer && (
-                <span className="text-emerald-400 ml-2">
+                <span className="text-risk-low ml-2">
                   ↓ Lower risk with {interactingDrug}
                 </span>
               )}
@@ -190,17 +199,17 @@ export default function TherapeuticAlternatives({
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-6">
-        <Loader2 className="animate-spin text-cyan-400" size={20} />
-        <span className="ml-2 text-sm text-gray-400">Finding alternatives...</span>
+      <div className="flex items-center justify-center p-6 bg-theme-panel border border-theme">
+        <Loader2 className="animate-spin text-theme-accent" size={16} />
+        <span className="ml-2 text-[10px] uppercase font-mono tracking-widest text-theme-muted">Finding alternatives...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-        <p className="text-sm text-red-400">Failed to find alternatives: {error}</p>
+      <div className="p-4 bg-risk-high/10 border border-risk-high/50">
+        <p className="text-[10px] uppercase font-mono tracking-widest text-risk-high">Failed to find alternatives: {error}</p>
       </div>
     );
   }
@@ -210,12 +219,12 @@ export default function TherapeuticAlternatives({
   // No therapeutic class found
   if (!alternatives.therapeutic_class) {
     return (
-      <div className="p-4 bg-gray-800/50 border border-gray-700 rounded-lg">
-        <div className="flex items-center gap-2 text-gray-400">
-          <AlertCircle size={16} />
-          <span className="text-sm">No therapeutic class found for {drugName}</span>
+      <div className="p-4 bg-theme-panel border border-theme">
+        <div className="flex items-center gap-2 text-theme-muted">
+          <AlertCircle size={14} />
+          <span className="text-[10px] uppercase font-mono tracking-widest text-theme-muted">No therapeutic class found for {drugName}</span>
         </div>
-        <p className="text-xs text-gray-500 mt-1">
+        <p className="text-[9px] uppercase tracking-widest text-theme-dim font-mono mt-2">
           Unable to suggest alternatives without knowing the drug's class.
         </p>
       </div>
@@ -225,10 +234,10 @@ export default function TherapeuticAlternatives({
   // No alternatives found
   if (!alternatives.alternatives?.length) {
     return (
-      <div className="p-4 bg-gray-800/50 border border-gray-700 rounded-lg">
-        <div className="flex items-center gap-2 text-gray-400">
-          <AlertCircle size={16} />
-          <span className="text-sm">No alternatives found in {alternatives.therapeutic_class} class</span>
+      <div className="p-4 bg-theme-panel border border-theme">
+        <div className="flex items-center gap-2 text-theme-muted flex-wrap">
+          <AlertCircle size={14} />
+          <span className="text-[10px] uppercase font-mono tracking-widest text-theme-muted leading-relaxed">No alternatives found in <br className="hidden md:block"/>{alternatives.therapeutic_class} class</span>
         </div>
       </div>
     );
@@ -242,20 +251,20 @@ export default function TherapeuticAlternatives({
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="p-3 rounded-lg bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border border-emerald-500/30"
+        className="p-3 bg-risk-low/5 border border-risk-low/30"
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Lightbulb className="text-emerald-400" size={16} />
-            <span className="text-sm text-gray-300">
+            <Lightbulb className="text-risk-low" size={14} />
+            <span className="text-[10px] font-mono tracking-widest uppercase text-theme-muted">
               {saferCount} safer alternatives found in 
-              <span className="text-emerald-400 ml-1">{alternatives.therapeutic_class}</span>
+              <span className="text-risk-low ml-1">{alternatives.therapeutic_class}</span>
             </span>
           </div>
           {onSelectAlternative && alternatives.alternatives[0] && (
             <button
               onClick={() => onSelectAlternative(alternatives.alternatives[0])}
-              className="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+              className="text-[10px] uppercase font-mono tracking-widest text-theme-accent hover:text-theme-secondary transition-colors flex items-center gap-1"
             >
               Try {alternatives.alternatives[0].name}
               <ChevronRight size={12} />
@@ -276,35 +285,35 @@ export default function TherapeuticAlternatives({
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
-          <div className="p-2 rounded-lg bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 border border-emerald-500/30">
-            <Lightbulb className="text-emerald-400" size={20} />
+          <div className="p-2 bg-theme-panel border border-theme">
+            <Lightbulb className="text-theme-accent" size={20} />
           </div>
           <div>
-            <h3 className="font-semibold text-white">Therapeutic Alternatives</h3>
-            <p className="text-xs text-gray-500">
-              Same class as {alternatives.drug}: 
-              <span className="text-cyan-400 ml-1">{alternatives.therapeutic_class}</span>
+            <h3 className="font-mono text-[11px] uppercase tracking-widest text-theme-primary">Therapeutic Alternatives</h3>
+            <p className="text-[10px] uppercase font-mono tracking-widest text-theme-dim mt-1">
+              Same class as <span className="text-theme-accent">{alternatives.drug}</span>: 
+              <br className="hidden md:block"/><span className="text-theme-muted">{alternatives.therapeutic_class}</span>
             </p>
           </div>
         </div>
 
-        <div className="text-right">
-          <span className="text-lg font-bold text-emerald-400">{saferCount}</span>
-          <span className="text-sm text-gray-500 ml-1">safer options</span>
+        <div className="text-right flex flex-col items-end">
+          <span className="text-lg font-mono font-bold text-risk-low">{saferCount}</span>
+          <span className="text-[10px] uppercase font-mono tracking-widest text-theme-dim ml-1">safer<br/>options</span>
         </div>
       </div>
 
       {/* Context banner */}
       {interactingWith && severity && (
-        <div className="p-3 rounded-lg bg-gradient-to-r from-red-500/10 to-orange-500/10 border border-red-500/30">
+        <div className="p-3 bg-risk-high/10 border border-risk-high/30">
           <div className="flex items-center gap-2">
-            <XCircle className="text-red-400" size={16} />
-            <span className="text-sm text-gray-300">
-              <span className="text-white font-medium">{alternatives.drug}</span>
+            <XCircle className="text-risk-high" size={14} />
+            <span className="text-[10px] uppercase font-mono tracking-widest text-theme-muted leading-relaxed">
+              <span className="font-semibold text-theme-primary">{alternatives.drug}</span>
               {' + '}
-              <span className="text-white font-medium">{interactingWith}</span>
+              <span className="font-semibold text-theme-primary">{interactingWith}</span>
               {' has a '}
-              <span className="text-red-400 font-medium capitalize">{severity}</span>
+              <span className="text-risk-high font-semibold capitalize">{severity}</span>
               {' interaction'}
             </span>
           </div>
@@ -325,13 +334,12 @@ export default function TherapeuticAlternatives({
       </div>
 
       {/* Footer note */}
-      <div className="p-3 rounded-lg bg-gray-800/50 border border-gray-700">
+      <div className="p-3 bg-theme-panel border border-theme">
         <div className="flex items-start gap-2">
-          <Shield className="text-cyan-400 flex-shrink-0 mt-0.5" size={14} />
-          <p className="text-xs text-gray-400">
+          <Shield className="text-theme-accent flex-shrink-0 mt-0.5" size={14} />
+          <p className="text-[9px] font-mono tracking-widest uppercase text-theme-dim leading-relaxed">
             These alternatives are drugs in the same therapeutic class ({alternatives.therapeutic_class}).
             Always consult a healthcare provider before switching medications.
-            Safety scores are based on known interactions in our database.
           </p>
         </div>
       </div>

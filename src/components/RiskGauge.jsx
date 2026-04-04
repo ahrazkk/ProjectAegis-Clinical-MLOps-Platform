@@ -102,7 +102,7 @@ export default function RiskGauge({ score, riskLevel, labelText = null }) {
             </div>
 
             {/* Decorative Elements */}
-            <div className="w-full mt-4 flex justify-between text-[10px] text-fui-gray-500 font-normal px-6 uppercase tracking-widest">
+            <div className="w-full mt-4 flex justify-between text-[10px] text-theme-primary font-normal px-6 uppercase tracking-widest">
                 <span>0%</span>
                 <span>100%</span>
             </div>

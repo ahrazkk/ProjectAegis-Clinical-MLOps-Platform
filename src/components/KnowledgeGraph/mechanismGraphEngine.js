@@ -44,6 +44,11 @@ export const EDGE_STYLES = {
   conflict: { stroke: '#ef4444', dasharray: 'none', width: 3 },
 };
 
+function clampConfidence(value, fallback = 0.7) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return fallback;
+  return Math.max(0.05, Math.min(0.99, value));
+}
+
 // ─── Build the full mechanism graph ─────────────────────────────────────────
 // Takes biology data from API and produces { nodes, edges, conflicts }
 export function buildMechanismGraph(drug1Bio, drug2Bio, mechanismMap) {
@@ -93,17 +98,32 @@ export function buildMechanismGraph(drug1Bio, drug2Bio, mechanismMap) {
       addNode(eId, 'enzyme', enzyme, { enzymeRoles: {} });
       const node = nodeMap.get(eId);
       node.enzymeRoles[drugSlot] = 'substrate';
-      edges.push({ source: drugNodeId, target: eId, type: 'substrate', label: 'substrate' });
+      edges.push({
+        source: drugNodeId,
+        target: eId,
+        type: 'substrate',
+        label: 'substrate',
+        confidence: 0.92,
+        evidence_source: 'cyp_profile',
+      });
     }
 
     for (const inh of inhibitors) {
       const enzyme = typeof inh === 'string' ? inh : inh.enzyme;
       const strength = typeof inh === 'string' ? '' : inh.strength;
+      const inhibitorConfidence = strength === 'strong' ? 0.96 : strength === 'moderate' ? 0.88 : 0.78;
       const eId = `enzyme:${enzyme}`;
       addNode(eId, 'enzyme', enzyme, { enzymeRoles: {} });
       const node = nodeMap.get(eId);
       node.enzymeRoles[drugSlot] = 'inhibitor';
-      edges.push({ source: drugNodeId, target: eId, type: 'inhibitor', label: `inhibitor${strength ? ` (${strength})` : ''}` });
+      edges.push({
+        source: drugNodeId,
+        target: eId,
+        type: 'inhibitor',
+        label: `inhibitor${strength ? ` (${strength})` : ''}`,
+        confidence: inhibitorConfidence,
+        evidence_source: 'cyp_profile',
+      });
     }
 
     for (const enzyme of inducers) {
@@ -111,7 +131,14 @@ export function buildMechanismGraph(drug1Bio, drug2Bio, mechanismMap) {
       addNode(eId, 'enzyme', enzyme, { enzymeRoles: {} });
       const node = nodeMap.get(eId);
       node.enzymeRoles[drugSlot] = 'inducer';
-      edges.push({ source: drugNodeId, target: eId, type: 'inducer', label: 'inducer' });
+      edges.push({
+        source: drugNodeId,
+        target: eId,
+        type: 'inducer',
+        label: 'inducer',
+        confidence: 0.86,
+        evidence_source: 'cyp_profile',
+      });
     }
   }
 
@@ -127,7 +154,14 @@ export function buildMechanismGraph(drug1Bio, drug2Bio, mechanismMap) {
         gene: t.gene || '',
         action: t.action || 'unknown',
       });
-      edges.push({ source: drugNodeId, target: tId, type: 'targets', label: t.action || '' });
+      edges.push({
+        source: drugNodeId,
+        target: tId,
+        type: 'targets',
+        label: t.action || '',
+        confidence: t.action && t.action !== 'unknown' ? 0.78 : 0.64,
+        evidence_source: 'target_relationship',
+      });
     }
   }
 
@@ -139,11 +173,19 @@ export function buildMechanismGraph(drug1Bio, drug2Bio, mechanismMap) {
     if (!bio?.side_effects) return;
     for (const se of bio.side_effects.slice(0, 8)) {
       const seId = `se:${se.name?.toLowerCase() || 'unknown'}`;
+      const normalizedSeverity = typeof se.severity === 'number' ? se.severity : 0;
       addNode(seId, 'side_effect', se.name || 'Unknown', {
         organ_system: se.organ_system || '',
-        severity: se.severity || 0,
+        severity: normalizedSeverity,
       });
-      edges.push({ source: drugNodeId, target: seId, type: 'causes', label: '' });
+      edges.push({
+        source: drugNodeId,
+        target: seId,
+        type: 'causes',
+        label: '',
+        confidence: clampConfidence(0.45 + (normalizedSeverity * 0.45), 0.52),
+        evidence_source: 'side_effect_relationship',
+      });
     }
   }
 

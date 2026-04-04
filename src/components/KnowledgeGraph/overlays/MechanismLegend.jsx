@@ -2,34 +2,43 @@
 import React from 'react';
 import { DRUG_COLORS, ENZYME_ROLE_COLORS, TARGET_ACTION_COLORS, EDGE_STYLES } from '../mechanismGraphEngine';
 
-export default function MechanismLegend({ isOffline }) {
+export default function MechanismLegend({ isOffline, isLightTheme = false }) {
+  const panelClass = isLightTheme
+    ? 'bg-white/86 border-slate-500/35 shadow-slate-800/10'
+    : 'bg-black/75 border-white/8';
+  const titleClass = isLightTheme ? 'text-slate-700/80' : 'text-white/40';
+  const dividerClass = isLightTheme ? 'border-slate-400/25' : 'border-white/5';
+  const labelClass = isLightTheme ? 'text-slate-700/75' : 'text-white/40';
+
   return (
     <div className="absolute bottom-3 left-3 z-20 pointer-events-none">
-      <div className="bg-black/75 backdrop-blur-md border border-white/8 rounded-lg shadow-xl px-3 py-2 pointer-events-auto min-w-[140px]">
-        <div className="text-[8px] text-white/40 uppercase tracking-wider mb-1.5 font-mono">Legend</div>
+      <div className={`backdrop-blur-md border rounded-lg shadow-xl px-3 py-2 pointer-events-auto min-w-[140px] ${panelClass}`}>
+        <div className={`text-[8px] uppercase tracking-wider mb-1.5 font-mono ${titleClass}`}>Legend</div>
 
         {/* Node types */}
         <div className="space-y-1 mb-2">
-          <LegendItem shape="hexagon" color={DRUG_COLORS.A} label="Drug A" />
-          <LegendItem shape="hexagon" color={DRUG_COLORS.B} label="Drug B" />
-          <LegendItem shape="hexagon" color={ENZYME_ROLE_COLORS.substrate} label="CYP Enzyme" />
-          <LegendItem shape="hexagon" color={TARGET_ACTION_COLORS.inhibitor} label="Protein Target" />
-          <LegendItem shape="hexagon" color="#6b7280" label="Side Effect" />
+          <LegendItem shape="hexagon" color={DRUG_COLORS.A} label="Drug A" labelClass={labelClass} />
+          <LegendItem shape="hexagon" color={DRUG_COLORS.B} label="Drug B" labelClass={labelClass} />
+          <LegendItem shape="hexagon" color={ENZYME_ROLE_COLORS.substrate} label="CYP Enzyme" labelClass={labelClass} />
+          <LegendItem shape="hexagon" color={TARGET_ACTION_COLORS.inhibitor} label="Protein Target" labelClass={labelClass} />
+          <LegendItem shape="hexagon" color="#6b7280" label="Side Effect" labelClass={labelClass} />
         </div>
 
         {/* Edge types */}
-        <div className="border-t border-white/5 pt-1.5 space-y-1">
-          <EdgeLegend color={EDGE_STYLES.substrate.stroke} dash={false} label="Substrate" />
-          <EdgeLegend color={EDGE_STYLES.inhibitor.stroke} dash={true} label="Inhibitor" />
-          <EdgeLegend color={EDGE_STYLES.inducer.stroke} dash={true} label="Inducer" />
-          <EdgeLegend color={EDGE_STYLES.targets.stroke} dash={false} label="Targets" />
-          <EdgeLegend color={EDGE_STYLES.conflict.stroke} dash={false} label="Conflict" thick />
+        <div className={`border-t pt-1.5 space-y-1 ${dividerClass}`}>
+          <EdgeLegend color={EDGE_STYLES.substrate.stroke} dash={false} label="Substrate" labelClass={labelClass} />
+          <EdgeLegend color={EDGE_STYLES.inhibitor.stroke} dash={true} label="Inhibitor" labelClass={labelClass} />
+          <EdgeLegend color={EDGE_STYLES.inducer.stroke} dash={true} label="Inducer" labelClass={labelClass} />
+          <EdgeLegend color={EDGE_STYLES.targets.stroke} dash={false} label="Targets" labelClass={labelClass} />
+          <EdgeLegend color={EDGE_STYLES.conflict.stroke} dash={false} label="Conflict" thick labelClass={labelClass} />
         </div>
 
         {/* Offline badge */}
         {isOffline && (
-          <div className="mt-2 border-t border-white/5 pt-1.5">
-            <span className="text-[7px] font-mono text-yellow-400/60">CYP data only (API offline)</span>
+          <div className={`mt-2 border-t pt-1.5 ${dividerClass}`}>
+            <span className={`text-[7px] font-mono ${isLightTheme ? 'text-amber-700/85' : 'text-yellow-400/60'}`}>
+              CYP data only (API offline)
+            </span>
           </div>
         )}
       </div>
@@ -37,7 +46,7 @@ export default function MechanismLegend({ isOffline }) {
   );
 }
 
-function LegendItem({ shape, color, label }) {
+function LegendItem({ shape, color, label, labelClass }) {
   return (
     <div className="flex items-center gap-1.5">
       <svg width={12} height={12} viewBox="0 0 12 12">
@@ -46,12 +55,12 @@ function LegendItem({ shape, color, label }) {
         {shape === 'circle' && <circle cx={6} cy={6} r={4.5} fill="none" stroke={color} strokeWidth={1} />}
         {shape === 'diamond' && <polygon points="6,1 11,6 6,11 1,6" fill="none" stroke={color} strokeWidth={1} />}
       </svg>
-      <span className="text-[7px] text-white/40 font-mono">{label}</span>
+      <span className={`text-[7px] font-mono ${labelClass}`}>{label}</span>
     </div>
   );
 }
 
-function EdgeLegend({ color, dash, label, thick }) {
+function EdgeLegend({ color, dash, label, thick, labelClass }) {
   return (
     <div className="flex items-center gap-1.5">
       <svg width={16} height={6} viewBox="0 0 16 6">
@@ -62,7 +71,7 @@ function EdgeLegend({ color, dash, label, thick }) {
           strokeDasharray={dash ? '4,2' : 'none'}
         />
       </svg>
-      <span className="text-[7px] text-white/40 font-mono">{label}</span>
+      <span className={`text-[7px] font-mono ${labelClass}`}>{label}</span>
     </div>
   );
 }
