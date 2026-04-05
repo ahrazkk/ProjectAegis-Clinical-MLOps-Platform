@@ -40,6 +40,7 @@ from .services.pubmedbert_predictor import get_pubmedbert_predictor
 from .services.cyp450_database import get_cyp450_database
 from .services.polypharmacy_digital_twin import get_polypharmacy_digital_twin_service
 from .services.calibration_metrics import generate_calibration_report
+from .system_stats import get_total_scans, increment_total_scans
 
 logger = logging.getLogger(__name__)
 
@@ -693,12 +694,9 @@ class DDIPredictionView(APIView):
         )
         
         try:
-            from .models import SystemStats
-            stats, _ = SystemStats.objects.get_or_create(name='global')
-            stats.total_scans += 1
-            stats.save()
-        except:
-            pass
+            increment_total_scans()
+        except Exception as exc:
+            logger.warning('Failed to increment scan counter for /predict: %s', exc)
 
         return Response(response_data)
 
@@ -900,12 +898,9 @@ class PolypharmacyView(APIView):
         )
         
         try:
-            from .models import SystemStats
-            stats, _ = SystemStats.objects.get_or_create(name='global')
-            stats.total_scans += 1
-            stats.save()
-        except:
-            pass
+            increment_total_scans()
+        except Exception as exc:
+            logger.warning('Failed to increment scan counter for /polypharmacy: %s', exc)
 
         return Response(response_data)
         
@@ -958,6 +953,11 @@ class PolypharmacyDigitalTwinView(APIView):
                 'factor_weights': twin_result.get('metadata', {}).get('weights', {}),
             },
         )
+
+        try:
+            increment_total_scans()
+        except Exception as exc:
+            logger.warning('Failed to increment scan counter for /polypharmacy-digital-twin: %s', exc)
 
         return Response(response_data)
 
@@ -1380,7 +1380,7 @@ class DatabaseStatsView(APIView):
             try:
                 from django.utils import timezone
                 from datetime import timedelta
-                from .models import PredictionLog, SystemStats
+                from .models import PredictionLog
                 
                 recent = PredictionLog.objects.filter(
                     created_at__gte=timezone.now() - timedelta(hours=24)
@@ -1388,9 +1388,8 @@ class DatabaseStatsView(APIView):
                 stats['recent_predictions'] = recent
                 
                 # Fetch global total scans count
-                global_stats, _ = SystemStats.objects.get_or_create(name='global')
-                stats['total_scans'] = global_stats.total_scans
-            except:
+                stats['total_scans'] = get_total_scans()
+            except Exception:
                 stats['total_scans'] = 0
                 pass
             

@@ -12,6 +12,7 @@ from .services.calibration_metrics import expected_calibration_error, generate_c
 from .services.enhanced_drug_service import EnhancedDrugService
 from .services.gnn_predictor import GNNDDIPredictor, GNNPrediction
 from .views import DDIPredictionView, DatabaseStatsView, CalibrationMetricsView, PolypharmacyDigitalTwinView, PolypharmacyView, normalize_drug_name
+from .views_scanner import validate_barcode, analyze_pill_image, identify_pill_multimodal
 
 
 class DrugNameNormalizationRegressionTests(SimpleTestCase):
@@ -599,6 +600,125 @@ class DatabaseStatsRecentPredictionsRegressionTests(SimpleTestCase):
 		self.assertEqual(response.status_code, 200)
 		self.assertEqual(response.data['recent_predictions'], 7)
 		self.assertIn('created_at__gte', mock_filter.call_args.kwargs)
+
+
+class ScanCounterInstrumentationTests(SimpleTestCase):
+	"""Ensure global scan counter hooks are wired on critical endpoints."""
+
+	def setUp(self):
+		self.factory = APIRequestFactory()
+
+	@patch('ddi_api.views.lookup_drug')
+	@patch('ddi_api.views.get_gnn_predictor')
+	@patch('ddi_api.views.PredictionLog.objects.create')
+	@patch('ddi_api.views.increment_total_scans')
+	def test_predict_endpoint_increments_scan_counter(
+		self,
+		mock_increment_total_scans,
+		mock_log_create,
+		mock_get_predictor,
+		mock_lookup_drug,
+	):
+		mock_lookup_drug.side_effect = lambda d: {
+			'name': d.get('name', 'Unknown'),
+			'smiles': d.get('smiles', ''),
+			'drugbank_id': '',
+			'therapeutic_class': d.get('therapeutic_class', ''),
+		}
+
+		mock_predictor = Mock()
+		mock_predictor.predict.return_value = GNNPrediction(
+			drug1='AlphaDrug',
+			drug2='BetaDrug',
+			interaction_probability=0.81,
+			interaction_type='effect',
+			confidence=0.92,
+			severity='major',
+			model_used='trained_gnn',
+			smiles1='CCO',
+			smiles2='CCN',
+			fingerprint_similarity=0.44,
+			mechanism_hypothesis='Mock mechanism',
+			raw_interaction_probability=0.77,
+			calibration_method='platt_scaling',
+			calibration_version='platt_a=1.0;platt_b=0.0',
+			fallback_reason=None,
+			provenance={'prediction_path': 'trained_gnn'}
+		)
+		mock_get_predictor.return_value = mock_predictor
+
+		request = self.factory.post(
+			'/api/v1/predict/',
+			{
+				'drug_a': {'name': 'AlphaDrug'},
+				'drug_b': {'name': 'BetaDrug'},
+				'include_explanation': True,
+			},
+			format='json'
+		)
+
+		response = DDIPredictionView.as_view()(request)
+
+		self.assertEqual(response.status_code, 200)
+		mock_log_create.assert_called_once()
+		mock_increment_total_scans.assert_called_once()
+
+	@patch('ddi_api.views_scanner.increment_total_scans')
+	def test_validate_barcode_increments_scan_counter(self, mock_increment_total_scans):
+		request = self.factory.post(
+			'/api/v1/scanner/validate-barcode/',
+			{'barcode': '12345678901'},
+			format='json',
+		)
+
+		response = validate_barcode(request)
+
+		self.assertEqual(response.status_code, 200)
+		mock_increment_total_scans.assert_called_once()
+
+	@patch('ddi_api.views_scanner.Drug.objects')
+	@patch('ddi_api.views_scanner.increment_total_scans')
+	def test_analyze_pill_image_increments_scan_counter(self, mock_increment_total_scans, mock_drug_objects):
+		mock_queryset = Mock()
+		mock_queryset.filter.return_value = mock_queryset
+		mock_queryset.distinct.return_value = mock_queryset
+		mock_queryset.__getitem__ = Mock(return_value=[])
+		mock_drug_objects.all.return_value = mock_queryset
+
+		request = self.factory.post(
+			'/api/v1/scanner/analyze-pill/',
+			{'color': 'white', 'shape': 'round', 'imprint': 'M367'},
+			format='multipart',
+		)
+
+		response = analyze_pill_image(request)
+
+		self.assertEqual(response.status_code, 200)
+		mock_increment_total_scans.assert_called_once()
+
+	@patch('ddi_api.views_scanner.Drug.objects')
+	@patch('ddi_api.views_scanner.increment_total_scans')
+	def test_identify_pill_multimodal_increments_scan_counter(self, mock_increment_total_scans, mock_drug_objects):
+		mock_queryset = Mock()
+		mock_queryset.filter.return_value = mock_queryset
+		mock_queryset.distinct.return_value = mock_queryset
+		mock_queryset.__getitem__ = Mock(return_value=[])
+		mock_drug_objects.all.return_value = mock_queryset
+
+		request = self.factory.post(
+			'/api/v1/scanner/identify-pill/',
+			{
+				'color': 'white',
+				'shape': 'round',
+				'imprint': 'M367',
+			},
+			format='json',
+		)
+
+		response = identify_pill_multimodal(request)
+
+		self.assertEqual(response.status_code, 200)
+		mock_increment_total_scans.assert_called_once()
 
 
 class CalibrationMetricsServiceTests(SimpleTestCase):

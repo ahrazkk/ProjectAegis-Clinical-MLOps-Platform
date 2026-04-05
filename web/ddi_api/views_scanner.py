@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from .models import Drug
 from .serializers import DrugSerializer
 from .pill_detector import pill_detector
+from .system_stats import increment_total_scans
 
 logger = logging.getLogger(__name__)
 
@@ -568,6 +569,11 @@ def validate_barcode(request):
             'check': digits_only[12]
         }
     
+    try:
+        increment_total_scans()
+    except Exception as exc:
+        logger.warning('Failed to increment scan counter for validate_barcode: %s', exc)
+
     return Response(result)
 
 
@@ -665,6 +671,11 @@ def analyze_pill_image(request):
         if external:
             results = external
     
+    try:
+        increment_total_scans()
+    except Exception as exc:
+        logger.warning('Failed to increment scan counter for analyze_pill_image: %s', exc)
+
     return Response({
         'detected_features': {
             'color': color,
@@ -855,6 +866,11 @@ def identify_pill_multimodal(request):
 
     for item in ranked[:12]:
         item['is_estimate'] = is_uncertain
+
+    try:
+        increment_total_scans()
+    except Exception as exc:
+        logger.warning('Failed to increment scan counter for identify_pill_multimodal: %s', exc)
 
     return Response({
         'detected_features': {
