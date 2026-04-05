@@ -432,8 +432,9 @@ Training and data pipeline areas:
 Documentation and evidence sources used:
 - docs/MCR_REPORT.md
 - docs/GNN_TRAINING_PROCESS.md
-- GuidlinesMCR1.md
-- PROJECT_DOCUMENTATION.md
+- docs/project_root_guides/GuidlinesMCR1.md
+- docs/project_root_guides/PROJECT_DOCUMENTATION.md
+- docs/project_root_guides/PROJECT_AEGIS_FEATURES_DEEP_DIVE.md
 - README.md
 
 ## 14. Final Student Work Allocation for Report Production

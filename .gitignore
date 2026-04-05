@@ -150,6 +150,7 @@ temp/
 *.tmp
 .cache/
 tmpclaude*
+workspace_artifacts/
 
 # Python/Django
 __pycache__/
