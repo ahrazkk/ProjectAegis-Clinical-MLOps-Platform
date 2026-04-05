@@ -145,6 +145,28 @@ AI_MODEL_CONFIG = {
 }
 
 # =============================================================================
+# LLM RESEARCH ASSISTANT (Gemini)
+# =============================================================================
+GEMINI_CONFIG = {
+    'api_key': os.environ.get('GEMINI_API_KEY', ''),
+    'model': os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'),
+    'max_output_tokens': 4096,
+    'temperature': 0.3,       # Low for clinical accuracy
+    'top_p': 0.9,
+}
+
+ASSISTANT_CONFIG = {
+    'enabled': _env_bool('AEGIS_ASSISTANT_ENABLED', False),
+    'access_password': os.environ.get('AEGIS_ASSISTANT_PASSWORD', ''),
+    'max_context_tokens': 4000,
+    'max_pubmed_results': 3,
+}
+
+# NCBI API key for higher PubMed rate limits (10 req/sec vs 3 req/sec)
+# Register at: https://www.ncbi.nlm.nih.gov/account/settings/
+NCBI_API_KEY = os.environ.get('NCBI_API_KEY', '')
+
+# =============================================================================
 # DDI RETRIEVAL CONFIGURATION (RAG System)
 # =============================================================================
 # This controls how context sentences are retrieved for PubMedBERT predictions.

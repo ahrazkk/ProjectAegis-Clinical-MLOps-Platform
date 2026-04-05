@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { 
-  ChevronLeft, Settings, Database, Brain, 
-  Trash2, Shield, Activity, Save, AlertTriangle
+import {
+  ChevronLeft, Settings, Database, Brain,
+  Trash2, Shield, Activity, Save, AlertTriangle, Sparkles
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 import {
@@ -34,6 +34,11 @@ const SettingsPage = () => {
   const [privacyMode, setPrivacyMode] = useState(() => Boolean(savedPreferences.privacyMode));
   const [demoModeEnabled, setDemoModeEnabled] = useState(() => readDemoModeSetting());
 
+  // Assistant preferences
+  const savedAssistantPrefs = useMemo(() => JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}'), []);
+  const [assistantMode, setAssistantMode] = useState(savedAssistantPrefs.mode || 'auto');
+  const [assistantToken, setAssistantToken] = useState(savedAssistantPrefs.accessToken || '');
+
   const handleClearCache = () => {
     // Basic cache clearing for demo purposes
     localStorage.removeItem('ddi-theme'); // Clear theme mapping as a test
@@ -56,6 +61,12 @@ const SettingsPage = () => {
       demoModeEnabled,
       updatedAt: new Date().toISOString(),
     });
+    // Save assistant preferences
+    localStorage.setItem('aegis:assistant-prefs:v1', JSON.stringify({
+      mode: assistantMode,
+      accessToken: assistantToken,
+      updatedAt: new Date().toISOString(),
+    }));
     alert('Settings saved locally.');
   };
 
@@ -112,11 +123,17 @@ const SettingsPage = () => {
                 >
                   <Brain className="w-4 h-4" /> Inference Engine
                 </button>
-                <button 
+                <button
                   onClick={() => setActiveTab('privacy')}
-                  className={`flex items-center gap-3 p-4 text-left text-sm transition-colors ${activeTab === 'privacy' ? 'bg-theme-accent/5 text-theme-accent' : 'text-theme-muted hover:text-theme-secondary hover:bg-theme-panel-elevated'}`}
+                  className={`flex items-center gap-3 p-4 text-left text-sm transition-colors border-b border-theme ${activeTab === 'privacy' ? 'bg-theme-accent/5 text-theme-accent' : 'text-theme-muted hover:text-theme-secondary hover:bg-theme-panel-elevated'}`}
                 >
                   <Shield className="w-4 h-4" /> Privacy & Data
+                </button>
+                <button
+                  onClick={() => setActiveTab('assistant')}
+                  className={`flex items-center gap-3 p-4 text-left text-sm transition-colors ${activeTab === 'assistant' ? 'bg-theme-accent/5 text-theme-accent' : 'text-theme-muted hover:text-theme-secondary hover:bg-theme-panel-elevated'}`}
+                >
+                  <Sparkles className="w-4 h-4" /> Research Assistant
                 </button>
               </nav>
             </div>
@@ -247,6 +264,76 @@ const SettingsPage = () => {
                           ))}
                         </div>
                       </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'assistant' && (
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-6">
+                <div className="border border-theme bg-theme-panel p-6">
+                  <h2 className="text-sm uppercase tracking-widest text-theme-secondary mb-6 flex items-center gap-2 border-b border-theme pb-4">
+                    <Sparkles className="w-4 h-4" /> Research Assistant (LLM)
+                  </h2>
+
+                  <div className="space-y-8">
+                    {/* Mode selector */}
+                    <div>
+                      <label className="block text-xs uppercase tracking-widest text-theme-muted mb-3">Assistant Mode</label>
+                      <div className="flex gap-3">
+                        {[
+                          { value: 'auto', label: 'Auto', desc: 'Uses LLM if token is valid, otherwise template' },
+                          { value: 'llm', label: 'LLM Only', desc: 'Always use Gemini (fails if token invalid)' },
+                          { value: 'legacy', label: 'Template', desc: 'Use original template engine (no LLM)' },
+                        ].map(opt => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setAssistantMode(opt.value)}
+                            className={`flex-1 p-3 border text-left transition-colors ${
+                              assistantMode === opt.value
+                                ? 'border-theme-accent bg-theme-accent/10 text-theme-accent'
+                                : 'border-theme text-theme-muted hover:text-theme-secondary hover:bg-theme-panel-elevated'
+                            }`}
+                          >
+                            <div className="text-xs font-medium">{opt.label}</div>
+                            <div className="text-[10px] text-theme-dim mt-1">{opt.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Access token */}
+                    <div>
+                      <label className="block text-xs uppercase tracking-widest text-theme-muted mb-3">Access Token</label>
+                      <p className="text-[10px] text-theme-dim mb-2 leading-relaxed">
+                        Enter the assistant password to enable LLM features. This is stored locally in your browser only.
+                      </p>
+                      <input
+                        type="password"
+                        value={assistantToken}
+                        onChange={(e) => setAssistantToken(e.target.value)}
+                        placeholder="Enter assistant access password..."
+                        className="w-full bg-theme-secondary border border-theme py-2.5 px-4 text-sm font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50 transition-all"
+                      />
+                      {assistantToken && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                          <span className="text-[10px] text-emerald-400">Token configured</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info box */}
+                    <div className="border border-theme-accent/30 bg-theme-accent/5 p-4">
+                      <p className="text-xs text-theme-accent mb-2 font-medium">How it works</p>
+                      <ul className="text-[10px] text-theme-muted space-y-1 leading-relaxed">
+                        <li>- The Research Assistant uses Google Gemini to analyze drug interactions with citations</li>
+                        <li>- All responses are grounded in your Knowledge Graph and PubMed literature</li>
+                        <li>- Type <span className="font-mono text-theme-accent">/</span> in chat for slash commands like <span className="font-mono">/test</span>, <span className="font-mono">/evidence</span></li>
+                        <li>- The LLM never invents data -- it only references evidence from your data sources</li>
+                        <li>- Without a valid token, the chat falls back to the original template engine</li>
+                      </ul>
                     </div>
                   </div>
                 </div>

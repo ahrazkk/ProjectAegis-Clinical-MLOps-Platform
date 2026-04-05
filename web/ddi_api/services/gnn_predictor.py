@@ -521,15 +521,17 @@ class GNNDDIPredictor:
 
         # Use Macroscopic GraphSAGE Engine (V2)
         if self.is_loaded and self.model_type == ModelType.MACROSCOPIC_GNN:
-            return self._predict_with_macroscopic_model(drug1, drug2, smiles1, smiles2, similarity)
+            result = self._predict_with_macroscopic_model(drug1, drug2, smiles1, smiles2, similarity)
+            return self._apply_correction_calibration(result, drug1, drug2)
 
         # Use legacy trained GNN model if available
-        if (self.is_loaded and self.model_type == ModelType.TRAINED_GNN 
+        if (self.is_loaded and self.model_type == ModelType.TRAINED_GNN
                 and self.graph_featurizer is not None
                 and smiles1 and smiles2):
-            return self._predict_with_trained_gnn(
+            result = self._predict_with_trained_gnn(
                 drug1, drug2, smiles1, smiles2, similarity
             )
+            return self._apply_correction_calibration(result, drug1, drug2)
 
         # Get fingerprints for fallback MLP
         fp1 = self.feature_extractor.smiles_to_fingerprint(smiles1) if smiles1 else None
@@ -537,7 +539,7 @@ class GNNDDIPredictor:
         
         # If no SMILES or model not loaded, return heuristic prediction
         if not self.is_loaded or fp1 is None or fp2 is None:
-            return self._heuristic_prediction(
+            result = self._heuristic_prediction(
                 drug1,
                 drug2,
                 smiles1,
@@ -545,7 +547,8 @@ class GNNDDIPredictor:
                 similarity,
                 fallback_reason="model_not_loaded_or_missing_smiles",
             )
-        
+            return self._apply_correction_calibration(result, drug1, drug2)
+
         # Run MLP fallback inference
         try:
             import torch
@@ -570,7 +573,7 @@ class GNNDDIPredictor:
                 drug1, drug2, smiles1, smiles2, similarity, interaction_type
             )
             
-            return GNNPrediction(
+            result = GNNPrediction(
                 drug1=drug1,
                 drug2=drug2,
                 interaction_probability=interaction_probability,
@@ -590,10 +593,11 @@ class GNNDDIPredictor:
                     "model_backend": "simple_mlp",
                 },
             )
-            
+            return self._apply_correction_calibration(result, drug1, drug2)
+
         except Exception as e:
             logger.error(f"Model inference failed: {e}")
-            return self._heuristic_prediction(
+            result = self._heuristic_prediction(
                 drug1,
                 drug2,
                 smiles1,
@@ -601,6 +605,26 @@ class GNNDDIPredictor:
                 similarity,
                 fallback_reason="mlp_inference_error",
             )
+            return self._apply_correction_calibration(result, drug1, drug2)
+
+    def _apply_correction_calibration(
+        self, result: GNNPrediction, drug1: str, drug2: str
+    ) -> GNNPrediction:
+        """Apply correction-based calibration to a GNN prediction result."""
+        try:
+            from .confidence_calibrator import get_confidence_calibrator
+            calibrator = get_confidence_calibrator()
+            adj_severity, adj_confidence, cal_info = calibrator.adjust(
+                drug1, drug2, result.severity, result.confidence
+            )
+            if cal_info.get('correction_adjusted'):
+                result.severity = adj_severity
+                result.confidence = adj_confidence
+                result.calibration_method = f"{result.calibration_method}+correction"
+                logger.info("Calibrator adjusted %s+%s: %s", drug1, drug2, cal_info)
+        except Exception as e:
+            logger.debug("Calibration adjustment skipped: %s", e)
+        return result
 
     def _predict_with_macroscopic_model(
         self,

@@ -52,7 +52,8 @@ import {
 } from 'lucide-react';
 import { useSystemLogs } from '../hooks/useSystemLogs';
 import { useTheme } from '../hooks/useTheme';
-import { searchDrugs, predictDDI, analyzePolypharmacy, analyzePolypharmacyDigitalTwin, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getRealWorldEvidence, getDatabaseStats, computeCalibrationMetrics } from '../services/api';
+import { searchDrugs, predictDDI, analyzePolypharmacy, analyzePolypharmacyDigitalTwin, sendChatMessage, checkHealth, getDrugInfo, getInteractionInfo, getRealWorldEvidence, getDatabaseStats, computeCalibrationMetrics, createCorrection, getCorrections, getCorrectionStats, reviewCorrection } from '../services/api';
+import ChatCommandAutocomplete from '../components/ChatCommandAutocomplete';
 import { buildInteractionEvidenceUplift } from '../services/evidenceUplift';
 import { DEMO_DRUG_GROUPS, readDemoModeSetting } from '../config/demoMode';
 import GNNGalaxyViewer from '../components/GalaxyViewer';
@@ -2663,14 +2664,21 @@ function WhatIfScenarioBuilder({ selectedDrugs, apiStatus, addLog }) {
   );
 }
 
-function ResearchWorkspace({ addLog, selectedDrugs, apiStatus }) {
+function ResearchWorkspace({ addLog, selectedDrugs, apiStatus, fullscreen = false }) {
   return (
-    <main className="flex-1 overflow-y-auto p-6 bg-theme-secondary">
-      <div className="max-w-6xl mx-auto space-y-4">
+    <main className={`flex-1 overflow-y-auto p-6 bg-theme-secondary ${fullscreen ? 'h-full' : ''}`}>
+      <div className={`${fullscreen ? 'max-w-[1400px]' : 'max-w-6xl'} mx-auto space-y-4`}>
         <div className="p-4 border border-theme bg-theme-panel/80 backdrop-blur-sm">
-          <div className="flex items-center gap-2 mb-2">
-            <FlaskConical className="w-4 h-4 text-theme-accent" />
-            <h2 className="text-sm uppercase tracking-widest text-theme-primary">Research Tools Lab</h2>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 mb-2">
+              <FlaskConical className="w-4 h-4 text-theme-accent" />
+              <h2 className="text-sm uppercase tracking-widest text-theme-primary">Research Tools Lab</h2>
+            </div>
+            {fullscreen && (
+              <span className="text-[9px] uppercase tracking-widest text-theme-muted border border-theme px-2 py-1">
+                Fullscreen Mode
+              </span>
+            )}
           </div>
           <p className="text-xs text-theme-muted leading-relaxed">
             This space is for reliability and evidence-focused analysis tooling. Calibration QA is live here now, and future research modules can be added as separate cards.
@@ -2748,21 +2756,76 @@ export default function Dashboard() {
   const [loadingDemoGroupId, setLoadingDemoGroupId] = useState(null);
 
   // Chat State
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(() => {
+    try {
+      return JSON.parse(sessionStorage.getItem('aegis:chat-messages') || '[]');
+    } catch { return []; }
+  });
   const [chatInput, setChatInput] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(() => sessionStorage.getItem('aegis:chat-session-id') || null);
   const chatEndRef = useRef(null);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [tokenUsage, setTokenUsage] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('aegis:token-usage') || '{}');
+      return { totalIn: saved.totalIn || 0, totalOut: saved.totalOut || 0, totalCost: saved.totalCost || 0, queries: saved.queries || 0 };
+    } catch { return { totalIn: 0, totalOut: 0, totalCost: 0, queries: 0 }; }
+  });
+
+  // Persist chat messages and session ID to sessionStorage
+  useEffect(() => {
+    sessionStorage.setItem('aegis:chat-messages', JSON.stringify(messages));
+  }, [messages]);
+  useEffect(() => {
+    if (sessionId) sessionStorage.setItem('aegis:chat-session-id', sessionId);
+  }, [sessionId]);
+
+  // Persist token usage to localStorage
+  useEffect(() => {
+    localStorage.setItem('aegis:token-usage', JSON.stringify(tokenUsage));
+  }, [tokenUsage]);
+
+  // Rotate navbar stat boxes every 10s
+  useEffect(() => {
+    const timer = setInterval(() => setNavStatIndex(i => (i + 1) % 2), 10000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Poll pending corrections count
+  useEffect(() => {
+    if (apiStatus !== 'online') return;
+    const fetchCount = async () => {
+      try {
+        const s = await getCorrectionStats();
+        setPendingCorrectionsCount(s.pending || 0);
+      } catch {}
+    };
+    fetchCount();
+    const interval = setInterval(fetchCount, 60000);
+    return () => clearInterval(interval);
+  }, [apiStatus]);
+
+  // Correction Memory state
+  const [correctionForm, setCorrectionForm] = useState(null); // { msgIndex, drugA, drugB, gnnSeverity, gnnRiskScore, gnnConfidence }
+  const [correctionSeverity, setCorrectionSeverity] = useState('');
+  const [correctionEvidence, setCorrectionEvidence] = useState('');
+  const [correctionSource, setCorrectionSource] = useState('');
+  const [correctionSubmitting, setCorrectionSubmitting] = useState(false);
+  const [pendingCorrectionsCount, setPendingCorrectionsCount] = useState(0);
 
   // Mobile State
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState('drugs'); // 'drugs' | 'viz' | 'results' | 'chat'
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [showMobileDrugPanel, setShowMobileDrugPanel] = useState(false);
+  const [lastSeenMsgCount, setLastSeenMsgCount] = useState(0);
 
   // Database status
   const [showDbWarning, setShowDbWarning] = useState(false);
   const [dbDrugCount, setDbDrugCount] = useState(null);
+  const [dbStats, setDbStats] = useState(null);
+  const [navStatIndex, setNavStatIndex] = useState(0);
 
   const debouncedSearch = useDebounce(searchQuery, 300);
 
@@ -2804,6 +2867,7 @@ export default function Dashboard() {
         // Check database drug count
         try {
           const stats = await getDatabaseStats();
+          setDbStats(stats);
           const drugCount = stats?.total_drugs || stats?.drugs_count || 0;
           setDbDrugCount(drugCount);
           if (drugCount < 10) {
@@ -3462,6 +3526,26 @@ export default function Dashboard() {
         setResult(response);
         setPolypharmacyResult(null);
         setDigitalTwinResult(null);
+
+        // Auto-capture low-confidence predictions for correction review
+        if (response.confidence != null && response.confidence < 0.5) {
+          const prefs = JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}');
+          createCorrection({
+            drug_a: selectedDrugs[0].name,
+            drug_b: selectedDrugs[1].name,
+            gnn_severity: response.severity || response.risk_level || '',
+            gnn_risk_score: response.risk_score,
+            gnn_confidence: response.confidence,
+            corrected_severity: '',
+            evidence_source: 'auto-capture:low-confidence',
+            access_token: prefs.accessToken || '',
+          }).then(() => {
+            addLog(`Low-confidence prediction auto-queued for review (${(response.confidence * 100).toFixed(1)}%)`, 'warning', 'Correction');
+          }).catch((err) => {
+            console.warn('Auto-capture correction failed:', err);
+            addLog('Failed to auto-capture low-confidence prediction for review', 'warning', 'Correction');
+          });
+        }
         
         // Fetch real-world evidence in background
         addLog('Fetching real-world evidence from FDA FAERS...', 'info', 'DATABASE');
@@ -3595,31 +3679,87 @@ export default function Dashboard() {
     if (!chatInput.trim() || isChatLoading || apiStatus !== 'online') return;
 
     const userMessage = chatInput.trim();
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+    setMessages(prev => [...prev, { role: 'user', content: userMessage, timestamp: Date.now() }]);
     setChatInput('');
+    setShowAutocomplete(false);
     setIsChatLoading(true);
     addLog('Processing natural language query...', 'info', 'AI');
 
     try {
       const contextDrugs = selectedDrugs.map(d => d.name);
-      const response = await sendChatMessage(userMessage, contextDrugs, sessionId);
+      // Read assistant preferences from localStorage
+      const prefs = JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}');
+      const response = await sendChatMessage(userMessage, contextDrugs, sessionId, {
+        assistantMode: prefs.mode || 'auto',
+        accessToken: prefs.accessToken || '',
+      });
       setSessionId(response.session_id);
+      // Use global usage from server if available, otherwise accumulate locally
+      if (response.global_usage) {
+        setTokenUsage({
+          totalIn: response.global_usage.input_tokens || 0,
+          totalOut: response.global_usage.output_tokens || 0,
+          totalCost: response.global_usage.cost_usd || 0,
+          queries: response.global_usage.queries || 0,
+        });
+      } else if (response.token_usage) {
+        setTokenUsage(prev => ({
+          totalIn: prev.totalIn + (response.token_usage.input_tokens || 0),
+          totalOut: prev.totalOut + (response.token_usage.output_tokens || 0),
+          totalCost: prev.totalCost + (response.token_usage.estimated_cost_usd || 0),
+          queries: prev.queries + 1,
+        }));
+      }
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: response.response,
-        sources: response.sources
+        sources: response.sources,
+        citations: response.citations || [],
+        assistantMode: response.assistant_mode,
+        timestamp: Date.now(),
       }]);
-      addLog('Response generated via GraphRAG', 'success', 'AI');
+      const modeLabel = response.assistant_mode === 'llm' ? 'Gemini LLM' : 'GraphRAG';
+      addLog(`Response generated via ${modeLabel}`, 'success', 'AI');
     } catch (err) {
       console.error('Chat failed:', err);
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: 'I apologize, but I encountered an error processing your request. Please try again.',
-        isError: true
+        isError: true,
+        timestamp: Date.now(),
       }]);
       addLog('Chat processing failed', 'error', 'AI');
     } finally {
       setIsChatLoading(false);
+    }
+  };
+
+  const handleSubmitCorrection = async () => {
+    if (!correctionForm || !correctionSeverity) return;
+    setCorrectionSubmitting(true);
+    try {
+      const prefs = JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}');
+      await createCorrection({
+        drug_a: correctionForm.drugA,
+        drug_b: correctionForm.drugB,
+        gnn_severity: correctionForm.gnnSeverity,
+        gnn_risk_score: correctionForm.gnnRiskScore,
+        gnn_confidence: correctionForm.gnnConfidence,
+        corrected_severity: correctionSeverity,
+        evidence_text: correctionEvidence,
+        evidence_source: correctionSource,
+        access_token: prefs.accessToken || '',
+      });
+      addLog(`Correction submitted for ${correctionForm.drugA} + ${correctionForm.drugB}`, 'success', 'Correction');
+      setCorrectionForm(null);
+      setCorrectionSeverity('');
+      setCorrectionEvidence('');
+      setCorrectionSource('');
+    } catch (err) {
+      console.error('Correction failed:', err);
+      addLog('Correction submission failed', 'error', 'Correction');
+    } finally {
+      setCorrectionSubmitting(false);
     }
   };
 
@@ -3774,8 +3914,11 @@ export default function Dashboard() {
         ].map((item) => (
           <button
             key={item.id}
-            onClick={() => setMobileView(item.id)}
-            className={`flex flex-col items-center justify-center flex-1 h-full transition-colors ${
+            onClick={() => {
+              setMobileView(item.id);
+              if (item.id === 'chat') setLastSeenMsgCount(messages.length);
+            }}
+            className={`relative flex flex-col items-center justify-center flex-1 h-full transition-colors ${
               mobileView === item.id
                 ? 'text-theme-accent bg-theme-accent/10'
                 : 'text-theme-muted'
@@ -3787,6 +3930,9 @@ export default function Dashboard() {
               <span className="absolute top-2 right-1/2 translate-x-6 w-4 h-4 bg-theme-accent text-theme-primary text-[9px] flex items-center justify-center rounded-full">
                 {selectedDrugs.length}
               </span>
+            )}
+            {item.id === 'chat' && messages.length > lastSeenMsgCount && mobileView !== 'chat' && (
+              <span className="absolute -top-1 -right-1 w-2 h-2 bg-theme-accent rounded-full" />
             )}
           </button>
         ))}
@@ -3894,6 +4040,20 @@ export default function Dashboard() {
             )}
           </div>
 
+          {/* Class Warnings */}
+          {result?.class_warnings?.length > 0 && (
+            <div className="space-y-1">
+              {result.class_warnings.map((w, i) => (
+                <div key={i} className={`px-3 py-2 text-[10px] uppercase tracking-widest border ${
+                  w.severity === 'high' ? 'border-risk-high/40 bg-risk-high/10 text-risk-high' : 'border-risk-medium/40 bg-risk-medium/10 text-risk-medium'
+                }`}>
+                  <span className="font-bold">{w.type === 'duplicate_therapy' ? 'DUPLICATE THERAPY' : 'CLASS INTERACTION'}</span>
+                  <span className="ml-2 normal-case tracking-normal">{w.message}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <RegimenInterpretationPanel
             resultData={result}
             compact={true}
@@ -3982,35 +4142,99 @@ export default function Dashboard() {
   );
 
   // Mobile Chat View - rendered inline to prevent input focus issues
+  const QUICK_COMMANDS = [
+    { cmd: '/test ', label: 'Test', icon: '\u{1F9EA}' },
+    { cmd: '/poly ', label: 'Poly', icon: '\u{1F48A}' },
+    { cmd: '/current', label: 'Current', icon: '\u{1F4CB}' },
+    { cmd: '/demo ', label: 'Demo', icon: '\u{1F3AF}' },
+    { cmd: '/mutate ', label: 'Mutate', icon: '\u{1F9EC}' },
+    { cmd: '/research ', label: 'Research', icon: '\u{1F52C}' },
+    { cmd: '/class ', label: 'Class', icon: '\u{1F4CA}' },
+  ];
+
+  const formatRelativeTime = (ts) => {
+    if (!ts) return '';
+    const diff = Date.now() - ts;
+    if (diff < 60000) return 'just now';
+    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
+    return new Date(ts).toLocaleDateString();
+  };
+
   const mobileChatContent = (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
-      {/* Under Construction Banner */}
-      <div className="mx-4 mt-4 p-3 border border-risk-medium/40 bg-risk-medium/10 backdrop-blur-sm flex items-center gap-3">
-        <AlertTriangle className="w-5 h-5 text-risk-medium flex-shrink-0" />
-        <div>
-          <p className="text-xs text-risk-medium font-medium uppercase tracking-wider">Under Construction</p>
-          <p className="text-[10px] text-theme-muted">AI Chat is still being developed and may not respond correctly</p>
+      {/* Mode indicator */}
+      <div className="mx-4 mt-4 p-2 border border-theme bg-theme-primary/80 backdrop-blur-sm flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-theme-accent" />
+          <span className="text-[10px] text-theme-muted uppercase tracking-wider">Research Assistant</span>
         </div>
+        {(() => {
+          const prefs = JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}');
+          const isLlm = prefs.mode === 'llm' || (prefs.mode === 'auto' && prefs.accessToken);
+          return isLlm ? (
+            <span className="text-[9px] text-emerald-400 uppercase">LLM Active</span>
+          ) : (
+            <span className="text-[9px] text-theme-dim uppercase">Template Mode</span>
+          );
+        })()}
       </div>
+
+      {/* Context drugs indicator */}
+      {selectedDrugs.length > 0 && (
+        <div className="px-3 py-1.5 border-b border-theme bg-theme-panel/50 flex items-center gap-2 overflow-x-auto">
+          <span className="text-[8px] uppercase tracking-widest text-theme-muted shrink-0">Context:</span>
+          {selectedDrugs.map((d, i) => (
+            <span key={i} className="text-[9px] px-1.5 py-0.5 border border-theme-accent/30 text-theme-accent whitespace-nowrap">{d.name}</span>
+          ))}
+        </div>
+      )}
 
       <div className="flex-1 overflow-y-auto p-4 pb-24 space-y-3">
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center bg-theme-primary/80 backdrop-blur-sm border border-theme p-6">
             <Sparkles className="w-8 h-8 text-theme-dim mb-3" />
             <p className="text-sm text-theme-muted">Ask about drug interactions</p>
-            <p className="text-xs text-theme-dim mt-1">I can help with mechanisms, alternatives, and more</p>
+            <p className="text-xs text-theme-dim mt-1">Type <span className="font-mono text-theme-accent">/</span> for commands, or ask naturally</p>
           </div>
         ) : (
           messages.map((msg, i) => (
             <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] p-3 text-sm leading-relaxed break-words overflow-hidden backdrop-blur-sm ${
-                msg.role === 'user'
-                  ? 'border border-theme-accent/50 bg-theme-accent/10'
-                  : msg.isError
-                    ? 'border border-risk-high/30 bg-risk-high/10 text-risk-high'
-                    : 'border border-theme bg-theme-primary/80'
-              }`}>
-                <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+              <div className="max-w-[85%]">
+                <div className={`p-3 text-sm leading-relaxed break-words overflow-hidden backdrop-blur-sm rounded ${
+                  msg.role === 'user'
+                    ? 'border border-theme-accent/50 bg-theme-accent/10'
+                    : msg.isError
+                      ? 'border border-risk-high/30 bg-risk-high/10 text-risk-high'
+                      : 'border border-theme bg-theme-primary/80'
+                }`}>
+                  <div className="whitespace-pre-wrap break-all">{msg.content}</div>
+                  {/* Citation badges */}
+                  {msg.citations && msg.citations.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-gray-700/50">
+                      <p className="text-[10px] text-theme-muted mb-1 uppercase tracking-wider">Citations:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.citations.map((c, j) => (
+                          <a
+                            key={j}
+                            href={c.url || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[10px] font-bold px-2 py-1 bg-transparent text-theme-primary border border-theme hover:bg-theme-primary/10 transition-colors"
+                          >
+                            {c.label || (c.type === 'pubmed' ? `PMID:${c.pmid}` : c.source)}
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {msg.assistantMode === 'llm' && (
+                    <div className="mt-1 text-[9px] text-emerald-500/60">via Gemini LLM</div>
+                  )}
+                </div>
+                <div className={`text-[8px] text-theme-dim mt-0.5 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                  {formatRelativeTime(msg.timestamp)}
+                </div>
               </div>
             </div>
           ))
@@ -4026,6 +4250,22 @@ export default function Dashboard() {
       </div>
 
       <form onSubmit={handleChatSubmit} className="fixed bottom-16 left-0 right-0 p-3 border-t border-theme bg-theme-primary/95 backdrop-blur-md z-40">
+        {/* Quick command chips */}
+        {!chatInput.trim() && (
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-2 pb-1">
+            {QUICK_COMMANDS.map((qc) => (
+              <button
+                key={qc.cmd}
+                type="button"
+                onClick={() => setChatInput(qc.cmd)}
+                className="px-2 py-1 text-[9px] uppercase tracking-wider border border-theme bg-theme-panel whitespace-nowrap flex items-center gap-1 shrink-0"
+              >
+                <span>{qc.icon}</span>
+                <span>{qc.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="relative">
           <input
             type="text"
@@ -4033,12 +4273,15 @@ export default function Dashboard() {
             onChange={(e) => setChatInput(e.target.value)}
             placeholder="Ask about interactions..."
             disabled={apiStatus !== 'online' || isChatLoading}
-            className="w-full bg-theme-secondary border border-theme py-3 pl-4 pr-12 text-base font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="off"
+            className="w-full bg-theme-secondary border border-theme py-3 pl-4 pr-14 text-base font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50"
           />
           <button
             type="submit"
             disabled={!chatInput.trim() || apiStatus !== 'online' || isChatLoading}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-2 border border-theme-accent/50 text-theme-accent bg-theme-primary disabled:opacity-30"
+            className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center border border-theme-accent/50 text-theme-accent bg-theme-primary disabled:opacity-30"
           >
             <Send className="w-4 h-4" />
           </button>
@@ -4343,9 +4586,54 @@ export default function Dashboard() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Compact Stats in Header */}
+            {/* Rotating DB Stats */}
+            {apiStatus === 'online' && dbStats && (
+              <>
+                {[
+                  { items: [{ icon: Pill, label: 'Drugs', value: dbStats.total_drugs?.toLocaleString() || '0' }, { icon: AlertTriangle, label: 'Alerts', value: dbStats.severity_distribution?.severe?.toLocaleString() || '0' }] },
+                  { items: [{ icon: Activity, label: 'DDIs', value: dbStats.total_interactions?.toLocaleString() || '0' }, { icon: TrendingUp, label: 'Scans', value: dbStats.total_scans?.toLocaleString() || '0' }] },
+                ].map((slot, i) => {
+                  const metric = slot.items[navStatIndex];
+                  const Icon = metric.icon;
+                  return (
+                    <div key={i} className="relative overflow-hidden w-[130px] h-8 border border-theme bg-theme-panel">
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        <motion.div
+                          key={navStatIndex}
+                          initial={{ y: 30, opacity: 0 }}
+                          animate={{ y: 0, opacity: 1 }}
+                          exit={{ y: -30, opacity: 0 }}
+                          transition={{ duration: 0.5, ease: "anticipate" }}
+                          className="absolute inset-0 flex items-center justify-between gap-1.5 px-3 py-1 text-[10px] font-normal uppercase tracking-widest whitespace-nowrap"
+                        >
+                          <div className="flex items-center gap-1.5 overflow-hidden">
+                            <Icon size={12} className="text-theme-secondary shrink-0" />
+                            <span className="text-theme-muted shrink-0">{metric.label}</span>
+                          </div>
+                          <span className="font-bold text-theme-primary truncate">{metric.value}</span>
+                        </motion.div>
+                      </AnimatePresence>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Corrections Indicator */}
             {apiStatus === 'online' && (
-              <StatsDashboard compact onExpand={() => setViewMode('stats')} />
+              <button
+                onClick={() => navigate('/corrections')}
+                className="relative flex items-center gap-2 px-3 h-8 border border-theme hover:border-theme-highlight transition-colors text-[10px] uppercase tracking-widest text-theme-muted hover:text-theme-secondary"
+                title={`${pendingCorrectionsCount} pending corrections`}
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span>Corrections</span>
+                {pendingCorrectionsCount > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center text-[8px] font-bold bg-amber-500 text-black rounded-full">
+                    {pendingCorrectionsCount > 99 ? '99+' : pendingCorrectionsCount}
+                  </span>
+                )}
+              </button>
             )}
 
             {/* API Status */}
@@ -4402,7 +4690,20 @@ export default function Dashboard() {
               </button>
             )}
 
-            <button 
+            <div className="flex items-center gap-2 px-3 h-8 border border-theme hover:border-theme-highlight transition-colors text-[10px] uppercase tracking-widest"
+                 title={`${tokenUsage.queries} queries | In: ${tokenUsage.totalIn.toLocaleString()} | Out: ${tokenUsage.totalOut.toLocaleString()} | $${tokenUsage.totalCost.toFixed(6)} USD\nModel: Gemini 2.5 Flash | $0.15/1M in, $0.60/1M out`}>
+              <Sparkles className="w-3.5 h-3.5 text-theme-muted" />
+              <span className="text-theme-secondary">
+                {tokenUsage.queries > 0
+                  ? `${((tokenUsage.totalIn + tokenUsage.totalOut) / 1000).toFixed(1)}k`
+                  : '0'}{' '}
+                <span className="text-theme-muted">tokens</span>
+              </span>
+              <span className="text-theme-muted">|</span>
+              <span className="text-theme-secondary">${tokenUsage.totalCost.toFixed(4)}</span>
+            </div>
+
+            <button
               onClick={toggleTheme}
               className="p-2 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary"
               title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -4424,7 +4725,14 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="flex h-[calc(100vh-3.5rem)]">
+      {/* Research fullscreen mode — rendered outside the sidebar layout */}
+      {viewMode === 'research' && (
+        <div className="h-[calc(100vh-3.5rem)] overflow-y-auto bg-theme-secondary">
+          <ResearchWorkspace addLog={addLog} selectedDrugs={selectedDrugs} apiStatus={apiStatus} fullscreen />
+        </div>
+      )}
+
+      <div className={`flex h-[calc(100vh-3.5rem)] ${viewMode === 'research' ? 'hidden' : ''}`}>
         {/* Left Panel - Drug Selection */}
         <aside className="w-80 border-r border-theme flex flex-col bg-theme-panel">
           <div className="p-4 border-b border-theme">
@@ -4691,8 +4999,6 @@ export default function Dashboard() {
               onClose={() => setViewMode('analysis')}
             />
           </main>
-        ) : viewMode === 'research' ? (
-          <ResearchWorkspace addLog={addLog} selectedDrugs={selectedDrugs} apiStatus={apiStatus} />
         ) : (
           <>
         {/* Main Content */}
@@ -4894,6 +5200,20 @@ export default function Dashboard() {
                         riskLevel={result.risk_level || result.severity}
                         labelText={result.risk_mode === 'regimen_composite' ? 'Composite Burden' : null}
                       />
+                    </div>
+                  )}
+
+                  {/* Class Warnings */}
+                  {result?.class_warnings?.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      {result.class_warnings.map((w, i) => (
+                        <div key={i} className={`px-3 py-2 text-[10px] uppercase tracking-widest border ${
+                          w.severity === 'high' ? 'border-risk-high/40 bg-risk-high/10 text-risk-high' : 'border-risk-medium/40 bg-risk-medium/10 text-risk-medium'
+                        }`}>
+                          <span className="font-bold">{w.type === 'duplicate_therapy' ? 'DUPLICATE THERAPY' : 'CLASS INTERACTION'}</span>
+                          <span className="ml-2 normal-case tracking-normal">{w.message}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -5203,20 +5523,30 @@ export default function Dashboard() {
           </div>
 
           {/* Chat Section */}
-          <div className="h-80 border-t border-theme flex flex-col">
+          <div className="h-96 border-t border-theme flex flex-col">
             <div className="p-3 border-b border-theme flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <h3 className="text-[10px] font-normal text-theme-muted uppercase tracking-widest">// Research Assistant</h3>
-                <span className="px-2 py-0.5 border border-risk-medium/40 bg-risk-medium/10 text-risk-medium text-[8px] uppercase tracking-wider">Under Construction</span>
+                {(() => {
+                  const prefs = JSON.parse(localStorage.getItem('aegis:assistant-prefs:v1') || '{}');
+                  const isLlm = prefs.mode === 'llm' || (prefs.mode === 'auto' && prefs.accessToken);
+                  return isLlm ? (
+                    <span className="px-2 py-0.5 border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 text-[8px] uppercase tracking-wider">LLM Active</span>
+                  ) : (
+                    <span className="px-2 py-0.5 border border-theme-accent/40 bg-theme-accent/10 text-theme-accent text-[8px] uppercase tracking-wider">Template</span>
+                  );
+                })()}
               </div>
-              {messages.length > 0 && (
-                <button
-                  onClick={() => setMessages([])}
-                  className="text-[10px] text-theme-muted hover:text-theme-accent transition-colors uppercase tracking-wider"
-                >
-                  Clear
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {messages.length > 0 && (
+                  <button
+                    onClick={() => { setMessages([]); setSessionId(null); sessionStorage.removeItem('aegis:chat-messages'); sessionStorage.removeItem('aegis:chat-session-id'); }}
+                    className="text-[10px] text-theme-muted hover:text-theme-accent transition-colors uppercase tracking-wider"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Messages */}
@@ -5225,6 +5555,7 @@ export default function Dashboard() {
                 <div className="flex flex-col items-center justify-center h-full text-center">
                   <Sparkles className="w-5 h-5 text-theme-dim mb-2" />
                   <p className="text-[10px] text-theme-muted">Ask about drug interactions, mechanisms, or alternatives</p>
+                  <p className="text-[10px] text-theme-dim mt-1">Type <span className="font-mono text-theme-accent">/</span> for commands</p>
                 </div>
               ) : (
                 messages.map((msg, i) => (
@@ -5233,20 +5564,119 @@ export default function Dashboard() {
                     className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[85%] p-3 text-xs leading-relaxed ${msg.role === 'user'
+                      className={`max-w-[85%] p-3 text-xs leading-relaxed rounded ${msg.role === 'user'
                         ? 'border border-theme-accent/50 text-theme-primary bg-theme-accent/5'
                         : msg.isError
                           ? 'border border-risk-high/30 text-risk-high'
                           : 'border border-theme text-theme-secondary'
                         }`}
                     >
-                      {msg.content}
-                      {msg.sources && msg.sources.length > 0 && (
+                      <div className="whitespace-pre-wrap break-all">{msg.content}</div>
+                      {/* Citation badges */}
+                      {msg.citations && msg.citations.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-700/50">
+                          <p className="text-[10px] text-theme-muted mb-1 uppercase tracking-wider">Citations:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {msg.citations.map((c, j) => (
+                              <a
+                                key={j}
+                                href={c.url || '#'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[10px] font-bold px-2 py-1 bg-transparent text-theme-primary border border-theme hover:bg-theme-primary/10 transition-colors"
+                              >
+                                {c.label || (c.type === 'pubmed' ? `PMID:${c.pmid}` : c.source)}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Legacy sources fallback */}
+                      {(!msg.citations || msg.citations.length === 0) && msg.sources && msg.sources.length > 0 && (
                         <div className="mt-2 pt-2 border-t border-theme">
                           <p className="text-[10px] text-theme-muted mb-1 uppercase tracking-wider">Sources:</p>
-                          {msg.sources.slice(0, 2).map((s, j) => (
-                            <p key={j} className="text-[10px] text-theme-accent truncate">{s}</p>
+                          {msg.sources.slice(0, 3).map((s, j) => (
+                            <p key={j} className="text-[10px] text-theme-accent truncate">
+                              {typeof s === 'string' ? s : s.title || 'Source'}
+                            </p>
                           ))}
+                        </div>
+                      )}
+                      {/* Mode indicator + correction button */}
+                      <div className="mt-1 flex items-center gap-2">
+                        {msg.assistantMode === 'llm' && (
+                          <span className="text-[9px] text-emerald-500/60">via Gemini LLM</span>
+                        )}
+                        {msg.role === 'assistant' && !msg.isError && msg.assistantMode === 'llm' && (
+                          <button
+                            onClick={() => {
+                              // Try to extract drug names from the previous user message
+                              const prevMsg = messages[i - 1];
+                              const drugs = prevMsg?.content?.match(/\b[A-Z][a-z]{3,}\b/g)?.slice(0, 2) || ['Drug A', 'Drug B'];
+                              setCorrectionForm({
+                                msgIndex: i,
+                                drugA: drugs[0] || 'Drug A',
+                                drugB: drugs[1] || 'Drug B',
+                                gnnSeverity: 'unknown',
+                                gnnRiskScore: 0,
+                                gnnConfidence: 0,
+                              });
+                              setCorrectionSeverity('');
+                              setCorrectionEvidence('');
+                              setCorrectionSource('');
+                            }}
+                            className="text-[9px] text-theme-muted hover:text-amber-400 transition-colors uppercase tracking-wider"
+                          >
+                            [Correct]
+                          </button>
+                        )}
+                      </div>
+                      {/* Inline correction form */}
+                      {correctionForm && correctionForm.msgIndex === i && (
+                        <div className="mt-2 pt-2 border-t border-amber-500/30 space-y-2">
+                          <p className="text-[10px] text-amber-400 uppercase tracking-wider font-bold">Submit Correction</p>
+                          <p className="text-[10px] text-theme-muted">{correctionForm.drugA} + {correctionForm.drugB}</p>
+                          <select
+                            value={correctionSeverity}
+                            onChange={(e) => setCorrectionSeverity(e.target.value)}
+                            className="w-full bg-theme-secondary border border-theme text-xs p-1.5 text-theme-primary focus:outline-none focus:border-amber-500/50"
+                          >
+                            <option value="">Select correct severity...</option>
+                            <option value="none">None (No interaction)</option>
+                            <option value="minor">Minor</option>
+                            <option value="moderate">Moderate</option>
+                            <option value="severe">Severe</option>
+                            <option value="critical">Critical</option>
+                          </select>
+                          <textarea
+                            value={correctionEvidence}
+                            onChange={(e) => setCorrectionEvidence(e.target.value)}
+                            placeholder="Evidence or rationale (optional)"
+                            rows={2}
+                            className="w-full bg-theme-secondary border border-theme text-xs p-1.5 text-theme-primary placeholder:text-theme-dim focus:outline-none focus:border-amber-500/50 resize-none"
+                          />
+                          <input
+                            type="text"
+                            value={correctionSource}
+                            onChange={(e) => setCorrectionSource(e.target.value)}
+                            placeholder="Source (e.g. PMID:12345, Clinical)"
+                            className="w-full bg-theme-secondary border border-theme text-xs p-1.5 text-theme-primary placeholder:text-theme-dim focus:outline-none focus:border-amber-500/50"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleSubmitCorrection}
+                              disabled={!correctionSeverity || correctionSubmitting}
+                              className="text-[10px] px-3 py-1 border border-amber-500/50 text-amber-400 hover:bg-amber-500/10 transition-colors uppercase tracking-wider disabled:opacity-40"
+                            >
+                              {correctionSubmitting ? 'Submitting...' : 'Submit'}
+                            </button>
+                            <button
+                              onClick={() => setCorrectionForm(null)}
+                              className="text-[10px] px-3 py-1 border border-theme text-theme-muted hover:text-theme-primary transition-colors uppercase tracking-wider"
+                            >
+                              Cancel
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -5255,8 +5685,11 @@ export default function Dashboard() {
               )}
               {isChatLoading && (
                 <div className="flex justify-start">
-                  <div className="border border-theme p-3">
-                    <Loader2 className="w-4 h-4 text-theme-accent animate-spin" />
+                  <div className="border border-theme p-3 rounded">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 text-theme-accent animate-spin" />
+                      <span className="text-[10px] text-theme-muted">Analyzing...</span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -5266,18 +5699,36 @@ export default function Dashboard() {
             {/* Chat Input */}
             <form onSubmit={handleChatSubmit} className="p-3 border-t border-theme">
               <div className="relative">
+                <ChatCommandAutocomplete
+                  inputValue={chatInput}
+                  visible={showAutocomplete}
+                  onSelect={(text) => {
+                    setChatInput(text);
+                    setShowAutocomplete(false);
+                  }}
+                />
                 <input
                   type="text"
                   value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  placeholder={apiStatus === 'online' ? "Ask about this interaction..." : "Chat unavailable offline"}
+                  onChange={(e) => {
+                    setChatInput(e.target.value);
+                    setShowAutocomplete(e.target.value.startsWith('/'));
+                  }}
+                  onFocus={() => {
+                    if (chatInput.startsWith('/')) setShowAutocomplete(true);
+                  }}
+                  onBlur={() => {
+                    // Delay to allow click on autocomplete item
+                    setTimeout(() => setShowAutocomplete(false), 200);
+                  }}
+                  placeholder={apiStatus === 'online' ? "Ask about interactions or type / for commands..." : "Chat unavailable offline"}
                   disabled={apiStatus !== 'online' || isChatLoading}
-                  className="w-full bg-theme-secondary border border-theme py-2.5 pl-4 pr-12 text-sm font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50 transition-all disabled:opacity-50"
+                  className="w-full bg-theme-secondary border border-theme py-2.5 pl-4 pr-12 text-sm font-mono placeholder:text-theme-dim text-theme-primary focus:outline-none focus:border-theme-accent/50 transition-all disabled:opacity-50 rounded"
                 />
                 <button
                   type="submit"
                   disabled={!chatInput.trim() || apiStatus !== 'online' || isChatLoading}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 border border-theme-accent/50 text-theme-accent disabled:opacity-30 disabled:cursor-not-allowed hover:bg-theme-accent/10 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 border border-theme-accent/50 text-theme-accent disabled:opacity-30 disabled:cursor-not-allowed hover:bg-theme-accent/10 transition-colors rounded"
                 >
                   <Send className="w-3.5 h-3.5" />
                 </button>

@@ -191,21 +191,105 @@ export async function analyzePolypharmacyDigitalTwin(drugs) {
 }
 
 /**
- * Send message to GraphRAG chatbot
- * @param {string} message - User message
+ * Send message to GraphRAG chatbot (with optional LLM assistant mode)
+ * @param {string} message - User message or slash command
  * @param {Array} contextDrugs - Current drugs in context
  * @param {string} sessionId - Chat session ID
+ * @param {Object} options - Assistant options
+ * @param {string} options.assistantMode - 'auto' | 'llm' | 'legacy'
+ * @param {string} options.accessToken - Password for LLM access
  * @returns {Promise<ChatResponse>}
  */
-export async function sendChatMessage(message, contextDrugs = [], sessionId = null) {
+export async function sendChatMessage(message, contextDrugs = [], sessionId = null, options = {}) {
     return apiRequest('/chat/', {
         method: 'POST',
         body: JSON.stringify({
             message,
             context_drugs: contextDrugs,
             session_id: sessionId,
+            assistant_mode: options.assistantMode || 'auto',
+            access_token: options.accessToken || '',
         }),
     });
+}
+
+/**
+ * Get available assistant slash commands for autocomplete
+ * @returns {Promise<{commands: Array}>}
+ */
+export async function getAssistantCommands() {
+    return apiRequest('/assistant/commands/');
+}
+
+// ============== Correction Memory API (Phase 3) ==============
+
+/**
+ * List corrections, optionally filtered
+ * @param {Object} filters - { status, drug, limit }
+ * @returns {Promise<{corrections: Array, count: number}>}
+ */
+export async function getCorrections(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.status) params.set('status', filters.status);
+    if (filters.drug) params.set('drug', filters.drug);
+    if (filters.limit) params.set('limit', filters.limit);
+    const qs = params.toString();
+    return apiRequest(`/corrections/${qs ? '?' + qs : ''}`);
+}
+
+/**
+ * Create a new prediction correction
+ * @param {Object} correction - correction data
+ * @returns {Promise<{correction: Object}>}
+ */
+export async function createCorrection(correction) {
+    return apiRequest('/corrections/', {
+        method: 'POST',
+        body: JSON.stringify(correction),
+    });
+}
+
+/**
+ * Approve or reject a correction
+ * @param {string} correctionId
+ * @param {string} newStatus - 'approved' or 'rejected'
+ * @param {string} accessToken
+ * @returns {Promise<{correction: Object}>}
+ */
+export async function reviewCorrection(correctionId, newStatus, accessToken = '', extras = {}) {
+    return apiRequest(`/corrections/${correctionId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+            status: newStatus,
+            access_token: accessToken,
+            corrected_severity: extras.correctedSeverity || '',
+            evidence_text: extras.evidenceText || '',
+            evidence_source: extras.evidenceSource || '',
+        }),
+    });
+}
+
+/**
+ * Delete a correction
+ */
+export async function deleteCorrection(correctionId, accessToken = '') {
+    return apiRequest(`/corrections/${correctionId}/?access_token=${encodeURIComponent(accessToken)}`, {
+        method: 'DELETE',
+    });
+}
+
+/**
+ * Get correction stats (counts by status)
+ */
+export async function getCorrectionStats() {
+    return apiRequest('/corrections/stats/');
+}
+
+/**
+ * Export approved corrections as GNN training data
+ */
+export async function exportTrainingData(accessToken = '') {
+    return apiRequest(`/corrections/export/?access_token=${encodeURIComponent(accessToken)}`);
 }
 
 /**
@@ -352,6 +436,22 @@ export async function compareDrugs(drugNames) {
     });
 }
 
+// ============== Audit Log API ==============
+
+/**
+ * Get audit trail and summary (password-protected)
+ * @param {string} accessToken - Admin access password
+ * @param {Object} filters - { type, limit, sinceHours }
+ * @returns {Promise<{trail: Array, summary: Object}>}
+ */
+export async function getAuditLog(accessToken, filters = {}) {
+    const params = new URLSearchParams({ access_token: accessToken });
+    if (filters.type) params.set('type', filters.type);
+    if (filters.limit) params.set('limit', filters.limit);
+    if (filters.sinceHours) params.set('since_hours', filters.sinceHours);
+    return apiRequest(`/audit/?${params.toString()}`);
+}
+
 // ============== Type Definitions (for reference) ==============
 
 /**
@@ -428,6 +528,9 @@ export async function compareDrugs(drugNames) {
  * @property {Array} sources - Citation sources
  * @property {Array<string>} related_drugs - Related drug names
  * @property {string} session_id - Session identifier
+ * @property {Array} citations - Structured citation objects (LLM mode)
+ * @property {string} assistant_mode - 'llm' | 'legacy'
+ * @property {string} model_used - Gemini model name (LLM mode only)
  */
 
 export default {
@@ -437,6 +540,13 @@ export default {
     analyzePolypharmacy,
     analyzePolypharmacyDigitalTwin,
     sendChatMessage,
+    getAssistantCommands,
+    getCorrections,
+    createCorrection,
+    reviewCorrection,
+    deleteCorrection,
+    getCorrectionStats,
+    exportTrainingData,
     getPredictionHistory,
     getDrugInfo,
     getInteractionInfo,
@@ -445,4 +555,5 @@ export default {
     computeCalibrationMetrics,
     getTherapeuticAlternatives,
     compareDrugs,
+    getAuditLog,
 };

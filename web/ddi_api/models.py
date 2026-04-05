@@ -168,14 +168,49 @@ class SideEffect(models.Model):
 class SystemStats(models.Model):
     """
     Global system statistics for the dashboard.
-    Tracks total scans run by all users.
+    Tracks total scans run by all users and LLM token usage.
     """
     name = models.CharField(max_length=50, unique=True, default='global')
     total_scans = models.PositiveIntegerField(default=0)
+    # LLM token tracking (global, cumulative)
+    llm_input_tokens = models.PositiveIntegerField(default=0)
+    llm_output_tokens = models.PositiveIntegerField(default=0)
+    llm_queries = models.PositiveIntegerField(default=0)
+    llm_cost_usd = models.FloatField(default=0.0)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"{self.name} stats (Scans: {self.total_scans})"
+        return f"{self.name} stats (Scans: {self.total_scans}, LLM queries: {self.llm_queries})"
+
+class AuditLog(models.Model):
+    """
+    Audit trail for every significant event in Project Aegis.
+    Used for compliance, debugging, and usage analytics.
+    """
+    EVENT_TYPES = [
+        ('prediction', 'DDI Prediction'),
+        ('poly_prediction', 'Polypharmacy Prediction'),
+        ('correction_created', 'Correction Created'),
+        ('correction_reviewed', 'Correction Reviewed'),
+        ('chat_query', 'Chat Query'),
+        ('export', 'Data Export'),
+    ]
+    event_type = models.CharField(max_length=30, choices=EVENT_TYPES, db_index=True)
+    actor = models.CharField(max_length=100, default='user')
+    session_id = models.CharField(max_length=100, blank=True, null=True)
+    payload = models.JSONField(default=dict)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['event_type', 'created_at']),
+        ]
+
+    def __str__(self):
+        return f"[{self.event_type}] {self.created_at}"
+
 
 class PredictionLog(models.Model):
     """

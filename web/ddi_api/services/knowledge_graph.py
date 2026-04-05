@@ -81,10 +81,15 @@ class KnowledgeGraphService:
             "CREATE CONSTRAINT enzyme_id IF NOT EXISTS FOR (e:Enzyme) REQUIRE e.uniprot_id IS UNIQUE",
             "CREATE CONSTRAINT side_effect_id IF NOT EXISTS FOR (s:SideEffect) REQUIRE s.umls_id IS UNIQUE",
             
+            # Correction Memory (Phase 3)
+            "CREATE CONSTRAINT correction_id IF NOT EXISTS FOR (c:Correction) REQUIRE c.id IS UNIQUE",
+
             # Indexes for faster lookups
             "CREATE INDEX drug_smiles IF NOT EXISTS FOR (d:Drug) ON (d.smiles)",
             "CREATE INDEX drug_category IF NOT EXISTS FOR (d:Drug) ON (d.category)",
             "CREATE INDEX interaction_severity IF NOT EXISTS FOR ()-[i:INTERACTS_WITH]-() ON (i.severity)",
+            "CREATE INDEX correction_status IF NOT EXISTS FOR (c:Correction) ON (c.status)",
+            "CREATE INDEX correction_drugs IF NOT EXISTS FOR (c:Correction) ON (c.drug_a, c.drug_b)",
         ]
         
         for query in queries:

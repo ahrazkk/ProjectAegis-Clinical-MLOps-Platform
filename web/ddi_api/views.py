@@ -29,6 +29,8 @@ from .serializers import (
     PolypharmacyResponseSerializer,
     ChatRequestSerializer,
     ChatResponseSerializer,
+    CorrectionCreateSerializer,
+    CorrectionReviewSerializer,
     DrugSerializer,
     DrugDrugInteractionSerializer,
     PredictionLogSerializer,
@@ -43,6 +45,27 @@ from .services.calibration_metrics import generate_calibration_report
 from .system_stats import get_total_scans, increment_total_scans
 
 logger = logging.getLogger(__name__)
+
+
+def _get_client_ip(request) -> str:
+    """Extract client IP from request, checking X-Forwarded-For first."""
+    return request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', ''))
+
+
+def _audit_log(event_type, request, payload=None, session_id=None):
+    """Fire-and-forget audit log helper. Never raises."""
+    try:
+        from .services.audit_service import AuditService
+        AuditService.log_event(
+            event_type=event_type,
+            payload=payload or {},
+            actor='user',
+            session_id=session_id,
+            ip_address=_get_client_ip(request),
+        )
+    except Exception as exc:
+        logger.warning('Audit log (%s) failed: %s', event_type, exc)
+
 
 # Clinical scoring policy constants for uncertain known-interaction evidence.
 UNKNOWN_SEVERITY_EVIDENCE_PRIOR = 0.30
@@ -698,6 +721,24 @@ class DDIPredictionView(APIView):
         except Exception as exc:
             logger.warning('Failed to increment scan counter for /predict: %s', exc)
 
+        # Audit log
+        _audit_log('prediction', request, payload={
+            'drug_a': drug_a.get('name', ''),
+            'drug_b': drug_b.get('name', ''),
+            'risk_score': float(response_data.get('risk_score', 0)),
+            'severity': response_data.get('severity', ''),
+        })
+
+        # Add class warnings
+        try:
+            from .services.drug_class_service import DrugClassService
+            drug_a_name = response_data.get('drug_a', drug_a.get('name', ''))
+            drug_b_name = response_data.get('drug_b', drug_b.get('name', ''))
+            class_warnings = DrugClassService.check_class_warnings([drug_a_name, drug_b_name])
+            response_data['class_warnings'] = class_warnings
+        except Exception:
+            response_data['class_warnings'] = []
+
         return Response(response_data)
 
 
@@ -902,8 +943,22 @@ class PolypharmacyView(APIView):
         except Exception as exc:
             logger.warning('Failed to increment scan counter for /polypharmacy: %s', exc)
 
-        return Response(response_data)
-        
+        # Audit log
+        _audit_log('poly_prediction', request, payload={
+            'drug_count': len(drugs),
+            'composite_risk': response_data.get('regimen_risk_score', 0),
+            'max_risk': response_data.get('max_risk_score', 0),
+        })
+
+        # Add class warnings
+        try:
+            from .services.drug_class_service import DrugClassService
+            drug_names = [drug.get('name', '') for drug in drugs]
+            class_warnings = DrugClassService.check_class_warnings(drug_names)
+            response_data['class_warnings'] = class_warnings
+        except Exception:
+            response_data['class_warnings'] = []
+
         return Response(response_data)
 
 
@@ -965,51 +1020,119 @@ class PolypharmacyDigitalTwinView(APIView):
 class ChatView(APIView):
     """
     POST /api/v1/chat/
-    
+
     GraphRAG-powered research assistant.
     Answers clinical questions using knowledge graph and literature.
+    Supports optional LLM mode (Gemini) with access token gating.
     """
-    
+
     def post(self, request):
         from .services.graphrag_chatbot import get_chatbot
-        
+
         serializer = ChatRequestSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
+
         data = serializer.validated_data
         message = data['message']
         context_drugs = data.get('context_drugs', [])
         session_id = data.get('session_id') or str(uuid.uuid4())
-        
+        assistant_mode = data.get('assistant_mode', 'auto')
+        access_token = data.get('access_token', '')
+
+        # --- Access control for LLM features ---
+        assistant_config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        llm_enabled = assistant_config.get('enabled', False)
+        password = assistant_config.get('access_password', '')
+
+        use_llm = False
+        if assistant_mode in ('llm', 'auto') and llm_enabled:
+            if password and access_token == password:
+                use_llm = True
+            elif assistant_mode == 'llm':
+                # Explicitly requested LLM but wrong/missing password
+                return Response(
+                    {'error': 'Invalid access token for assistant mode'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # 'auto' mode silently falls back to legacy if password wrong
+
         try:
-            # Use GraphRAG chatbot for intelligent responses
             chatbot = get_chatbot()
+            chatbot.use_llm = use_llm
             result = chatbot.process_message(
                 message=message,
                 context_drugs=context_drugs,
                 session_id=session_id
             )
-            
+
+            gemini_config = getattr(settings, 'GEMINI_CONFIG', {})
+            token_usage = getattr(result, 'token_usage', None)
+
+            # Update global LLM usage stats
+            if token_usage:
+                try:
+                    from .models import SystemStats
+                    from django.db.models import F
+                    SystemStats.objects.filter(name='global').update(
+                        llm_input_tokens=F('llm_input_tokens') + (token_usage.get('input_tokens', 0)),
+                        llm_output_tokens=F('llm_output_tokens') + (token_usage.get('output_tokens', 0)),
+                        llm_queries=F('llm_queries') + 1,
+                        llm_cost_usd=F('llm_cost_usd') + (token_usage.get('estimated_cost_usd', 0)),
+                    )
+                except Exception as exc:
+                    logger.warning('Failed to update global LLM stats: %s', exc)
+
+            # Fetch global totals for response
+            global_usage = None
+            try:
+                from .models import SystemStats
+                stats = SystemStats.objects.filter(name='global').values(
+                    'llm_input_tokens', 'llm_output_tokens', 'llm_queries', 'llm_cost_usd'
+                ).first()
+                if stats:
+                    global_usage = {
+                        'input_tokens': stats['llm_input_tokens'],
+                        'output_tokens': stats['llm_output_tokens'],
+                        'queries': stats['llm_queries'],
+                        'cost_usd': stats['llm_cost_usd'],
+                    }
+            except Exception:
+                pass
+
             response_data = {
                 'response': result.response,
                 'sources': result.sources,
                 'related_drugs': result.related_drugs,
-                'session_id': session_id
+                'session_id': session_id,
+                'citations': result.citations or [],
+                'assistant_mode': 'llm' if use_llm else 'legacy',
+                'model_used': gemini_config.get('model', '') if use_llm else '',
+                'token_usage': token_usage,
+                'global_usage': global_usage,
             }
-            
+
         except Exception as e:
             logger.error(f"GraphRAG chatbot error: {e}")
-            # Fallback to simple response
             response_data = {
                 'response': self._fallback_response(message),
                 'sources': [{'title': 'DrugBank Database', 'url': 'https://go.drugbank.com/', 'type': 'database'}],
                 'related_drugs': context_drugs,
-                'session_id': session_id
+                'session_id': session_id,
+                'citations': [],
+                'assistant_mode': 'legacy',
+                'model_used': '',
             }
-        
+
+        # Audit log
+        _audit_log('chat_query', request, payload={
+            'message_length': len(message),
+            'is_command': message.startswith('/'),
+            'assistant_mode': response_data.get('assistant_mode', 'legacy'),
+        }, session_id=session_id)
+
         return Response(response_data)
-    
+
     def _fallback_response(self, message: str) -> str:
         """Generate fallback response if GraphRAG fails."""
         return (
@@ -1017,6 +1140,176 @@ class ChatView(APIView):
             "mechanisms of action, and clinical recommendations.\n\n"
             "Try asking about specific drugs like Warfarin, Aspirin, or Metformin!"
         )
+
+
+class AssistantCommandsView(APIView):
+    """
+    GET /api/v1/assistant/commands/
+
+    Returns the list of available slash commands for frontend autocomplete.
+    """
+
+    def get(self, request):
+        from .services.command_router import get_command_list
+        return Response({'commands': get_command_list()})
+
+
+class CorrectionListCreateView(APIView):
+    """
+    GET  /api/v1/corrections/          — list corrections (optional ?status=pending&drug=Warfarin)
+    POST /api/v1/corrections/          — create a new correction
+    """
+
+    def _check_access(self, token: str) -> bool:
+        config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        password = config.get('access_password', '')
+        return bool(password and token == password)
+
+    def get(self, request):
+        from .services.correction_memory import get_correction_memory
+
+        status_filter = request.query_params.get('status')
+        drug_filter = request.query_params.get('drug')
+        limit = min(int(request.query_params.get('limit', 50)), 200)
+
+        mem = get_correction_memory()
+        corrections = mem.get_corrections(status=status_filter, drug_name=drug_filter, limit=limit)
+        return Response({'corrections': corrections, 'count': len(corrections)})
+
+    def post(self, request):
+        from .services.correction_memory import get_correction_memory
+
+        serializer = CorrectionCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        data = serializer.validated_data
+        is_auto_capture = str(data.get('evidence_source', '')).startswith('auto-capture:')
+        if not is_auto_capture and not self._check_access(data.get('access_token', '')):
+            return Response({'error': 'Invalid access token'}, status=status.HTTP_403_FORBIDDEN)
+
+        mem = get_correction_memory()
+        correction = mem.create_correction(
+            drug_a=data['drug_a'],
+            drug_b=data['drug_b'],
+            gnn_severity=data['gnn_severity'],
+            gnn_risk_score=data['gnn_risk_score'],
+            gnn_confidence=data['gnn_confidence'],
+            corrected_severity=data['corrected_severity'],
+            evidence_text=data.get('evidence_text', ''),
+            evidence_source=data.get('evidence_source', ''),
+        )
+        if correction:
+            # Audit log
+            _audit_log('correction_created', request, payload={
+                'drug_a': data['drug_a'],
+                'drug_b': data['drug_b'],
+                'gnn_confidence': data.get('gnn_confidence', 0),
+                'correction_id': correction.get('id', ''),
+            })
+            return Response({'correction': correction}, status=status.HTTP_201_CREATED)
+        return Response({'error': 'Failed to create correction'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class CorrectionDetailView(APIView):
+    """
+    GET    /api/v1/corrections/<id>/          — get a single correction
+    PATCH  /api/v1/corrections/<id>/          — approve or reject
+    DELETE /api/v1/corrections/<id>/          — delete
+    """
+
+    def _check_access(self, request) -> bool:
+        config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        password = config.get('access_password', '')
+        token = request.data.get('access_token', '') or request.query_params.get('access_token', '')
+        return bool(password and token == password)
+
+    def get(self, request, correction_id):
+        from .services.correction_memory import get_correction_memory
+        mem = get_correction_memory()
+        correction = mem.get_correction_by_id(correction_id)
+        if correction:
+            return Response({'correction': correction})
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def patch(self, request, correction_id):
+        from .services.correction_memory import get_correction_memory
+
+        serializer = CorrectionReviewSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        if not self._check_access(request):
+            return Response({'error': 'Invalid access token'}, status=status.HTTP_403_FORBIDDEN)
+
+        data = serializer.validated_data
+        mem = get_correction_memory()
+        new_status = data['status']
+        correction = mem.review_correction(
+            correction_id,
+            new_status,
+            corrected_severity=data.get('corrected_severity', ''),
+            evidence_text=data.get('evidence_text', ''),
+            evidence_source=data.get('evidence_source', ''),
+        )
+        if correction:
+            # Refresh calibrator when a correction is approved
+            if new_status == 'approved':
+                try:
+                    from .services.confidence_calibrator import get_confidence_calibrator
+                    get_confidence_calibrator().refresh()
+                except Exception:
+                    pass
+            # Audit log
+            _audit_log('correction_reviewed', request, payload={
+                'correction_id': correction_id,
+                'new_status': new_status,
+            })
+            return Response({'correction': correction})
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, correction_id):
+        from .services.correction_memory import get_correction_memory
+        if not self._check_access(request):
+            return Response({'error': 'Invalid access token'}, status=status.HTTP_403_FORBIDDEN)
+
+        mem = get_correction_memory()
+        deleted = mem.delete_correction(correction_id)
+        if deleted:
+            return Response({'deleted': True})
+        return Response({'error': 'Not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class CorrectionStatsView(APIView):
+    """GET /api/v1/corrections/stats/ — counts by status."""
+
+    def get(self, request):
+        from .services.correction_memory import get_correction_memory
+        mem = get_correction_memory()
+        counts = mem.count_by_status()
+        return Response(counts)
+
+
+class CorrectionExportView(APIView):
+    """GET /api/v1/corrections/export/ — export approved corrections as training data."""
+
+    def get(self, request):
+        config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        password = config.get('access_password', '')
+        token = request.query_params.get('access_token', '')
+        if not (password and token == password):
+            return Response({'error': 'Invalid access token'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.correction_memory import get_correction_memory
+        mem = get_correction_memory()
+        data = mem.export_training_data()
+
+        # Audit log
+        _audit_log('export', request, payload={
+            'export_count': len(data),
+        })
+
+        return Response({'training_data': data, 'count': len(data)})
 
 
 class DrugSearchView(APIView):
@@ -2352,3 +2645,36 @@ class MechanismMapView(APIView):
                 'overall_risk': overall_risk,
             },
         }
+
+
+class AuditLogView(APIView):
+    """
+    GET /api/v1/audit/
+
+    Returns the audit trail and summary. Password-protected via access_token.
+    Query params:
+      - access_token (required)
+      - type: filter by event_type
+      - limit: max results (default 50, max 200)
+      - since_hours: only events in the last N hours
+    """
+
+    def get(self, request):
+        config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        password = config.get('access_password', '')
+        token = request.query_params.get('access_token', '')
+        if not (password and token == password):
+            return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        event_type = request.query_params.get('type')
+        limit = min(int(request.query_params.get('limit', 50)), 200)
+        since = request.query_params.get('since_hours')
+
+        from .services.audit_service import AuditService
+        trail = AuditService.get_trail(
+            event_type=event_type,
+            limit=limit,
+            since_hours=int(since) if since else None,
+        )
+        summary = AuditService.get_summary()
+        return Response({'trail': trail, 'summary': summary})

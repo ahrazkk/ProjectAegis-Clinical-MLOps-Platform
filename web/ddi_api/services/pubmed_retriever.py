@@ -32,6 +32,7 @@ class RetrievedContext:
     title: str
     source: str  # 'pubmed', 'local', 'template'
     relevance_score: float
+    abstract_snippet: str = ''
 import time
 
 
@@ -58,6 +59,11 @@ class PubMedRetriever:
         self.timeout = config.get('timeout_seconds', 10)
         self.cache_ttl = config.get('cache_ttl_hours', 24) * 3600  # Convert to seconds
         self.max_retries = 3
+        self.api_key = getattr(settings, 'NCBI_API_KEY', '')
+        if self.api_key:
+            # NCBI allows 10 req/sec with API key vs 3 without
+            self._min_request_interval = 0.15
+            logger.info("NCBI API key configured - using higher rate limits")
     
     def _rate_limit_wait(self):
         """Enforce rate limiting between API requests."""
@@ -129,6 +135,8 @@ class PubMedRetriever:
             'retmode': 'json',
             'sort': 'relevance'
         }
+        if self.api_key:
+            params['api_key'] = self.api_key
         
         response = self._make_request_with_retry(url, params)
         if response is None:
@@ -162,6 +170,8 @@ class PubMedRetriever:
             'rettype': 'abstract',
             'retmode': 'xml'
         }
+        if self.api_key:
+            params['api_key'] = self.api_key
         
         response = self._make_request_with_retry(url, params)
         if response is None:
@@ -359,6 +369,93 @@ class PubMedRetriever:
         # Return None to trigger template-based prediction
         logger.info(f"No high-quality interaction sentences found for '{drug1}' + '{drug2}', using template fallback")
         return None
+
+    def retrieve_multiple(self, drug1: str, drug2: str, max_results: int = 5) -> List[RetrievedContext]:
+        """
+        Retrieve multiple PubMed context results for a drug pair.
+
+        Returns all candidates above MIN_INTERACTION_SCORE, capped at max_results,
+        each with abstract_snippet filled (first 300 chars of abstract).
+
+        Args:
+            drug1: First drug name
+            drug2: Second drug name
+            max_results: Maximum number of results to return
+
+        Returns:
+            List of RetrievedContext objects, sorted by relevance score descending
+        """
+        logger.info(f"RAG multi-retrieval starting for: {drug1} + {drug2} (max={max_results})")
+
+        # Search PubMed
+        pmids = self.search_pmids(drug1, drug2)
+        if not pmids:
+            logger.warning(f"No PubMed results for '{drug1}' + '{drug2}'")
+            return []
+
+        logger.info(f"Found PMIDs: {pmids}")
+
+        # Fetch abstracts
+        abstracts = self.fetch_abstracts(pmids)
+        if not abstracts:
+            logger.warning("Failed to fetch abstracts")
+            return []
+
+        logger.info(f"Fetched {len(abstracts)} abstracts")
+
+        # Score threshold - sentences must have at least this score to be considered
+        # Score of 4+ means: both drugs (2) + at least one strong keyword (2)
+        MIN_INTERACTION_SCORE = 4
+
+        # Collect all candidate sentences from all abstracts
+        all_candidates = []
+
+        for abstract in abstracts:
+            abs_lower = abstract['abstract'].lower()
+            drug1_lower = drug1.lower()
+            drug2_lower = drug2.lower()
+
+            has_drug1 = drug1_lower in abs_lower
+            has_drug2 = drug2_lower in abs_lower
+
+            logger.info(f"PMID {abstract['pmid']}: {drug1}={has_drug1}, {drug2}={has_drug2}")
+
+            if has_drug1 and has_drug2:
+                best_sentence, score = self.extract_relevant_sentence(
+                    abstract['abstract'],
+                    drug1,
+                    drug2
+                )
+
+                if best_sentence and score >= MIN_INTERACTION_SCORE:
+                    all_candidates.append({
+                        'sentence': best_sentence,
+                        'score': score,
+                        'pmid': abstract['pmid'],
+                        'title': abstract['title'],
+                        'abstract_snippet': abstract['abstract'][:300],
+                    })
+                    logger.info(f"PMID {abstract['pmid']}: Found sentence with score {score}")
+
+        # Sort by score descending and cap at max_results
+        all_candidates.sort(key=lambda x: x['score'], reverse=True)
+        all_candidates = all_candidates[:max_results]
+
+        # Convert to RetrievedContext objects
+        results = []
+        for candidate in all_candidates:
+            relevance = min(1.0, candidate['score'] / 10.0)
+            results.append(RetrievedContext(
+                sentence=candidate['sentence'],
+                pmid=candidate['pmid'],
+                title=candidate['title'],
+                source='pubmed',
+                relevance_score=relevance,
+                abstract_snippet=candidate['abstract_snippet'],
+            ))
+
+        logger.info(f"Multi-retrieval returned {len(results)} results for '{drug1}' + '{drug2}'")
+        return results
 
 
 # Singleton instance

@@ -20,6 +20,11 @@ from .views import (
     PolypharmacyView,
     PolypharmacyDigitalTwinView,
     ChatView,
+    AssistantCommandsView,
+    CorrectionListCreateView,
+    CorrectionDetailView,
+    CorrectionStatsView,
+    CorrectionExportView,
     DrugSearchView,
     HealthCheckView,
     DrugViewSet,
@@ -36,6 +41,7 @@ from .views import (
     GraphEdgesView,
     DrugBiologyView,
     MechanismMapView,
+    AuditLogView,
 )
 
 # Scanner endpoints
@@ -59,6 +65,11 @@ urlpatterns = [
     path('polypharmacy/', PolypharmacyView.as_view(), name='polypharmacy'),
     path('polypharmacy-digital-twin/', PolypharmacyDigitalTwinView.as_view(), name='polypharmacy-digital-twin'),
     path('chat/', ChatView.as_view(), name='chat'),
+    path('assistant/commands/', AssistantCommandsView.as_view(), name='assistant-commands'),
+    path('corrections/', CorrectionListCreateView.as_view(), name='corrections-list'),
+    path('corrections/stats/', CorrectionStatsView.as_view(), name='corrections-stats'),
+    path('corrections/export/', CorrectionExportView.as_view(), name='corrections-export'),
+    path('corrections/<str:correction_id>/', CorrectionDetailView.as_view(), name='correction-detail'),
     
     # Search
     path('search/', DrugSearchView.as_view(), name='drug-search'),
@@ -93,6 +104,9 @@ urlpatterns = [
     # Knowledge Graph V2: Biology endpoints
     path('graph/drug-biology/', DrugBiologyView.as_view(), name='drug-biology'),
     path('graph/mechanism-map/', MechanismMapView.as_view(), name='mechanism-map'),
+
+    # Audit trail
+    path('audit/', AuditLogView.as_view(), name='audit-log'),
 
     # ViewSet routes
     path('', include(router.urls)),

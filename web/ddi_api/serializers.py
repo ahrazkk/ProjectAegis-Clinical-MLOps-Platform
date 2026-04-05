@@ -49,6 +49,11 @@ class ChatRequestSerializer(serializers.Serializer):
         default=list
     )
     session_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    # LLM Research Assistant fields (optional, backward-compatible)
+    assistant_mode = serializers.ChoiceField(
+        choices=['auto', 'llm', 'legacy'], default='auto', required=False
+    )
+    access_token = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 # ============== Response Serializers ==============
@@ -127,6 +132,40 @@ class ChatResponseSerializer(serializers.Serializer):
         required=False
     )
     session_id = serializers.CharField()
+    # LLM Research Assistant fields (optional, backward-compatible)
+    citations = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+    assistant_mode = serializers.CharField(required=False, default='legacy')
+    model_used = serializers.CharField(required=False, default='', allow_blank=True)
+
+
+# ============== Correction Memory Serializers (Phase 3) ==============
+
+class CorrectionCreateSerializer(serializers.Serializer):
+    """Request body for creating a prediction correction."""
+    drug_a = serializers.CharField(max_length=255)
+    drug_b = serializers.CharField(max_length=255)
+    gnn_severity = serializers.CharField(max_length=20)
+    gnn_risk_score = serializers.FloatField(min_value=0, max_value=1)
+    gnn_confidence = serializers.FloatField(min_value=0, max_value=1)
+    corrected_severity = serializers.ChoiceField(
+        choices=['', 'none', 'minor', 'moderate', 'severe', 'critical'],
+        required=False, default=''
+    )
+    evidence_text = serializers.CharField(required=False, allow_blank=True, default='')
+    evidence_source = serializers.CharField(required=False, allow_blank=True, default='')
+    access_token = serializers.CharField(required=False, allow_blank=True, default='')
+
+
+class CorrectionReviewSerializer(serializers.Serializer):
+    """Request body for approving/rejecting a correction with optional field updates."""
+    status = serializers.ChoiceField(choices=['approved', 'rejected'])
+    corrected_severity = serializers.ChoiceField(
+        choices=['', 'none', 'minor', 'moderate', 'severe', 'critical'],
+        required=False, default=''
+    )
+    evidence_text = serializers.CharField(required=False, allow_blank=True, default='')
+    evidence_source = serializers.CharField(required=False, allow_blank=True, default='')
+    access_token = serializers.CharField(required=False, allow_blank=True, default='')
 
 
 # ============== Model Serializers ==============
