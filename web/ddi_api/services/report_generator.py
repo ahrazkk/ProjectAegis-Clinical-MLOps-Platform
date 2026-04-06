@@ -49,26 +49,26 @@ BRAND = {
     'body': '#334155',
     'muted': '#64748b',
     'light_muted': '#94a3b8',
-    'border': '#475569',
-    'border_light': '#334155',
-    'bg_alt': '#1e293b',
-    'bg_light': '#1e293b',
-    'bg_panel': '#0f172a',
-    'bg_card': '#162032',
-    'cyan': '#06b6d4',
-    'cyan_dark': '#0891b2',
-    'green': '#22c55e',
-    'yellow': '#eab308',
-    'orange': '#f97316',
-    'red': '#ef4444',
-    'purple': '#a855f7',
+    'border': '#cbd5e1',
+    'border_light': '#e2e8f0',
+    'bg_alt': '#f8fafc',
+    'bg_light': '#f1f5f9',
+    'bg_panel': '#ffffff',
+    'bg_card': '#f8fafc',
+    'cyan': '#0891b2',
+    'cyan_dark': '#0e7490',
+    'green': '#16a34a',
+    'yellow': '#ca8a04',
+    'orange': '#ea580c',
+    'red': '#dc2626',
+    'purple': '#9333ea',
     'white': '#ffffff',
-    'teal': '#14b8a6',
-    'indigo': '#6366f1',
-    'pink': '#ec4899',
-    'text_primary': '#e2e8f0',
-    'text_secondary': '#cbd5e1',
-    'text_muted': '#94a3b8',
+    'teal': '#0d9488',
+    'indigo': '#4f46e5',
+    'pink': '#db2777',
+    'text_primary': '#0f172a',
+    'text_secondary': '#334155',
+    'text_muted': '#64748b',
 }
 
 # Risk tier colors
@@ -136,16 +136,13 @@ def build_filename(drug_names: List[str], report_type: str, tier: str) -> str:
 # ---------------------------------------------------------------------------
 def _page_footer(canvas, doc):
     canvas.saveState()
-    # Dark page background
-    canvas.setFillColor(colors.HexColor(BRAND['dark']))
-    canvas.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
     # Footer text
     canvas.setFont('Helvetica', 7)
     canvas.setFillColor(colors.HexColor(BRAND['text_muted']))
     canvas.drawCentredString(PAGE_W / 2, 28,
                               f'Project Aegis  |  Drug-Drug Interaction Intelligence Platform  |  Page {doc.page}')
-    # Top cyan accent line
-    canvas.setStrokeColor(colors.HexColor(BRAND['cyan']))
+    # Top accent line — dark slate
+    canvas.setStrokeColor(colors.HexColor(BRAND['dark']))
     canvas.setLineWidth(2)
     canvas.line(46, PAGE_H - 34, PAGE_W - 46, PAGE_H - 34)
     # Bottom subtle line
@@ -168,10 +165,10 @@ def _build_styles():
                                     textColor=colors.HexColor(BRAND['text_muted']),
                                     alignment=TA_CENTER, spaceAfter=4)
     s['section'] = ParagraphStyle('Sec', parent=ss['Heading2'], fontSize=13, leading=17,
-                                   textColor=colors.HexColor(BRAND['cyan']),
+                                   textColor=colors.HexColor(BRAND['cyan_dark']),
                                    spaceBefore=14, spaceAfter=5)
     s['subsection'] = ParagraphStyle('Sub', parent=ss['Heading3'], fontSize=11, leading=14,
-                                      textColor=colors.HexColor(BRAND['teal']),
+                                      textColor=colors.HexColor(BRAND['dark']),
                                       spaceBefore=8, spaceAfter=3)
     s['body'] = ParagraphStyle('B', parent=ss['Normal'], fontSize=10, leading=14,
                                 textColor=colors.HexColor(BRAND['text_secondary']),
@@ -182,9 +179,9 @@ def _build_styles():
                                      textColor=colors.HexColor(BRAND['text_secondary']),
                                      spaceAfter=6, alignment=TA_JUSTIFY,
                                      leftIndent=8, rightIndent=8,
-                                     borderColor=colors.HexColor(BRAND['cyan']),
+                                     borderColor=colors.HexColor(BRAND['border']),
                                      borderWidth=1, borderPadding=8,
-                                     backColor=colors.HexColor(BRAND['bg_card']))
+                                     backColor=colors.HexColor(BRAND['bg_alt']))
     s['label'] = ParagraphStyle('L', parent=ss['Normal'], fontSize=9, leading=12,
                                  textColor=colors.HexColor(BRAND['text_muted']))
     s['stat_value'] = ParagraphStyle('SV', parent=ss['Normal'], fontSize=18, leading=22,
@@ -199,8 +196,9 @@ def _build_styles():
                                textColor=colors.HexColor(BRAND['text_secondary']),
                                leftIndent=12, spaceAfter=1)
     s['drug_header'] = ParagraphStyle('DH', parent=ss['Heading3'], fontSize=12, leading=15,
-                                       textColor=colors.HexColor(BRAND['cyan']),
+                                       textColor=colors.HexColor(BRAND['cyan_dark']),
                                        spaceBefore=6, spaceAfter=3,
+                                       backColor=colors.HexColor(BRAND['bg_alt']),
                                        borderColor=colors.HexColor(BRAND['cyan']),
                                        borderWidth=0.5, borderPadding=(4, 4, 4, 4))
     return s
@@ -233,16 +231,16 @@ def _draw_risk_gauge(risk_score: float, width: float = 220, height: float = 130)
         start_angle = 180 - (hi * 180)
         extent = (hi - lo) * 180
         w = Wedge(cx, cy, radius, start_angle, start_angle + extent,
-                  fillColor=colors.HexColor(col), strokeColor=colors.HexColor(BRAND['dark']), strokeWidth=1)
+                  fillColor=colors.HexColor(col), strokeColor=colors.white, strokeWidth=1)
         d.add(w)
-    # Inner dark circle for donut
-    d.add(Circle(cx, cy, radius * 0.60, fillColor=colors.HexColor(BRAND['dark']), strokeColor=None))
+    # Inner white circle for donut
+    d.add(Circle(cx, cy, radius * 0.60, fillColor=colors.white, strokeColor=None))
     # Needle
     angle_rad = math.radians(180 - (min(max(risk_score, 0), 1.0) * 180))
     needle_len = radius * 0.52
     nx = cx + needle_len * math.cos(angle_rad)
     ny = cy + needle_len * math.sin(angle_rad)
-    d.add(Line(cx, cy, nx, ny, strokeColor=colors.HexColor(BRAND['text_primary']), strokeWidth=2))
+    d.add(Line(cx, cy, nx, ny, strokeColor=colors.HexColor(BRAND['dark']), strokeWidth=2))
     d.add(Circle(cx, cy, 4, fillColor=colors.HexColor(BRAND['cyan']), strokeColor=None))
     # Score text
     d.add(String(cx, cy + 16, f'{risk_score:.2f}', fontSize=16,
@@ -294,14 +292,14 @@ def _draw_interaction_heatmap(drug_names: List[str], interactions: list,
         for j, name_j in enumerate(drug_names):
             x = label_w + j * cell
             if i == j:
-                fill = colors.HexColor(BRAND['slate'])
+                fill = colors.HexColor(BRAND['bg_light'])
                 label = '—'
             else:
                 score = risk_map.get((names_lower[i], names_lower[j]), 0)
-                fill = _risk_color(score) if score > 0 else colors.HexColor(BRAND['bg_card'])
+                fill = _risk_color(score) if score > 0 else colors.HexColor(BRAND['bg_alt'])
                 label = f'{score:.1f}' if score > 0 else '—'
             d.add(Rect(x, y, cell, cell, fillColor=fill,
-                       strokeColor=colors.HexColor(BRAND['dark']), strokeWidth=1))
+                       strokeColor=colors.HexColor(BRAND['border']), strokeWidth=1))
             tc = colors.white if score > 0 and i != j else colors.HexColor(BRAND['text_muted'])
             d.add(String(x + cell / 2, y + cell / 2 - 3, label, fontSize=7,
                          fillColor=tc, textAnchor='middle', fontName='Helvetica-Bold'))
@@ -368,16 +366,11 @@ def _draw_factor_bars(factors: dict, width: float = 460) -> Optional[Drawing]:
     gap = 8
     label_w = 120
     chart_w = width - label_w - 60
-    total_h = len(items) * (bar_h + gap) + 30
+    total_h = len(items) * (bar_h + gap) + 10
     d = Drawing(width, total_h)
 
-    # Title
-    d.add(String(width / 2, total_h - 5, 'Risk Factor Contributions', fontSize=9,
-                 fillColor=colors.HexColor(BRAND['cyan']), textAnchor='middle',
-                 fontName='Helvetica-Bold'))
-
     for idx, (label, weight, score, col) in enumerate(items):
-        y = total_h - 25 - idx * (bar_h + gap)
+        y = total_h - 10 - idx * (bar_h + gap)
         # Label + weight
         d.add(String(label_w - 4, y + 6, f'{label} ({weight:.0%})', fontSize=8,
                      fillColor=colors.HexColor(BRAND['text_secondary']), textAnchor='end'))
@@ -447,7 +440,7 @@ def _draw_cyp_heatmap(drug_names: List[str], profiles: dict,
                 bg = colors.HexColor(role_colors.get(first_role, BRAND['bg_light']))
             else:
                 role_text = '—'
-                bg = colors.HexColor(BRAND['bg_alt'])
+                bg = colors.HexColor(BRAND['bg_light'])
 
             d.add(Rect(x, y, cell_w, cell_h, fillColor=bg,
                        strokeColor=colors.HexColor(BRAND['border']), strokeWidth=0.5))
@@ -532,7 +525,7 @@ def _header(styles, report_title: str, drug_names: List[str], tier: str):
     elements.append(Paragraph(f'{tier_label}  |  Generated: {ts}', styles['label']))
     elements.append(Spacer(1, 6))
     elements.append(HRFlowable(width='100%', thickness=2,
-                                color=colors.HexColor(BRAND['cyan']), spaceAfter=12))
+                                color=colors.HexColor(BRAND['dark']), spaceAfter=12))
     return elements
 
 
@@ -545,8 +538,8 @@ def _disclaimer(styles):
 
 def _section_line(styles, title: str):
     return [
-        Spacer(1, 3),
-        HRFlowable(width='100%', thickness=0.5, color=colors.HexColor(BRAND['border'])),
+        Spacer(1, 6),
+        HRFlowable(width='100%', thickness=1, color=colors.HexColor(BRAND['border'])),
         Paragraph(title, styles['section']),
     ]
 
@@ -588,7 +581,7 @@ def _stats_strip(styles, stats: List[Tuple[str, str, str]]):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 0), (-1, -1), 8),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(BRAND['bg_card'])),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor(BRAND['bg_alt'])),
         ('BOX', (0, 0), (-1, -1), 1, colors.HexColor(BRAND['border'])),
         ('LINEBEFORE', (1, 0), (-1, -1), 0.5, colors.HexColor(BRAND['border'])),
     ]))
@@ -607,11 +600,11 @@ def _data_table(headers, rows, styles, col_widths=None):
     t = Table(data, colWidths=col_widths)
     t.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor(BRAND['slate'])),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor(BRAND['cyan'])),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('ROWBACKGROUNDS', (0, 1), (-1, -1),
-         [colors.HexColor(BRAND['bg_panel']), colors.HexColor(BRAND['bg_card'])]),
+         [colors.white, colors.HexColor(BRAND['bg_alt'])]),
         ('TEXTCOLOR', (0, 1), (-1, -1), colors.HexColor(BRAND['text_secondary'])),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('TOPPADDING', (0, 0), (-1, -1), 5),
@@ -1413,15 +1406,17 @@ def generate_advanced_report(prediction_data: dict, report_type: str = 'pair') -
             styles['body_small']))
 
     # ─── Risk Assessment with Gauge ───
-    el.extend(_build_risk_assessment(styles, prediction_data))
+    risk_elements = _build_risk_assessment(styles, prediction_data)
     risk_score = _safe_float(
         prediction_data.get('risk_score') or prediction_data.get('regimen_risk_score') or 0)
     gauge = _draw_risk_gauge(risk_score)
-    el.append(gauge)
-    el.append(Spacer(1, 8))
-
-    # ─── Mechanism ───
-    el.extend(_build_mechanism(styles, prediction_data.get('mechanism_hypothesis', '')))
+    risk_elements.append(gauge)
+    risk_elements.append(Spacer(1, 8))
+    # Mechanism included with risk to avoid orphan section
+    mech = prediction_data.get('mechanism_hypothesis', '')
+    if mech:
+        risk_elements.extend(_build_mechanism(styles, mech))
+    el.append(KeepTogether(risk_elements))
 
     el.append(PageBreak())
 
@@ -1449,16 +1444,16 @@ def generate_advanced_report(prediction_data: dict, report_type: str = 'pair') -
         # Interaction Heatmap
         interactions = prediction_data.get('interactions', [])
         if interactions and len(drug_names) >= 2:
-            heatmap_section = _section_line(styles, 'Interaction Risk Heatmap')
-            heatmap_section.append(Paragraph(
+            el.extend(_section_line(styles, 'Interaction Risk Heatmap'))
+            el.append(Paragraph(
                 'Visual matrix showing pairwise risk scores between all drugs. '
                 'Color intensity corresponds to risk level.',
                 styles['body_small']))
+            el.append(Spacer(1, 6))
             heatmap = _draw_interaction_heatmap(drug_names, interactions)
             if heatmap:
-                heatmap_section.append(heatmap)
-            heatmap_section.append(Spacer(1, 8))
-            el.append(KeepTogether(heatmap_section))
+                el.append(heatmap)
+            el.append(Spacer(1, 10))
 
         # Factor breakdown
         factor_section = _build_polypharmacy_factors_visual(styles, prediction_data)
