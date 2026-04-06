@@ -15,5 +15,6 @@ django-redis>=5.4.0
 ultralytics>=8.3.0
 torch-geometric>=2.4.0
 google-generativeai>=0.8.0
+reportlab>=4.0
 # torch is installed separately in Dockerfile (CPU-only) — do NOT add it here
 # or pip will upgrade to the full CUDA version (~2GB larger)

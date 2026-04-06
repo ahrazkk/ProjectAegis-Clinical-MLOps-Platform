@@ -4673,21 +4673,46 @@ export default function Dashboard() {
             </div>
 
             {(result !== null || polypharmacyResult !== null) && (
-              <button 
-                onClick={() => generateDetailedReport({
-                  drugs: selectedDrugs,
-                  result,
-                  polypharmacyResult,
-                  digitalTwinResult,
-                  bodyMapData: getBodyMapData?.(),
-                  evidence: interactionEvidence
-                })}
-                className="flex items-center gap-2 px-4 h-8 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary text-[10px] uppercase tracking-widest"
-                title="Download Comprehensive Research Report"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export Research Report
-              </button>
+              <>
+                <button
+                  onClick={() => generateDetailedReport({
+                    drugs: selectedDrugs,
+                    result,
+                    polypharmacyResult,
+                    digitalTwinResult,
+                    bodyMapData: getBodyMapData?.(),
+                    evidence: interactionEvidence
+                  })}
+                  className="flex items-center gap-2 px-4 h-8 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary text-[10px] uppercase tracking-widest"
+                  title="Download Comprehensive Research Report"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export Report
+                </button>
+                <button
+                  onClick={async () => {
+                    try {
+                      const { exportReport } = await import('../services/api');
+                      const reportType = polypharmacyResult ? 'poly' : 'pair';
+                      const predictionData = polypharmacyResult || result;
+                      const blob = await exportReport(reportType, predictionData);
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `aegis_report_${reportType}.pdf`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    } catch (err) {
+                      console.error('PDF export failed:', err);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 h-8 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary text-[10px] uppercase tracking-widest"
+                  title="Download PDF Clinical Report"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  PDF
+                </button>
+              </>
             )}
 
             <div className="flex items-center gap-2 px-3 h-8 border border-theme hover:border-theme-highlight transition-colors text-[10px] uppercase tracking-widest"

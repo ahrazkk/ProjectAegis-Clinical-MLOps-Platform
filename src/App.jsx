@@ -5,6 +5,7 @@ import Dashboard from './pages/Dashboard';
 import ResearchPage from './pages/ResearchPage';
 import SettingsPage from './pages/SettingsPage';
 import CorrectionsPage from './pages/CorrectionsPage';
+import NotFoundPage from './pages/NotFoundPage';
 import { SystemLogsProvider } from './hooks/useSystemLogs';
 import { ThemeProvider } from './hooks/useTheme';
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
             <Route path="/research" element={<ResearchPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/corrections" element={<CorrectionsPage />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Routes>
         </SystemLogsProvider>
       </Router>

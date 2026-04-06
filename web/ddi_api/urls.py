@@ -42,6 +42,8 @@ from .views import (
     DrugBiologyView,
     MechanismMapView,
     AuditLogView,
+    ReportExportView,
+    RetrainingView,
 )
 
 # Scanner endpoints
@@ -107,6 +109,12 @@ urlpatterns = [
 
     # Audit trail
     path('audit/', AuditLogView.as_view(), name='audit-log'),
+
+    # Report export
+    path('report/export/', ReportExportView.as_view(), name='report-export'),
+
+    # GNN Retraining
+    path('retrain/', RetrainingView.as_view(), name='retrain'),
 
     # ViewSet routes
     path('', include(router.urls)),

@@ -167,6 +167,19 @@ ASSISTANT_CONFIG = {
 NCBI_API_KEY = os.environ.get('NCBI_API_KEY', '')
 
 # =============================================================================
+# FAERS (FDA Adverse Event Reporting System) CONFIGURATION
+# =============================================================================
+# openFDA API for post-market adverse event data.
+# Rate limit: 240 requests/minute without API key.
+# Docs: https://open.fda.gov/apis/drug/event/
+FAERS_CONFIG = {
+    'base_url': 'https://api.fda.gov/drug/event.json',
+    'max_results': 100,
+    'cache_ttl_hours': 24,
+    'timeout_seconds': 15,
+}
+
+# =============================================================================
 # DDI RETRIEVAL CONFIGURATION (RAG System)
 # =============================================================================
 # This controls how context sentences are retrieved for PubMedBERT predictions.

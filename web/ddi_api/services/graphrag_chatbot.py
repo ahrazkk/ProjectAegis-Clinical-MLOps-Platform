@@ -94,8 +94,11 @@ class GraphRAGChatbot:
         if self.use_llm:
             # Retrieve PubMed context for drug pairs
             pubmed_results = self._retrieve_pubmed_context(all_drugs)
+            # Retrieve FAERS adverse event data for drug pairs
+            faers_results = self._retrieve_faers_context(all_drugs)
             response_text, citations, token_usage = self._generate_llm_response(
-                message, graph_context, pubmed_results, all_drugs
+                message, graph_context, pubmed_results, all_drugs,
+                faers_results=faers_results,
             )
             # Fall back to templates if LLM fails
             if response_text is None:
@@ -387,7 +390,28 @@ Result:
         results.sort(key=lambda x: x.relevance_score, reverse=True)
         return results[:max_results]
 
-    def _build_rag_context(self, graph_context: dict, pubmed_results: list, drugs: list) -> str:
+    def _retrieve_faers_context(self, drugs: List[str]) -> list:
+        """Fetch FAERS adverse event data for all drug pairs."""
+        try:
+            from .faers_service import get_faers_service
+            svc = get_faers_service()
+        except Exception as e:
+            logger.warning("FAERS service unavailable: %s", e)
+            return []
+
+        results = []
+        for i in range(len(drugs)):
+            for j in range(i + 1, len(drugs)):
+                try:
+                    faers = svc.query_adverse_events(drugs[i], drugs[j])
+                    if faers and faers.total_reports > 0:
+                        results.append(faers)
+                except Exception as e:
+                    logger.warning("FAERS query failed for %s + %s: %s", drugs[i], drugs[j], e)
+
+        return results
+
+    def _build_rag_context(self, graph_context: dict, pubmed_results: list, drugs: list, faers_results: list = None) -> str:
         """Serialize all retrieved data into structured text for LLM prompt."""
         sections = []
 
@@ -450,10 +474,36 @@ Result:
             sections.append("\n=== PUBMED EVIDENCE ===")
             sections.append("No PubMed articles retrieved for this query.")
 
+        # FAERS adverse event data
+        if faers_results:
+            sections.append("\n=== FDA ADVERSE EVENT SIGNALS ===")
+            for faers in faers_results:
+                d1, d2 = faers.drug_pair
+                sections.append(f"\nDrug pair: {d1} + {d2}")
+                sections.append(f"Total FAERS reports: {faers.total_reports:,}")
+                sections.append(f"Signal score: {faers.signal_score:.3f} (0=no signal, 1=strong signal)")
+                if faers.seriousness_stats:
+                    sections.append("Seriousness breakdown:")
+                    for key, count in faers.seriousness_stats.items():
+                        if count > 0:
+                            sections.append(f"  - {key.replace('_', ' ').title()}: {count:,}")
+                if faers.top_reactions:
+                    sections.append("Top adverse reactions:")
+                    for rx in faers.top_reactions[:5]:
+                        sections.append(f"  - {rx['reaction']}: {rx['count']:,} reports")
+                if faers.reporter_breakdown:
+                    sections.append("Reporter types:")
+                    for rtype, count in faers.reporter_breakdown.items():
+                        sections.append(f"  - {rtype.replace('_', ' ').title()}: {count:,}")
+        else:
+            sections.append("\n=== FDA ADVERSE EVENT SIGNALS ===")
+            sections.append("No FAERS adverse event data retrieved for this query.")
+
         return "\n".join(sections)
 
     def _generate_llm_response(
-        self, message: str, graph_context: dict, pubmed_results: list, drugs: list
+        self, message: str, graph_context: dict, pubmed_results: list, drugs: list,
+        faers_results: list = None,
     ) -> Tuple[Optional[str], List[Dict], Optional[Dict]]:
         """Generate response using Gemini with RAG context."""
         from .gemini_client import get_gemini_client
@@ -463,7 +513,7 @@ Result:
             logger.warning("Gemini client not available, falling back to templates")
             return None, [], None
 
-        context_text = self._build_rag_context(graph_context, pubmed_results, drugs)
+        context_text = self._build_rag_context(graph_context, pubmed_results, drugs, faers_results=faers_results)
 
         try:
             result = client.generate(message, context_text)

@@ -452,6 +452,27 @@ export async function getAuditLog(accessToken, filters = {}) {
     return apiRequest(`/audit/?${params.toString()}`);
 }
 
+export async function exportReport(reportType, predictionData) {
+    const response = await fetch(`${API_BASE_URL}/report/export/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_type: reportType, prediction_data: predictionData }),
+    });
+    if (!response.ok) throw new Error(`Report export failed: ${response.status}`);
+    return response.blob();
+}
+
+export async function triggerRetraining(accessToken, config = {}) {
+    return apiRequest('/retrain/', {
+        method: 'POST',
+        body: JSON.stringify({ access_token: accessToken, ...config }),
+    });
+}
+
+export async function getRetrainingStatus() {
+    return apiRequest('/retrain/');
+}
+
 // ============== Type Definitions (for reference) ==============
 
 /**

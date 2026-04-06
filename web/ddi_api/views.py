@@ -2681,3 +2681,90 @@ class AuditLogView(APIView):
         )
         summary = AuditService.get_summary()
         return Response({'trail': trail, 'summary': summary})
+
+
+class ReportExportView(APIView):
+    """
+    POST /api/v1/report/export/
+
+    Generate a downloadable PDF report from analysis results.
+
+    Request body:
+    {
+        "report_type": "pair" | "poly",
+        "prediction_data": { ... }
+    }
+    """
+
+    def post(self, request):
+        from django.http import HttpResponse
+        from .services.report_generator import generate_pair_report, generate_poly_report
+
+        report_type = request.data.get('report_type', 'pair')
+        prediction_data = request.data.get('prediction_data', {})
+
+        if not prediction_data:
+            return Response(
+                {'error': 'prediction_data is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            if report_type == 'poly':
+                pdf_bytes = generate_poly_report(prediction_data)
+            else:
+                pdf_bytes = generate_pair_report(prediction_data)
+        except Exception as exc:
+            logger.error('PDF report generation failed: %s', exc)
+            return Response(
+                {'error': 'Failed to generate report'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        response = HttpResponse(pdf_bytes, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="aegis_report_{report_type}.pdf"'
+        return response
+
+
+class RetrainingView(APIView):
+    """
+    POST /api/v1/retrain/  — Trigger GNN retraining (password-protected)
+    GET  /api/v1/retrain/  — Get last retraining status
+    """
+
+    def get(self, request):
+        from .services.retraining_pipeline import get_pipeline_status
+        return Response(get_pipeline_status())
+
+    def post(self, request):
+        assistant_config = getattr(settings, 'ASSISTANT_CONFIG', {})
+        password = assistant_config.get('access_password', '')
+        access_token = request.data.get('access_token', request.query_params.get('access_token', ''))
+
+        if password and access_token != password:
+            return Response({'error': 'Invalid access token'}, status=status.HTTP_403_FORBIDDEN)
+
+        from .services.retraining_pipeline import get_pipeline
+        pipeline = get_pipeline()
+
+        config = {
+            'epochs': int(request.data.get('epochs', 50)),
+            'learning_rate': float(request.data.get('learning_rate', 0.001)),
+            'batch_size': int(request.data.get('batch_size', 64)),
+            'patience': int(request.data.get('patience', 10)),
+        }
+
+        # Run in background thread so we don't block
+        import threading
+        thread = threading.Thread(
+            target=pipeline.run_full_pipeline,
+            kwargs={'config': config},
+            daemon=True,
+        )
+        thread.start()
+
+        return Response({
+            'status': 'started',
+            'config': config,
+            'message': 'Retraining pipeline started in background. GET /retrain/ to check status.',
+        })

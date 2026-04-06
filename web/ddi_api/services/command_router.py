@@ -421,6 +421,22 @@ class CommandRouter:
             except Exception:
                 pass
 
+            # Fetch FAERS adverse event data
+            try:
+                from .faers_service import get_faers_service
+                faers_svc = get_faers_service()
+                faers = faers_svc.query_adverse_events(drugs[0], drugs[1])
+                if faers and faers.total_reports > 0:
+                    result['faers'] = {
+                        'total_reports': faers.total_reports,
+                        'signal_score': faers.signal_score,
+                        'top_reactions': faers.top_reactions[:5],
+                        'seriousness_stats': faers.seriousness_stats,
+                        'reporter_breakdown': faers.reporter_breakdown,
+                    }
+            except Exception as e:
+                logger.warning("FAERS lookup failed for /research: %s", e)
+
         return result
 
     def _handle_mutate(self, drugs: List[str]) -> Dict[str, Any]:
