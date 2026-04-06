@@ -605,32 +605,37 @@ class EnhancedDrugService:
                         'source': 'https://open.fda.gov/apis/drug/event/',
                     }
 
-                    faers_strength = min(0.95, max(0.1, math.log10(info.faers_reports + 1) / 4))
-                    faers_supports = info.faers_reports > 0
-
-                    add_evidence_item(
-                        claim_type='real_world_safety_signal',
-                        claim=(
-                            f"FAERS includes {info.faers_reports:,} co-reported adverse-event record(s) "
-                            f"for {drug1} + {drug2}."
-                        ) if faers_supports else (
-                            f"No FAERS co-report signal was found for {drug1} + {drug2} in this query window."
-                        ),
-                        source_id='openfda_faers',
-                        source_label='OpenFDA FAERS',
-                        source_category='post_market_surveillance',
-                        strength_score=faers_strength,
-                        supports_interaction=faers_supports,
-                        details={
-                            'total_reports': info.faers_reports,
-                            'top_reactions': info.faers_reactions[:5],
-                        },
-                        caveats=info.faers_caveats,
-                        freshness=info.faers_freshness,
-                    )
-
+                    # Only add FAERS as evidence when reports exist.
+                    # Zero reports = no data available, NOT contradicting evidence.
                     if info.faers_reports > 0:
+                        faers_strength = min(0.95, max(0.2, math.log10(info.faers_reports + 1) / 4))
+                        add_evidence_item(
+                            claim_type='real_world_safety_signal',
+                            claim=(
+                                f"FAERS includes {info.faers_reports:,} co-reported adverse-event record(s) "
+                                f"for {drug1} + {drug2}."
+                            ),
+                            source_id='openfda_faers',
+                            source_label='OpenFDA FAERS',
+                            source_category='post_market_surveillance',
+                            strength_score=faers_strength,
+                            supports_interaction=True,
+                            details={
+                                'total_reports': info.faers_reports,
+                                'top_reactions': info.faers_reactions[:5],
+                            },
+                            caveats=info.faers_caveats,
+                            freshness=info.faers_freshness,
+                        )
                         evidence.append('openfda_faers')
+                    else:
+                        # Log that no reports were found but do NOT add as
+                        # counter-evidence — absence of reports is not evidence
+                        # against an interaction (reporting bias, query specificity, etc.)
+                        logger.info(
+                            "FAERS returned 0 reports for %s + %s — skipping as evidence item",
+                            drug1, drug2,
+                        )
             except Exception as e:
                 logger.debug(f"OpenFDA pair lookup failed: {e}")
         

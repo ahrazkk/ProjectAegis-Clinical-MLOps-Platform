@@ -452,14 +452,25 @@ export async function getAuditLog(accessToken, filters = {}) {
     return apiRequest(`/audit/?${params.toString()}`);
 }
 
-export async function exportReport(reportType, predictionData) {
+export async function exportReport(reportType, predictionData, reportTier = 'standard') {
     const response = await fetch(`${API_BASE_URL}/report/export/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ report_type: reportType, prediction_data: predictionData }),
+        body: JSON.stringify({
+            report_type: reportType,
+            report_tier: reportTier,
+            prediction_data: predictionData,
+        }),
     });
     if (!response.ok) throw new Error(`Report export failed: ${response.status}`);
-    return response.blob();
+
+    // Extract filename from Content-Disposition header
+    const disposition = response.headers.get('Content-Disposition');
+    const filenameMatch = disposition?.match(/filename="?([^"]+)"?/);
+    const filename = filenameMatch ? filenameMatch[1] : `aegis_report_${reportType}.pdf`;
+
+    const blob = await response.blob();
+    return { blob, filename };
 }
 
 export async function triggerRetraining(accessToken, config = {}) {

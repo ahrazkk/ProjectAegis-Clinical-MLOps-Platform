@@ -2823,6 +2823,8 @@ export default function Dashboard() {
 
   // Database status
   const [showDbWarning, setShowDbWarning] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportGenerating, setReportGenerating] = useState(null); // null | 'standard' | 'advanced'
   const [dbDrugCount, setDbDrugCount] = useState(null);
   const [dbStats, setDbStats] = useState(null);
   const [navStatIndex, setNavStatIndex] = useState(0);
@@ -4672,7 +4674,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {(result !== null || polypharmacyResult !== null) && (
+            {!isAnalyzing && (result !== null || polypharmacyResult !== null) && (
               <>
                 <button
                   onClick={() => generateDetailedReport({
@@ -4690,22 +4692,7 @@ export default function Dashboard() {
                   Export Report
                 </button>
                 <button
-                  onClick={async () => {
-                    try {
-                      const { exportReport } = await import('../services/api');
-                      const reportType = polypharmacyResult ? 'poly' : 'pair';
-                      const predictionData = polypharmacyResult || result;
-                      const blob = await exportReport(reportType, predictionData);
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = `aegis_report_${reportType}.pdf`;
-                      a.click();
-                      URL.revokeObjectURL(url);
-                    } catch (err) {
-                      console.error('PDF export failed:', err);
-                    }
-                  }}
+                  onClick={() => setShowReportModal(true)}
                   className="flex items-center gap-2 px-4 h-8 border border-theme hover:border-theme-highlight transition-colors text-theme-muted hover:text-theme-secondary text-[10px] uppercase tracking-widest"
                   title="Download PDF Clinical Report"
                 >
@@ -5826,6 +5813,148 @@ export default function Dashboard() {
             onDrugDetected={handleScannedDrug}
             onClose={() => setShowScanner(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* PDF Report Selection Modal */}
+      <AnimatePresence>
+        {showReportModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => !reportGenerating && setShowReportModal(false)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-lg mx-4 border border-theme bg-theme-card rounded-lg shadow-2xl overflow-hidden"
+              onClick={e => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-theme">
+                <div className="flex items-center gap-3">
+                  <FileText className="w-5 h-5 text-theme-accent" />
+                  <h3 className="text-sm font-semibold text-theme-primary uppercase tracking-widest">Generate PDF Report</h3>
+                </div>
+                <button
+                  onClick={() => !reportGenerating && setShowReportModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-theme-hover transition-colors text-theme-muted"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Cards */}
+              <div className="p-6 space-y-3">
+                {/* Standard Report */}
+                <button
+                  disabled={!!reportGenerating}
+                  onClick={async () => {
+                    setReportGenerating('standard');
+                    try {
+                      const { exportReport } = await import('../services/api');
+                      const reportType = polypharmacyResult ? 'poly' : 'pair';
+                      const predictionData = polypharmacyResult || result;
+                      const { blob, filename } = await exportReport(reportType, predictionData, 'standard');
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = filename;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      setShowReportModal(false);
+                    } catch (err) {
+                      console.error('Standard PDF export failed:', err);
+                    } finally {
+                      setReportGenerating(null);
+                    }
+                  }}
+                  className="w-full text-left p-4 border border-theme rounded-lg hover:border-theme-highlight hover:bg-theme-hover transition-all group disabled:opacity-50"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="p-2.5 rounded-lg bg-theme-panel border border-theme group-hover:border-theme-highlight transition-colors">
+                      <FileText className="w-5 h-5 text-theme-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-theme-primary uppercase tracking-widest">Standard Report</span>
+                        {reportGenerating === 'standard' && <Loader2 className="w-3.5 h-3.5 animate-spin text-theme-accent" />}
+                      </div>
+                      <p className="text-[10px] text-theme-muted mt-1 leading-relaxed">
+                        Data-only clinical report with risk assessment, mechanism analysis, affected systems, interaction table, model provenance, and conclusion.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Advanced Report */}
+                <button
+                  disabled={!!reportGenerating}
+                  onClick={async () => {
+                    setReportGenerating('advanced');
+                    try {
+                      const { exportReport } = await import('../services/api');
+                      const reportType = polypharmacyResult ? 'poly' : 'pair';
+                      const basePrediction = polypharmacyResult || result;
+                      const predictionData = {
+                        ...basePrediction,
+                        drug_names: selectedDrugs.map(d => d.name || d.label || d),
+                        body_map_data: typeof getBodyMapData === 'function' ? getBodyMapData() : null,
+                        digital_twin_result: digitalTwinResult || null,
+                        interaction_evidence: interactionEvidence || null,
+                      };
+                      const { blob, filename } = await exportReport(reportType, predictionData, 'advanced');
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = filename;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      setShowReportModal(false);
+                    } catch (err) {
+                      console.error('Advanced PDF export failed:', err);
+                    } finally {
+                      setReportGenerating(null);
+                    }
+                  }}
+                  className="w-full text-left p-4 border border-theme rounded-lg hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all group disabled:opacity-50"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="p-2.5 rounded-lg bg-cyan-500/10 border border-cyan-500/20 group-hover:border-cyan-400/40 transition-colors">
+                      <Sparkles className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-theme-primary uppercase tracking-widest">Advanced Report</span>
+                        <span className="text-[8px] px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 uppercase tracking-widest border border-cyan-500/20">AI</span>
+                        {reportGenerating === 'advanced' && <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />}
+                      </div>
+                      <p className="text-[10px] text-theme-muted mt-1 leading-relaxed">
+                        Full analysis with AI-written executive summary, clinical assessment, CYP450 enzyme profiles, organ impact map, GNN metrics, FAERS real-world evidence, food/herbal warnings, and evidence chain.
+                      </p>
+                      <p className="text-[9px] text-theme-muted/60 mt-1 italic">
+                        Requires Gemini API • May take 10-15 seconds
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-3 border-t border-theme bg-theme-panel/50 flex items-center justify-between">
+                <span className="text-[9px] text-theme-muted uppercase tracking-widest">
+                  {selectedDrugs.length} drug{selectedDrugs.length !== 1 ? 's' : ''} selected
+                </span>
+                <span className="text-[9px] text-theme-muted uppercase tracking-widest">
+                  Report names include drug names &amp; timestamp
+                </span>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

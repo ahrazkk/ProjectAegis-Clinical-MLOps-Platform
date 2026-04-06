@@ -2692,15 +2692,17 @@ class ReportExportView(APIView):
     Request body:
     {
         "report_type": "pair" | "poly",
+        "report_tier": "standard" | "advanced",
         "prediction_data": { ... }
     }
     """
 
     def post(self, request):
         from django.http import HttpResponse
-        from .services.report_generator import generate_pair_report, generate_poly_report
+        from .services.report_generator import generate_standard_report, generate_advanced_report
 
         report_type = request.data.get('report_type', 'pair')
+        report_tier = request.data.get('report_tier', 'standard')
         prediction_data = request.data.get('prediction_data', {})
 
         if not prediction_data:
@@ -2710,19 +2712,19 @@ class ReportExportView(APIView):
             )
 
         try:
-            if report_type == 'poly':
-                pdf_bytes = generate_poly_report(prediction_data)
+            if report_tier == 'advanced':
+                pdf_bytes, filename = generate_advanced_report(prediction_data, report_type)
             else:
-                pdf_bytes = generate_pair_report(prediction_data)
+                pdf_bytes, filename = generate_standard_report(prediction_data, report_type)
         except Exception as exc:
-            logger.error('PDF report generation failed: %s', exc)
+            logger.error('PDF report generation failed: %s', exc, exc_info=True)
             return Response(
                 {'error': 'Failed to generate report'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         response = HttpResponse(pdf_bytes, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="aegis_report_{report_type}.pdf"'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
 
 
