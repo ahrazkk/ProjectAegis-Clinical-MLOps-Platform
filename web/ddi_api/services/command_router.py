@@ -152,25 +152,34 @@ class CommandRouter:
             return {'error': f'Command /{parsed.command} failed: {str(e)[:300]}'}
 
     def _handle_test(self, drugs: List[str]) -> Dict[str, Any]:
-        """Run GNN prediction for a drug pair."""
+        """Run unified prediction for a drug pair (same pipeline as Run Analysis)."""
         from .gnn_predictor import get_gnn_predictor
+        from ..views import lookup_drug, build_pair_prediction_response
 
         predictor = get_gnn_predictor()
-        result = predictor.predict(drugs[0], drugs[1])
+        drug_a = lookup_drug({'name': drugs[0]})
+        drug_b = lookup_drug({'name': drugs[1]})
+
+        result = build_pair_prediction_response(
+            drug_a=drug_a,
+            drug_b=drug_b,
+            original_name_a=drugs[0],
+            original_name_b=drugs[1],
+            gnn_service=predictor,
+        )
 
         return {
             'command': 'test',
-            'drug_a': drugs[0],
-            'drug_b': drugs[1],
-            'risk_score': result.interaction_probability,
-            'confidence': result.confidence,
-            'severity': result.severity,
-            'interaction_type': result.interaction_type,
-            'mechanism': result.mechanism_hypothesis,
-            'model_used': result.model_used,
-            'calibration_method': result.calibration_method,
-            'fingerprint_similarity': result.fingerprint_similarity,
-            'raw_probability': result.raw_interaction_probability,
+            'drug_a': result.get('drug_a', drugs[0]),
+            'drug_b': result.get('drug_b', drugs[1]),
+            'risk_score': result.get('risk_score', 0),
+            'confidence': result.get('confidence', 0),
+            'severity': result.get('severity', 'unknown'),
+            'interaction_type': (result.get('affected_systems', [{}])[0].get('system', '') if result.get('affected_systems') else ''),
+            'mechanism': result.get('mechanism_hypothesis', ''),
+            'model_used': result.get('source', result.get('provenance', {}).get('model_version', '')),
+            'calibration_method': result.get('provenance', {}).get('calibration_method', 'none'),
+            'raw_probability': result.get('raw_score', result.get('risk_score', 0)),
         }
 
     def _handle_poly(self, drugs: List[str]) -> Dict[str, Any]:

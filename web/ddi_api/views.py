@@ -1047,7 +1047,10 @@ class ChatView(APIView):
 
         use_llm = False
         if assistant_mode in ('llm', 'auto') and llm_enabled:
-            if password and access_token == password:
+            if not password:
+                # No password configured — LLM is open to all
+                use_llm = True
+            elif access_token == password:
                 use_llm = True
             elif assistant_mode == 'llm':
                 # Explicitly requested LLM but wrong/missing password

@@ -8,6 +8,8 @@ AI-powered clinical decision support for drug-drug interaction analysis, polypha
 ![Vite](https://img.shields.io/badge/Vite-7-646CFF?style=for-the-badge&logo=vite&logoColor=white)
 ![Neo4j](https://img.shields.io/badge/Neo4j-Graph_DB-4581C3?style=for-the-badge&logo=neo4j&logoColor=white)
 ![Cloud Run](https://img.shields.io/badge/Cloud_Run-Deployed-4285F4?style=for-the-badge&logo=google-cloud&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-2.5_Flash-8E75B2?style=for-the-badge&logo=google-gemini&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)
 
 ---
 
@@ -102,6 +104,29 @@ Project Aegis addresses those gaps with a layered inference path:
 - Endpoint: `/api/v1/stats/`
 - `total_scans` is persisted on backend and atomically incremented across prediction and scanner pathways for Cloud Run correctness.
 
+### 3.7 Gemini LLM Research Assistant
+- Endpoint: `/api/v1/chat/`
+- Powered by Gemini 2.5 Flash for low-latency, high-quality research responses.
+- RAG pipeline combines Knowledge Graph context + PubMed retrieval + Gemini generation.
+- Citation-first response design: every claim is traceable to a source.
+- 10+ slash commands for structured clinical queries (`/test`, `/poly`, `/compare`, `/alt`, `/evidence`, `/research`, `/mutate`, `/current`, `/demo`, `/class`).
+
+### 3.8 Correction Memory & Confidence Calibration
+- Auto-captures low-confidence predictions as Neo4j `:Correction` nodes for review.
+- Admin review interface at `/corrections` for approve/reject workflows.
+- Approved corrections feed back into prediction calibration via the `ConfidenceCalibrator` singleton.
+- Creates a continuous improvement loop: prediction -> correction -> calibration -> better prediction.
+
+### 3.9 Audit Trail
+- Every prediction, correction, and chat event is logged to the `AuditLog` model.
+- Password-protected audit viewer at `/api/v1/audit/`.
+- Provides full traceability for clinical governance and compliance workflows.
+
+### 3.10 Drug Class Warnings
+- Automatic detection of dangerous drug class combinations (NSAID+Anticoagulant, SSRI+MAOI, etc.).
+- Duplicate therapy detection flags when multiple drugs in the same class are prescribed.
+- Class-level warnings surface before and alongside pairwise interaction results.
+
 ---
 
 ## 4) End-to-End System Architecture
@@ -115,9 +140,15 @@ flowchart LR
   API --> DB[(SQLite / relational logs)]
   API --> AI[GNN + PubMedBERT services]
   API --> SCAN[Scanner service layer]
+  API --> LLM[Gemini 2.5 Flash]
+  API --> PM[PubMed API]
+  API --> CM[Correction Memory]
+
+  LLM --> PM
+  CM --> KG
 
   SCAN --> EXT[External data sources\nOpenFDA / DailyMed where applicable]
-  API --> OBS[SystemStats + PredictionLog]
+  API --> OBS[SystemStats + PredictionLog + AuditLog]
 
   OBS --> FE
   API --> FE
@@ -154,6 +185,11 @@ sequenceDiagram
   end
   API->>LOG: persist prediction
   API->>LOG: increment global scan counter (atomic)
+  LOG-->>API: check correction memory
+  alt low confidence or known correction
+    API->>KG: apply calibration adjustment
+    KG-->>API: corrected confidence
+  end
 ```
 
 ### Key Response Qualities
@@ -248,9 +284,26 @@ flowchart TD
   - `/api/v1/compare/`
 - Enables treatment path exploration and side-by-side risk context
 
-### 8.5 Chat/Research Assistant
+### 8.5 Chat/Research Assistant (Gemini LLM)
 - Endpoint: `/api/v1/chat/`
-- Research assistant pathway for interaction-context querying
+- Powered by Gemini 2.5 Flash via the `GeminiClient` service.
+- RAG pipeline: queries the Knowledge Graph for local context, retrieves supporting literature from PubMed, then generates a cited response via Gemini.
+- Citation system: every response includes inline citations linking claims to PubMed articles or KG evidence.
+- Correction feedback loop: low-confidence or user-flagged responses create `:Correction` nodes in Neo4j, which are reviewed by admins and fed back into the calibration pipeline.
+
+#### Slash Commands
+| Command | Description |
+|---|---|
+| `/test` | Run a quick interaction test for a drug pair |
+| `/poly` | Polypharmacy analysis for a regimen |
+| `/compare` | Side-by-side comparison of two drugs |
+| `/alt` | Suggest alternatives for a given drug |
+| `/evidence` | Retrieve evidence summaries for an interaction |
+| `/research` | Deep research mode with extended PubMed retrieval |
+| `/mutate` | Explore structural analogs and their interaction profiles |
+| `/current` | Show current regimen context |
+| `/demo` | Run a demo interaction query |
+| `/class` | Drug class lookup and class-level warnings |
 
 ### 8.6 Observability Foundations
 - Prediction logs persisted with key score fields
@@ -313,8 +366,15 @@ Base prefix:
 - `POST /calibration/metrics/`
 - `GET /alternatives/`
 - `POST /compare/`
-- `POST /chat/`
+- `POST /chat/` -- LLM-powered research assistant (Gemini 2.5 Flash, RAG pipeline, slash commands)
 - `GET /health/`
+
+### Corrections and Audit
+- `GET /corrections/` -- list all corrections (admin)
+- `POST /corrections/` -- create a new correction
+- `PATCH /corrections/<id>/` -- approve or reject a correction
+- `GET /corrections/export/` -- export approved corrections as training data
+- `GET /audit/` -- full audit trail (password-protected)
 
 ### Graph APIs
 - `GET /graph/nodes/`
@@ -398,6 +458,11 @@ Set in `web/.env` (local) or Cloud Run environment settings (production):
 | DRF_THROTTLE_ANON | No | Anonymous rate limit |
 | DRF_THROTTLE_USER | No | Authenticated rate limit |
 | DDI_RETRIEVAL_MODE | No | rag / hybrid / local |
+| GEMINI_API_KEY | Yes for LLM | Required for Gemini-powered research assistant and chat features |
+| GEMINI_MODEL | No | Model name override, defaults to `gemini-2.5-flash` |
+| AEGIS_ASSISTANT_ENABLED | No | Enable/disable the LLM assistant (`true`/`false`) |
+| AEGIS_ASSISTANT_PASSWORD | No | Password gate for LLM assistant access |
+| NCBI_API_KEY | No | Optional NCBI API key for higher PubMed rate limits |
 
 ### 12.6 Model Files
 
@@ -573,20 +638,35 @@ Invoke-RestMethod -Uri "$api/stats/" -Method Get
 
 ## 20) Roadmap
 
+### Recently Completed
+- ~~Gemini 2.5 Flash integration for LLM-powered research assistant~~ DONE
+- ~~Correction Memory system with Neo4j :Correction nodes and admin review~~ DONE
+- ~~ConfidenceCalibrator singleton for feedback-driven calibration~~ DONE
+- ~~Audit trail logging (AuditLog model) with password-protected viewer~~ DONE
+- ~~Drug class warning system (dangerous combos + duplicate therapy)~~ DONE
+- ~~Slash command framework for structured clinical queries~~ DONE
+- ~~PubMed RAG pipeline with citation-first responses~~ DONE
+
 ### Near-term
 - Expand scanner confidence calibration and threshold tuning
 - Add richer endpoint-level telemetry and dashboards
 - Improve uncertainty narratives for clinician-facing explainability
+- Expand correction memory coverage to scanner and polypharmacy pathways
+- Add user-facing correction submission from chat interface
 
 ### Mid-term
 - Broaden graph ingestion and ontology normalization
 - Add stronger calibration datasets and periodic drift checks
 - Extend digital twin factor explainability exports
+- Multi-turn conversation memory for research assistant sessions
+- Batch correction import/export for institutional onboarding
 
 ### Long-term
 - Institution-specific policy packs for prescribing workflows
 - Federated evaluation across diverse medication cohorts
 - Advanced intervention recommendation simulation
+- Fine-tuned domain-specific LLM for pharmacology reasoning
+- Multi-language support for international clinical settings
 
 ---
 

@@ -1,7 +1,7 @@
 # Project Aegis - Complete System Guide
 
 ## Date: 2026-04-05
-## Covers: Phases 1-4 (Gemini LLM + Slash Commands + Correction Memory + Admin Page)
+## Covers: Phases 1-5 (Gemini LLM + Slash Commands + Correction Memory + Admin Page + Advanced Features)
 
 ---
 
@@ -13,15 +13,25 @@
 4. [Phase 2: Slash Commands](#4-phase-2-slash-commands)
 5. [Phase 3: Correction Memory + Low-Confidence Flagging](#5-phase-3-correction-memory--low-confidence-flagging)
 6. [Phase 4: Corrections Admin Page + Auto-Capture + AI Review](#6-phase-4-corrections-admin-page)
-7. [Token Usage Tracking](#7-token-usage-tracking)
-8. [GNN Feedback Loop](#8-gnn-feedback-loop)
-9. [Access Control & Passwords](#9-access-control--passwords)
-10. [Complete File Reference](#10-complete-file-reference)
-11. [API Endpoints Reference](#11-api-endpoints-reference)
-12. [Configuration Reference](#12-configuration-reference)
-13. [Setup & Activation Guide](#13-setup--activation-guide)
-14. [Cost Analysis](#14-cost-analysis)
-15. [Known Limitations & Future Work](#15-known-limitations--future-work)
+7. [Phase 5: Advanced Features](#7-phase-5-advanced-features-2026-04-05)
+   - 7.1 [PubMed Live Search (RAG Enhancement)](#71-pubmed-live-search-rag-enhancement)
+   - 7.2 [Confidence Calibration Feedback Loop](#72-confidence-calibration-feedback-loop)
+   - 7.3 [Drug Class Service](#73-drug-class-service)
+   - 7.4 [Audit Log](#74-audit-log)
+   - 7.5 [New Slash Commands](#75-new-slash-commands)
+   - 7.6 [Unified Prediction Pipeline](#76-unified-prediction-pipeline)
+   - 7.7 [Mobile Chat Improvements](#77-mobile-chat-improvements)
+   - 7.8 [Correction Deduplication](#78-correction-deduplication)
+   - 7.9 [Auto-Capture Auth Bypass](#79-auto-capture-auth-bypass)
+8. [Token Usage Tracking](#8-token-usage-tracking)
+9. [GNN Feedback Loop](#9-gnn-feedback-loop)
+10. [Access Control & Passwords](#10-access-control--passwords)
+11. [Complete File Reference](#11-complete-file-reference)
+12. [API Endpoints Reference](#12-api-endpoints-reference)
+13. [Configuration Reference](#13-configuration-reference)
+14. [Setup & Activation Guide](#14-setup--activation-guide)
+15. [Cost Analysis](#15-cost-analysis)
+16. [Known Limitations & Future Work](#16-known-limitations--future-work)
 
 ---
 
@@ -287,7 +297,80 @@ When you click "AI Review" on a correction:
 
 ---
 
-## 7. Token Usage Tracking
+## 7. Phase 5: Advanced Features (2026-04-05)
+
+### 7.1 PubMed Live Search (RAG Enhancement)
+- File: `web/ddi_api/services/pubmed_retriever.py`
+- Queries NCBI E-utilities API (esearch + efetch) for real medical literature
+- Extracts sentences mentioning both drugs, scores by interaction keywords
+- `retrieve_multiple()` returns up to 5 results with PMID, title, abstract snippet, relevance score
+- Rate limiting: 400ms between requests (150ms with API key), exponential backoff on 429
+- Results passed to Gemini as RAG context for grounded answers
+
+### 7.2 Confidence Calibration Feedback Loop
+- File: `web/ddi_api/services/confidence_calibrator.py`
+- Singleton `ConfidenceCalibrator` with 5-minute TTL cache
+- Loads approved corrections from Neo4j, builds pair_overrides dict and severity_bias map
+- Two adjustment strategies:
+  - Exact pair override: boosts confidence to min 0.95 for known-corrected pairs
+  - Severity bias correction: when 3+ corrections exist for a severity and bias >= 0.3
+- Applied in `gnn_predictor.py` `_apply_correction_calibration()` on all 4 return paths
+- Refreshed on correction approval via `CorrectionDetailView.patch()`
+
+### 7.3 Drug Class Service
+- File: `web/ddi_api/services/drug_class_service.py`
+- `get_class_for_drug()`, `group_by_class()` via batch Neo4j query
+- `check_class_warnings()` detects:
+  - Duplicate therapy (same class drugs)
+  - 5 high-risk class combos: Anticoagulants+NSAIDs, SSRIs+MAOIs, ACE-I+K-sparing diuretics, Aminoglycosides+Loop diuretics, Statins+Fibrates
+- Class warnings included in DDIPredictionView and PolypharmacyView responses
+
+### 7.4 Audit Log
+- File: `web/ddi_api/services/audit_service.py`, `web/ddi_api/models.py`
+- Django `AuditLog` model: event_type, actor, session_id, payload (JSON), ip_address, created_at
+- Fire-and-forget `AuditService.log_event()` — exception-safe, never blocks
+- Instrumented in 6 views: DDIPrediction, Polypharmacy, Chat, CorrectionListCreate, CorrectionDetail, CorrectionExport
+- Password-protected GET endpoint at `/api/v1/audit/`
+
+### 7.5 New Slash Commands
+Added to `web/ddi_api/services/command_router.py`:
+
+| Command | Description | Handler |
+|---------|------------|---------|
+| /research drug1 drug2 | Deep research via KG + PubMed + FAERS | `_handle_research` |
+| /mutate drug1 drug2 drug3 | Leave-one-out regimen analysis | `_handle_mutate` |
+| /current | Analyze drugs selected in sidebar | `_handle_current` |
+| /demo cardiac | Run pre-built demo case (7 available) | `_handle_demo` |
+| /class drug1 drug2 drug3 | Group by class + check warnings | `_handle_class` |
+
+Demo cases: cardiac, psych, pain, elderly, onc, qtwarn, transplant
+
+### 7.6 Unified Prediction Pipeline
+- `/test` command now uses same `build_pair_prediction_response()` as Run Analysis button
+- Previously `/test` bypassed categorical rules and went directly to GNN
+- Now both paths check: categorical rules -> KG lookup -> GNN fallback
+- RAG pipeline also falls back to prediction engine when no KG edges exist
+
+### 7.7 Mobile Chat Improvements
+- Quick command chips for common slash commands
+- Context drugs indicator showing selected drugs
+- Message timestamps with relative formatting
+- Input enhancements: enterKeyHint, autoCorrect off
+- Unread message badge on chat tab
+
+### 7.8 Correction Deduplication
+- File: `web/ddi_api/services/correction_memory.py`
+- Before creating a correction, checks for existing pending correction for same drug pair
+- Prevents duplicate corrections when same pair is analyzed multiple times
+
+### 7.9 Auto-Capture Auth Bypass
+- Low-confidence auto-captures no longer require access_token
+- Detection: `evidence_source` starts with `auto-capture:`
+- Fixed silent 403 errors that were swallowed by `.catch(() => {})`
+
+---
+
+## 8. Token Usage Tracking
 
 ### Navbar Indicator
 Located in the top-right of the Dashboard navbar, showing:
@@ -314,7 +397,7 @@ Gemini returns exact token counts per response. Cost is computed at Flash pricin
 
 ---
 
-## 8. GNN Feedback Loop
+## 9. GNN Feedback Loop
 
 ### The Virtuous Cycle
 ```
@@ -361,7 +444,7 @@ Low-confidence GNN prediction
 
 ---
 
-## 9. Access Control & Passwords
+## 10. Access Control & Passwords
 
 ### Single Password System
 The entire assistant/corrections system uses ONE password, configured in `web/.env`:
@@ -386,7 +469,7 @@ This password is used for:
 
 ---
 
-## 10. Complete File Reference
+## 11. Complete File Reference
 
 ### New Files Created
 | File | Phase | Purpose |
@@ -419,7 +502,7 @@ This password is used for:
 
 ---
 
-## 11. API Endpoints Reference
+## 12. API Endpoints Reference
 
 ### Existing (Modified)
 | Method | Endpoint | Changes |
@@ -440,7 +523,7 @@ This password is used for:
 
 ---
 
-## 12. Configuration Reference
+## 13. Configuration Reference
 
 ### `web/ProjectAegis/settings.py`
 
@@ -477,7 +560,7 @@ AEGIS_ASSISTANT_PASSWORD=aegis-owner-2026
 
 ---
 
-## 13. Setup & Activation Guide
+## 14. Setup & Activation Guide
 
 ### First-Time Setup
 1. **Install the Gemini SDK** in your backend environment:
@@ -516,7 +599,7 @@ docker-compose up --build
 
 ---
 
-## 14. Cost Analysis
+## 15. Cost Analysis
 
 ### Gemini 2.5 Flash Pricing
 | Type | Price |
@@ -540,10 +623,10 @@ With $300 in GCP credits:
 
 ---
 
-## 15. Known Limitations & Future Work
+## 16. Known Limitations & Future Work
 
 ### Current Limitations
-1. **No live PubMed fetch**: The chat system uses KG data and cached PubMed results, not live PubMed API calls
+1. ~~**No live PubMed fetch**~~: Resolved in Phase 5 -- PubMed Live Search via NCBI E-utilities (see 7.1)
 2. **No conversation memory**: Each chat message is independent (no multi-turn context)
 3. **Polypharmacy confidence is partially hardcoded**: Some confidence values default to 0.85-0.9 rather than coming from the model
 4. **Single-user auth**: Simple password, no user accounts or role-based access
@@ -551,7 +634,7 @@ With $300 in GCP credits:
 
 ### Future Work (Phase 5+)
 1. **Chat session persistence**: Store conversation history in Neo4j for multi-turn context
-2. **Live PubMed integration**: Fetch real-time literature during chat queries
+2. ~~**Live PubMed integration**~~: Completed in Phase 5 (see 7.1)
 3. **GNN retraining script**: Python script that loads corrections + training data, retrains the model
 4. **Model versioning**: Save each retrained model with version tags, A/B comparison
 5. **Cumulative cost dashboard**: Persistent cost tracking in Settings page

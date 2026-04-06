@@ -17,11 +17,15 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt /app/
 RUN pip install --upgrade pip
 
-# Install CPU-only PyTorch first to avoid downloading CUDA wheels in Cloud Run.
-RUN pip install --no-cache-dir --default-timeout=1000 --index-url https://download.pytorch.org/whl/cpu torch==2.5.1+cpu
+# Install CPU-only PyTorch to avoid downloading CUDA wheels (~2GB) in Cloud Run.
+RUN pip install --no-cache-dir --default-timeout=1000 --index-url https://download.pytorch.org/whl/cpu \
+    torch==2.5.1+cpu torchvision==0.20.1+cpu
 
-# Install remaining dependencies.
-RUN pip install -r requirements.txt --no-cache-dir --default-timeout=1000
+# Constrain torch/torchvision so pip won't upgrade them to CUDA versions.
+RUN echo "torch==2.5.1+cpu" > /tmp/constraints.txt && echo "torchvision==0.20.1+cpu" >> /tmp/constraints.txt
+
+# Install remaining dependencies (torch is already satisfied, constraints prevent upgrade).
+RUN PIP_CONSTRAINT=/tmp/constraints.txt pip install -r requirements.txt --no-cache-dir --default-timeout=1000
 
 # Copy project
 COPY . /app/

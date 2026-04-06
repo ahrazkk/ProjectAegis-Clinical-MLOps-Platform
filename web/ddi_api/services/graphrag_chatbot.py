@@ -406,11 +406,20 @@ Result:
         if graph_context.get('interactions'):
             sections.append("\n--- Known Interactions ---")
             for ix in graph_context['interactions']:
-                sections.append(
+                source = ix.get('source', 'knowledge_graph')
+                line = (
                     f"  {ix.get('drug_a', '?')} + {ix.get('drug_b', '?')}: "
                     f"severity={ix.get('severity', 'unknown')}, "
                     f"mechanism={ix.get('mechanism', ix.get('description', 'unknown'))}"
                 )
+                if ix.get('risk_score'):
+                    line += f", risk_score={ix['risk_score']:.2f}"
+                if ix.get('confidence'):
+                    line += f", confidence={ix['confidence']:.2f}"
+                if ix.get('model_version'):
+                    line += f", model={ix['model_version']}"
+                line += f" [source: {source}]"
+                sections.append(line)
         else:
             sections.append("No known interactions found in Knowledge Graph.")
 
@@ -539,23 +548,54 @@ Result:
             except Exception as e:
                 logger.warning(f"Failed to retrieve drug {drug_name}: {e}")
 
-        # Check for interactions between drugs using drugbank IDs
+        # Check for interactions between drugs using drugbank IDs + categorical rules + prediction engine
         if len(drugs) >= 2:
             for i in range(len(drugs)):
                 for j in range(i + 1, len(drugs)):
+                    interaction_found = False
                     try:
-                        # Use drugbank IDs instead of names for interaction lookup
+                        # 1. Try Knowledge Graph edges first
                         drug_id_a = drug_id_map.get(drugs[i], '')
                         drug_id_b = drug_id_map.get(drugs[j], '')
                         if drug_id_a and drug_id_b:
                             interaction = self.kg.check_interaction(drug_id_a, drug_id_b)
                             if interaction:
-                                # Add drug names to the interaction for display
                                 interaction['drug_a'] = drugs[i]
                                 interaction['drug_b'] = drugs[j]
+                                interaction['source'] = 'knowledge_graph'
                                 context['interactions'].append(interaction)
+                                interaction_found = True
                     except Exception as e:
-                        logger.warning(f"Failed to check interaction: {e}")
+                        logger.warning(f"Failed to check KG interaction: {e}")
+
+                    # 2. If no KG edge found, try the unified prediction pipeline
+                    #    (categorical rules + GNN) for richer context
+                    if not interaction_found:
+                        try:
+                            from ..views import lookup_drug, build_pair_prediction_response
+                            from .gnn_predictor import get_gnn_predictor
+                            drug_a_info = lookup_drug({'name': drugs[i]})
+                            drug_b_info = lookup_drug({'name': drugs[j]})
+                            pred = build_pair_prediction_response(
+                                drug_a=drug_a_info,
+                                drug_b=drug_b_info,
+                                original_name_a=drugs[i],
+                                original_name_b=drugs[j],
+                                gnn_service=get_gnn_predictor(),
+                            )
+                            if pred:
+                                context['interactions'].append({
+                                    'drug_a': drugs[i],
+                                    'drug_b': drugs[j],
+                                    'severity': pred.get('severity', 'unknown'),
+                                    'mechanism': pred.get('mechanism_hypothesis', ''),
+                                    'risk_score': pred.get('risk_score', 0),
+                                    'confidence': pred.get('confidence', 0),
+                                    'source': pred.get('source', 'prediction_engine'),
+                                    'model_version': pred.get('provenance', {}).get('model_version', ''),
+                                })
+                        except Exception as e:
+                            logger.warning(f"Failed prediction fallback for {drugs[i]}+{drugs[j]}: {e}")
 
         # Find related drugs (drugs that share targets)
         if context['targets']:
