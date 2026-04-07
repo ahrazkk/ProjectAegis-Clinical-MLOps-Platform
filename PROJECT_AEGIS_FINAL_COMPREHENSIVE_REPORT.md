@@ -1692,29 +1692,29 @@ cost_usd = (input_tokens * 0.00000015) + (output_tokens * 0.0000006)
 
 | Metric | Value |
 |--------|-------|
-| **ROC-AUC** | 0.9867 (98.67%) |
-| **PR-AUC (Average Precision)** | 0.9865 (98.65%) |
-| **Precision** | 0.9622 (96.2%) |
-| **Recall** | 0.9313 (93.1%) |
-| **F1 Score** | 0.9465 (94.65%) |
-| **Global Accuracy** | 0.9474 (94.74%) |
+| **ROC-AUC** | 0.9951 (99.51%) |
+| **PR-AUC (Average Precision)** | 0.9962 (99.62%) |
+| **Precision** | 0.9809 (98.1%) |
+| **Recall** | 0.9679 (96.8%) |
+| **F1 Score** | 0.9744 (97.44%) |
+| **Global Accuracy** | 0.9743 (97.43%) |
 
-### 19.2 Confusion Matrix (21,396 test pairs)
+### 19.2 Confusion Matrix (3,149 test pairs)
 
 | | Predicted Positive | Predicted Negative |
 |---|---|---|
-| **Actually Positive** | TP: 9,963 | FN: 735 |
-| **Actually Negative** | FP: 391 | TN: 10,307 |
+| **Actually Positive** | TP: 1,540 | FN: 51 |
+| **Actually Negative** | FP: 30 | TN: 1,528 |
 
 ### 19.3 Historical Comparison
 
-| Metric | GIN Microscopic (v0) | GraphSAGE BCE+0.5 (v1) | GraphSAGE Focal+0.6 (v2 Current) |
+| Metric | GIN Microscopic (v0) | GraphSAGE BCE+0.5 (v1) | Enhanced GIN v2 — Focal+0.5 (v3 Current) |
 |--------|---------------------|------------------------|----------------------------------|
-| ROC-AUC | ~0.58-0.65 | 0.9827 | 0.9867 |
-| Precision | N/A | 0.6847 | 0.9622 |
-| Recall | N/A | 0.9940 | 0.9313 |
-| F1 | N/A | 0.8109 | 0.9465 |
-| False Positives | N/A | 4,896 | 391 |
+| ROC-AUC | ~0.58-0.65 | 0.9827 | 0.9951 |
+| Precision | N/A | 0.6847 | 0.9809 |
+| Recall | N/A | 0.9940 | 0.9679 |
+| F1 | N/A | 0.8109 | 0.9744 |
+| False Positives | N/A | 4,896 | 30 |
 
 ### 19.4 PubMedBERT Performance
 

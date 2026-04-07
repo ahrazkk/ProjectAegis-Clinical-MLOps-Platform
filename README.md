@@ -43,8 +43,8 @@ AI-powered clinical decision support platform for drug-drug interaction predicti
 Project Aegis is a full-stack clinical intelligence platform designed for medication safety. It predicts drug-drug interactions, scores polypharmacy regimen risk, and provides explainable evidence workflows through multiple interactive visualization surfaces.
 
 The platform combines four distinct AI/ML approaches:
-- **GNN (GraphSAGE)** for graph-based drug interaction link prediction
-- **GNN (GIN)** as a secondary trained model with Platt scaling calibration
+- **GNN (Enhanced GIN v2)** — primary model: molecular-level DDI prediction (PR-AUC 0.9962, trained on 25K+ samples from 3 sources)
+- **GNN (GraphSAGE)** — secondary model: graph-based drug interaction link prediction on the full knowledge graph
 - **PubMedBERT** (NLP-based, now replaced by GNN as primary) for text-derived interaction classification
 - **Gemini 2.5 Flash** LLM for research assistance, clinical narrative generation, and RAG-powered evidence synthesis
 
@@ -74,20 +74,22 @@ Project Aegis addresses these gaps with a layered inference architecture: knowle
 
 ## 3) AI/ML Model Architecture
 
-### 3.1 Macroscopic GraphSAGE (Primary Model)
+### 3.1 Enhanced GIN v2 (Primary Model)
 
-The primary prediction model is a Macroscopic Graph Neural Network built on GraphSAGE (Graph Sample and Aggregate) convolutions. Unlike molecular-level GNNs that analyze individual atom structures, this model operates on the entire drug interaction network as a graph where:
+The primary prediction model is an **Enhanced Graph Isomorphism Network (GIN)** that analyzes drug interactions at the molecular structure level. Each drug's SMILES string is converted into an atom-level graph, and the model learns structural patterns that predict interactions:
 
-- **Nodes** represent drugs, featurized with SMILES-derived molecular descriptors (atom counts, bond types, fingerprints) combined with biological class information
-- **Edges** represent known interactions sourced from DrugBank, DDI Corpus, and TWOSIDES
-- **Message passing** across 3 GraphSAGE layers propagates biological relationship signals between drugs, enabling transitive interaction inference (if Drug A interacts with Drug B, and Drug C is structurally/biologically similar to Drug B, the model predicts an A-C interaction)
-- **Link prediction** uses dot product decoding between learned node embeddings to produce calibrated risk scores
+- **Architecture**: 4-layer Edge-Conditioned GIN with Jumping Knowledge aggregation, 256 hidden dimensions
+- **Interaction Head**: Multi-signal fusion — element-wise product, absolute difference, and sum of drug embeddings → 2-layer MLP classifier
+- **Training**: Focal Loss (alpha=0.25, gamma=2.0) with label smoothing (0.05) on NVIDIA GPU (Colab)
+- **Data**: 25,137 training samples from 3 sources — Neo4j Knowledge Graph (1,214 pairs), DDI Corpus (1,527 pairs), and TWOSIDES (15,000 pairs) — with Tanimoto-similarity hard negative mining
+- **Performance** (on 3,149 held-out test pairs):
+  - PR-AUC: **0.9962** | ROC-AUC: **0.9951**
+  - Precision: **98.1%** | Recall: **96.8%** | F1: **0.9744** | Accuracy: **97.4%**
+  - Confusion Matrix: TN=1,528 | FP=30 | FN=51 | TP=1,540
 
-The model is trained with PyTorch Geometric on a graph of 1,500+ drugs and 50,000+ interaction edges, achieving robust prediction even for drugs not directly connected in the training graph.
+### 3.2 Macroscopic GraphSAGE (Secondary Model)
 
-### 3.2 Trained GIN (Secondary Model)
-
-A Graph Isomorphism Network (GIN) serves as the secondary fallback model when the primary GraphSAGE model cannot produce embeddings for a given drug pair. The GIN model uses Platt scaling for score calibration and maps raw outputs to severity buckets (none/minor/moderate/severe).
+A Macroscopic Graph Neural Network built on GraphSAGE convolutions serves as a secondary model. Unlike the molecular-level GIN, this model operates on the entire drug interaction network as a graph where nodes represent drugs and edges represent known interactions. Message passing across 3 GraphSAGE layers propagates relationship signals, enabling transitive interaction inference. Trained on 1,500+ drugs and 50,000+ interaction edges from Neo4j.
 
 ### 3.3 PubMedBERT (NLP Classifier — Replaced)
 
@@ -131,9 +133,9 @@ Known interaction (explicit severity) → severity-mapped score
   ↓ (no)
 Known interaction (unknown severity) → fuse KG evidence prior with AI estimate
   ↓ (no)
-Macroscopic GraphSAGE → calibrated score
+Enhanced GIN v2 (molecular-level) → calibrated score
   ↓ (unavailable)
-Trained GIN + Platt scaling → calibrated score
+Macroscopic GraphSAGE → calibrated score
   ↓ (unavailable)
 MLP fallback → basic score
   ↓ (unavailable)

@@ -685,7 +685,7 @@ export default function ResearchPage() {
 
                   {/* PR Chart — replicating 2_pr_curve.png */}
                   <div className="h-[300px] border border-purple-500/20 bg-black/40 rounded-xl p-4 relative">
-                    <div className="absolute -top-3 left-4 bg-black px-2 text-[10px] text-purple-400 tracking-widest border border-purple-500/30 rounded-full z-10">PRECISION-RECALL [AUC: 0.9809]</div>
+                    <div className="absolute -top-3 left-4 bg-black px-2 text-[10px] text-purple-400 tracking-widest border border-purple-500/30 rounded-full z-10">PRECISION-RECALL [AUC: 0.9962]</div>
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={syntheticPr} margin={{ top: 20, right: 20, left: -10, bottom: 25 }}>
                         <defs>
@@ -702,7 +702,7 @@ export default function ResearchPage() {
                           labelFormatter={(l) => `Recall: ${Number(l).toFixed(3)}`}
                           formatter={(v) => [Number(v).toFixed(3), 'Precision']}
                         />
-                        <Area type="monotone" dataKey="precision" name="PR (AUC = 0.9809)" stroke="#a855f7" strokeWidth={2.5} fillOpacity={1} fill="url(#colorPR)" dot={false} activeDot={{ r: 4, fill: '#a855f7' }} />
+                        <Area type="monotone" dataKey="precision" name="PR (AUC = 0.9962)" stroke="#a855f7" strokeWidth={2.5} fillOpacity={1} fill="url(#colorPR)" dot={false} activeDot={{ r: 4, fill: '#a855f7' }} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>

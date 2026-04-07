@@ -305,15 +305,22 @@ class MolecularGNNEncoder(nn.Module):
 
 class DDIInteractionHead(nn.Module):
     """
-    DDI Interaction Prediction Head
+    DDI Interaction Prediction Head (Enhanced v2)
 
-    Takes concatenated drug pair embeddings and predicts interaction.
+    Takes drug pair embeddings and predicts interaction using
+    concatenation + element-wise product + absolute difference.
 
-    Architecture (matches RelationHead pattern from MCR III Section 1.2):
-    1. Dense Layer: hidden_dim units, GELU activation
-    2. Dropout Layer: Regularization
-    3. LayerNorm: Stabilization (epsilon=1e-12)
-    4. Output Layer: Binary (sigmoid) or Multi-class (softmax)
+    This captures:
+    - Concatenation: individual drug properties
+    - Element-wise product: interaction-specific signal
+    - Absolute difference: structural dissimilarity
+
+    Architecture:
+    1. Feature combination layer
+    2. Dense Layer with GELU
+    3. Dropout + LayerNorm
+    4. Hidden Layer with GELU (deeper head for more capacity)
+    5. Output Layer
     """
 
     def __init__(
@@ -326,7 +333,7 @@ class DDIInteractionHead(nn.Module):
     ):
         """
         Args:
-            input_dim: Input dimension (concatenated drug embeddings)
+            input_dim: Input dimension (concatenated drug embeddings = readout_dim * 2)
             hidden_dim: Hidden layer dimension
             num_classes: 1 for binary, k for multi-class
             dropout_rate: Dropout probability
@@ -335,12 +342,24 @@ class DDIInteractionHead(nn.Module):
         super().__init__()
 
         self.use_binary = use_binary
+        # input_dim = readout_dim * 2 (from concatenation)
+        # Each drug embedding is readout_dim = input_dim // 2
+        single_dim = input_dim // 2
 
-        self.dense = nn.Linear(input_dim, hidden_dim)
+        # Combined features: concat + product + abs_diff = 3 * single_dim
+        combined_dim = single_dim * 3
+
+        self.dense1 = nn.Linear(combined_dim, hidden_dim)
         self.activation = nn.GELU()
-        self.dropout = nn.Dropout(dropout_rate)
-        self.layer_norm = nn.LayerNorm(hidden_dim, eps=1e-12)
-        self.classifier = nn.Linear(hidden_dim, num_classes)
+        self.dropout1 = nn.Dropout(dropout_rate)
+        self.ln1 = nn.LayerNorm(hidden_dim, eps=1e-12)
+
+        # Deeper head for more capacity
+        self.dense2 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.dropout2 = nn.Dropout(dropout_rate)
+        self.ln2 = nn.LayerNorm(hidden_dim // 2, eps=1e-12)
+
+        self.classifier = nn.Linear(hidden_dim // 2, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -350,10 +369,29 @@ class DDIInteractionHead(nn.Module):
         Returns:
             Logits [batch, num_classes]
         """
-        x = self.dense(x)
+        # Split into individual drug embeddings
+        half = x.size(-1) // 2
+        drug1_emb = x[:, :half]
+        drug2_emb = x[:, half:]
+
+        # Multi-perspective combination
+        product = drug1_emb * drug2_emb          # interaction signal
+        abs_diff = torch.abs(drug1_emb - drug2_emb)  # dissimilarity
+        combined = torch.cat([x, product, abs_diff], dim=-1)  # [B, 3 * half]
+        # Note: x already contains [drug1; drug2] concatenation but combined_dim
+        # expects 3 * single_dim. x has 2*single_dim, so we use [product, abs_diff, sum]:
+        combined = torch.cat([product, abs_diff, drug1_emb + drug2_emb], dim=-1)
+
+        x = self.dense1(combined)
         x = self.activation(x)
-        x = self.dropout(x)
-        x = self.layer_norm(x)
+        x = self.dropout1(x)
+        x = self.ln1(x)
+
+        x = self.dense2(x)
+        x = self.activation(x)
+        x = self.dropout2(x)
+        x = self.ln2(x)
+
         logits = self.classifier(x)
         return logits
 
@@ -411,7 +449,7 @@ class DDIGraphModel(nn.Module):
         )
 
         # DDI prediction head
-        # Input: concatenated drug embeddings (readout_dim * 2)
+        # Input: readout_dim * 2 (passed as input_dim, then internally split)
         self.interaction_head = DDIInteractionHead(
             input_dim=self.encoder.readout_dim * 2,
             hidden_dim=hidden_dim,
