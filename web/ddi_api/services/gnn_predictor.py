@@ -445,6 +445,9 @@ class GNNDDIPredictor:
                 max_atoms=config.get('max_atoms', 128)
             )
 
+            # Store model config for health check verification
+            self._model_config = config
+
             # Store calibration parameters
             self._temperature = checkpoint.get('temperature', 1.0)
             self._platt_a = checkpoint.get('platt_a', 1.0)

@@ -1446,10 +1446,35 @@ class HealthCheckView(APIView):
                 health['services']['ai_model'] = 'not_loaded'
             else:
                 health['services']['ai_model'] = 'online'
+                # Report model config so we can verify which version is running
+                try:
+                    cfg = getattr(service, '_model_config', None)
+                    if cfg:
+                        health['model'] = {
+                            'num_gnn_layers': cfg.get('num_gnn_layers'),
+                            'hidden_dim': cfg.get('hidden_dim'),
+                            'version': 'enhanced_gin_v2' if cfg.get('num_gnn_layers', 0) >= 4 else 'legacy',
+                        }
+                    else:
+                        # Try reading from checkpoint config
+                        import torch
+                        from pathlib import Path
+                        cp_path = Path(__file__).parent.parent / 'models' / 'gnn' / 'gnn_best_model.pt'
+                        if cp_path.exists():
+                            cp = torch.load(cp_path, map_location='cpu', weights_only=False)
+                            c = cp.get('config', {})
+                            health['model'] = {
+                                'num_gnn_layers': c.get('num_gnn_layers'),
+                                'hidden_dim': c.get('hidden_dim'),
+                                'version': 'enhanced_gin_v2' if c.get('num_gnn_layers', 0) >= 4 else 'legacy',
+                                'pr_auc': cp.get('metrics', {}).get('pr_auc'),
+                            }
+                except Exception:
+                    pass
         except Exception as e:
             health['services']['ai_model'] = f'error: {str(e)}'
             health['status'] = 'degraded'
-        
+
         return Response(health)
 
 
