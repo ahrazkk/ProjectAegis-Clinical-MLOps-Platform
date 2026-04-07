@@ -1448,27 +1448,23 @@ class HealthCheckView(APIView):
                 health['services']['ai_model'] = 'online'
                 # Report model config so we can verify which version is running
                 try:
-                    cfg = getattr(service, '_model_config', None)
-                    if cfg:
+                    import json as _json
+                    from pathlib import Path
+                    tr_path = Path(__file__).parent.parent / 'models' / 'gnn' / 'training_results.json'
+                    if tr_path.exists():
+                        with open(tr_path) as _f:
+                            tr = _json.load(_f)
+                        c = tr.get('config', {})
+                        m = tr.get('final_metrics', {})
                         health['model'] = {
-                            'num_gnn_layers': cfg.get('num_gnn_layers'),
-                            'hidden_dim': cfg.get('hidden_dim'),
-                            'version': 'enhanced_gin_v2' if cfg.get('num_gnn_layers', 0) >= 4 else 'legacy',
+                            'num_gnn_layers': c.get('num_gnn_layers'),
+                            'hidden_dim': c.get('hidden_dim'),
+                            'version': 'enhanced_gin_v2' if c.get('num_gnn_layers', 0) >= 4 else 'legacy',
+                            'pr_auc': round(m.get('pr_auc', 0), 4),
+                            'roc_auc': round(m.get('roc_auc', 0), 4),
+                            'accuracy': round(m.get('accuracy', 0), 4),
+                            'train_samples': tr.get('train_samples'),
                         }
-                    else:
-                        # Try reading from checkpoint config
-                        import torch
-                        from pathlib import Path
-                        cp_path = Path(__file__).parent.parent / 'models' / 'gnn' / 'gnn_best_model.pt'
-                        if cp_path.exists():
-                            cp = torch.load(cp_path, map_location='cpu', weights_only=False)
-                            c = cp.get('config', {})
-                            health['model'] = {
-                                'num_gnn_layers': c.get('num_gnn_layers'),
-                                'hidden_dim': c.get('hidden_dim'),
-                                'version': 'enhanced_gin_v2' if c.get('num_gnn_layers', 0) >= 4 else 'legacy',
-                                'pr_auc': cp.get('metrics', {}).get('pr_auc'),
-                            }
                 except Exception:
                     pass
         except Exception as e:
