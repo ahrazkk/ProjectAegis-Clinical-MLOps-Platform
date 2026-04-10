@@ -1,7 +1,7 @@
 """
 Update gnn_real_data.json with embeddings from the NEW Enhanced GIN v2 model.
 Produces 3D t-SNE positions from 512-dim model embeddings.
-Preserves the existing JSON structure (nodes + adj) for the Galaxy viewer.
+Rebuilds adjacency from neo4j_gnn_dataset.pt so edge counts stay current.
 """
 import json
 import sys
@@ -16,6 +16,7 @@ PROJECT_ROOT = SCRIPT_DIR.parent.parent
 
 MODEL_PATH = PROJECT_ROOT / 'web' / 'models' / 'gnn' / 'gnn_best_model.pt'
 NODE_MAPPING = PROJECT_ROOT / 'web' / 'data' / 'node_mapping.csv'
+DATASET_PT = PROJECT_ROOT / 'web' / 'data' / 'neo4j_gnn_dataset.pt'
 OLD_DATA = PROJECT_ROOT / 'src' / 'assets' / 'gnn_real_data.json'
 OUTPUT = PROJECT_ROOT / 'src' / 'assets' / 'gnn_real_data.json'
 
@@ -48,6 +49,56 @@ DDIGraphModel = gnn_model_mod.DDIGraphModel
 MolecularGraphFeaturizer = gnn_featurizer.MolecularGraphFeaturizer
 ATOM_FEATURE_DIM = gnn_featurizer.ATOM_FEATURE_DIM
 EDGE_FEATURE_DIM = gnn_featurizer.EDGE_FEATURE_DIM
+
+
+def load_dataset_edges(dataset_path: Path, pyg_id_by_index: list[str]) -> set[tuple[str, str]]:
+    """Load undirected interaction edges from neo4j_gnn_dataset.pt."""
+    if not dataset_path.exists():
+        print(f"WARNING: Dataset not found at {dataset_path}. Falling back to legacy adjacency.")
+        return set()
+
+    print("Loading adjacency from neo4j_gnn_dataset.pt...")
+
+    try:
+        graph_data = torch.load(dataset_path, map_location='cpu', weights_only=False)
+    except TypeError:
+        graph_data = torch.load(dataset_path, map_location='cpu')
+
+    edge_index = getattr(graph_data, 'edge_index', None)
+    if edge_index is None and isinstance(graph_data, dict):
+        edge_index = graph_data.get('edge_index')
+
+    if edge_index is None:
+        print("WARNING: edge_index missing in dataset. Falling back to legacy adjacency.")
+        return set()
+
+    if hasattr(edge_index, 'cpu'):
+        edge_index = edge_index.cpu()
+
+    if edge_index.ndim != 2 or edge_index.shape[0] != 2:
+        print(f"WARNING: Unexpected edge_index shape: {tuple(edge_index.shape)}. Falling back to legacy adjacency.")
+        return set()
+
+    max_valid_index = len(pyg_id_by_index) - 1
+    unique_edges: set[tuple[str, str]] = set()
+
+    for idx in range(edge_index.shape[1]):
+        src_idx = int(edge_index[0, idx])
+        dst_idx = int(edge_index[1, idx])
+
+        if src_idx < 0 or dst_idx < 0 or src_idx > max_valid_index or dst_idx > max_valid_index:
+            continue
+
+        src = pyg_id_by_index[src_idx]
+        dst = pyg_id_by_index[dst_idx]
+        if src == dst:
+            continue
+
+        a, b = (src, dst) if src < dst else (dst, src)
+        unique_edges.add((a, b))
+
+    print(f"  Loaded {len(unique_edges)} unique undirected edges from dataset")
+    return unique_edges
 
 # ── Load existing data (preserve adjacency) ──────────────────────────
 print("Loading existing gnn_real_data.json...")
@@ -82,16 +133,21 @@ featurizer = MolecularGraphFeaturizer(max_atoms=config.get('max_atoms', 128))
 # ── Load drug data ───────────────────────────────────────────────────
 print("Loading drugs from node_mapping.csv...")
 drugs = []
+pyg_id_by_index: list[str] = []
 with open(NODE_MAPPING, 'r', encoding='utf-8') as f:
     reader = csv.DictReader(f)
     for row in reader:
+        pyg_id = str(row['pyg_id'])
         drugs.append({
-            'pyg_id': row['pyg_id'],
+            'pyg_id': pyg_id,
             'name': row['name'],
             'smiles': row['smiles'],
             'type': row.get('t_class', 'Unknown'),
         })
+        pyg_id_by_index.append(pyg_id)
 print(f"  {len(drugs)} drugs")
+
+dataset_edges = load_dataset_edges(DATASET_PT, pyg_id_by_index)
 
 # ── Extract embeddings ───────────────────────────────────────────────
 print("Extracting 512-dim embeddings from new model...")
@@ -130,7 +186,8 @@ print(f"  3D positions computed: shape {positions_3d.shape}")
 # ── Build new gnn_real_data.json ─────────────────────────────────────
 print("Building updated gnn_real_data.json...")
 new_nodes = []
-new_adj = {}
+new_adj: dict[str, list[str]] = {}
+valid_ids: set[str] = set()
 
 for i, drug in enumerate(valid_drugs):
     node_id = drug['pyg_id']
@@ -142,18 +199,34 @@ for i, drug in enumerate(valid_drugs):
         'type': drug['type'],
         'pos': pos,
     })
+    valid_ids.add(node_id)
+    new_adj[node_id] = []
 
-    # Preserve adjacency from old data
-    if node_id in old_adj:
-        new_adj[node_id] = old_adj[node_id]
-    elif drug['name'] in old_nodes_by_name:
-        old_id = old_nodes_by_name[drug['name']]['id']
-        if old_id in old_adj:
-            new_adj[node_id] = old_adj[old_id]
-        else:
-            new_adj[node_id] = []
-    else:
-        new_adj[node_id] = []
+if dataset_edges:
+    kept = 0
+    for u, v in dataset_edges:
+        if u in valid_ids and v in valid_ids:
+            new_adj[u].append(v)
+            new_adj[v].append(u)
+            kept += 1
+
+    for node_id in new_adj:
+        new_adj[node_id] = sorted(set(new_adj[node_id]))
+
+    print(f"  Kept {kept} undirected edges after filtering to embedded drugs")
+else:
+    # Fallback if the tensor dataset is unavailable.
+    for node in new_nodes:
+        node_id = node['id']
+        node_name = node['name']
+
+        if node_id in old_adj:
+            new_adj[node_id] = old_adj[node_id]
+        elif node_name in old_nodes_by_name:
+            old_id = old_nodes_by_name[node_name]['id']
+            new_adj[node_id] = old_adj.get(old_id, [])
+
+    print("  Using legacy adjacency fallback from previous gnn_real_data.json")
 
 output_data = {
     'nodes': new_nodes,
@@ -168,5 +241,6 @@ print(f"  Saved: {OUTPUT}")
 print(f"  Size: {file_size:.1f} MB")
 print(f"  Nodes: {len(new_nodes)}")
 print(f"  Adj entries: {len(new_adj)}")
+print(f"  Undirected edges: {sum(len(v) for v in new_adj.values()) // 2}")
 
 print(f"\nGalaxy viewer data updated with Enhanced GIN v2 embeddings!")

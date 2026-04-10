@@ -1,8 +1,8 @@
 // Toolbar.jsx — View mode switcher, toggles, export, reset
-import React, { useRef } from 'react';
+import React from 'react';
 import {
   Globe, Atom, Target, Layers, Route, SlidersHorizontal,
-  Tag, GitBranch, Camera, RotateCcw, Maximize2,
+  Tag, GitBranch, Camera, RotateCcw, Maximize2, Download,
 } from 'lucide-react';
 import { useGalaxy, useGalaxyDispatch } from '../store';
 
@@ -15,7 +15,7 @@ const viewModes = [
   { id: 'focus', label: 'Focus', icon: GitBranch, tip: 'Least-hop connector across selected drugs' },
 ];
 
-export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
+export default function Toolbar({ onToggleFilters, showFilters, canvasRef, onExportGraph, exportFullGalaxy }) {
   const { viewMode, showLabels, showEdges, drugA, drugB, shortestPath } = useGalaxy();
   const dispatch = useGalaxyDispatch();
 
@@ -135,6 +135,15 @@ export default function Toolbar({ onToggleFilters, showFilters, canvasRef }) {
 
       {/* Right side actions */}
       <div className="flex items-center gap-1 pointer-events-auto">
+        {onExportGraph && (
+          <button
+            onClick={onExportGraph}
+            className="p-1.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/5 text-white/30 hover:text-white/60 transition-colors"
+            title={exportFullGalaxy ? 'Export full galaxy graph JSON' : 'Export visible subgraph JSON'}
+          >
+            <Download className="w-3 h-3" />
+          </button>
+        )}
         <button
           onClick={handleScreenshot}
           className="p-1.5 rounded-lg bg-black/60 backdrop-blur-md border border-white/5 text-white/30 hover:text-white/60 transition-colors"

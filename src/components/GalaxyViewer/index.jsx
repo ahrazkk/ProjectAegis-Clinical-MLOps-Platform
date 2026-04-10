@@ -10,7 +10,7 @@ import { GalaxyProvider, useGalaxy, useGalaxyDispatch } from './store';
 import {
   buildNodeDict, findDrugByName, computeSubgraph,
   shortestPath as computeShortestPath, applyFilters,
-  setGraphData, getAdj, buildEdgeMetaIndex,
+  setGraphData, getAdj, buildEdgeMetaIndex, getGraphData,
 } from './graphEngine';
 import { loadGraphData, clearGraphCache, getPerformanceLimits, setPerformanceLimits } from './graphDataService';
 import InstancedNodes from './InstancedNodes';
@@ -342,6 +342,98 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
     return computeShortestPath(adj, aId, bId);
   }, [drugA?.id, drugB?.id, loading, dataVersion]);
 
+  const handleExportGraph = useCallback(() => {
+    const graphData = getGraphData();
+    const adj = getAdj();
+
+    const edgeMetaByKey = new Map();
+    (graphData.edgeMeta || []).forEach((edge) => {
+      const source = String(edge.source || '');
+      const target = String(edge.target || '');
+      if (!source || !target) return;
+      const key = source < target ? `${source}-${target}` : `${target}-${source}`;
+      edgeMetaByKey.set(key, edge);
+    });
+
+    const visibleNodeIds = new Set(
+      nodes
+        .filter((node) => nodeVisibility.get(node.id) !== false)
+        .map((node) => String(node.id))
+    );
+
+    const exportFullGalaxy = !hasDrugs;
+    const shouldIncludeNode = (id) => exportFullGalaxy || visibleNodeIds.has(String(id));
+
+    const exportNodes = Object.values(nodeDict)
+      .filter((node) => shouldIncludeNode(node.id))
+      .map((node) => ({
+        id: String(node.id),
+        name: node.name,
+        type: node.type || node.therapeutic_class || node.category || 'Unknown',
+        category: node.category || 'Other',
+        degree: (adj[node.id] || []).length,
+        position: {
+          x: Number(node.pos?.[0] || 0),
+          y: Number(node.pos?.[1] || 0),
+          z: Number(node.pos?.[2] || 0),
+        },
+      }));
+
+    const exportEdges = [];
+    const seen = new Set();
+    Object.keys(adj).forEach((source) => {
+      (adj[source] || []).forEach((target) => {
+        const key = source < target ? `${source}-${target}` : `${target}-${source}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        if (!shouldIncludeNode(source) || !shouldIncludeNode(target)) return;
+
+        const meta = edgeMetaByKey.get(key) || {};
+        exportEdges.push({
+          source,
+          target,
+          severity: meta.severity || 'unknown',
+          confidence: typeof meta.confidence === 'number' ? meta.confidence : null,
+          mechanism: meta.mechanism || null,
+        });
+      });
+    });
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      exportMode: exportFullGalaxy ? 'full-galaxy' : 'visible-subgraph',
+      viewerState: {
+        viewMode,
+        maxHops,
+        hasDrugSelection: hasDrugs,
+        selectedDrugIds,
+        dataSource,
+      },
+      stats: {
+        exportedNodes: exportNodes.length,
+        exportedEdges: exportEdges.length,
+        totalNodes: dataStats?.totalNodes ?? Object.keys(nodeDict).length,
+        totalEdges: dataStats?.totalEdges ?? Object.values(adj).reduce((sum, arr) => sum + arr.length, 0) / 2,
+      },
+      nodes: exportNodes,
+      edges: exportEdges,
+    };
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = exportFullGalaxy
+      ? `gnn-galaxy-full-${stamp}.json`
+      : `gnn-galaxy-subgraph-${stamp}.json`;
+
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [nodeDict, nodes, nodeVisibility, hasDrugs, viewMode, maxHops, selectedDrugIds, dataSource, dataStats]);
+
   // Update store with path and stats
   useEffect(() => {
     if (loading) return;
@@ -525,6 +617,8 @@ function GalaxyViewerInner({ drugs, result, polypharmacyResult, isMobile }) {
         onToggleFilters={() => setFiltersOpen(!filtersOpen)}
         showFilters={filtersOpen}
         canvasRef={containerRef}
+        onExportGraph={handleExportGraph}
+        exportFullGalaxy={!hasDrugs}
       />
       <SearchBar nodeDict={nodeDict} />
       <FilterPanel isOpen={filtersOpen} onClose={() => setFiltersOpen(false)} />

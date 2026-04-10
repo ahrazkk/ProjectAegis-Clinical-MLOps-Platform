@@ -346,11 +346,17 @@ if HAS_UMAP:
     legend_handles.append(mpatches.Patch(color='#e2e8f0', label=f'Unknown ({sum(1 for t in drug_types_coarse if t == "Unknown")})'))
 
     fig.legend(handles=legend_handles, fontsize=7, loc='lower center',
-               ncol=6, framealpha=0.9, edgecolor='#cbd5e1', bbox_to_anchor=(0.5, -0.02))
+               ncol=6, framealpha=0.9, edgecolor='#cbd5e1', bbox_to_anchor=(0.5, 0.01))
 
-    fig.suptitle(f'GNN Drug Embedding Space — 1,350 Drugs Across 12 Pharmacological Categories',
-                 fontsize=13, fontweight='bold', color='#0f172a', y=1.01)
-    plt.tight_layout()
+    fig.suptitle(
+        f'GNN Drug Embedding Space — {len(nodes):,} Drugs Across {len(set(drug_types_coarse))} Pharmacological Categories',
+        fontsize=13,
+        fontweight='bold',
+        color='#0f172a',
+        y=1.01,
+    )
+    fig.subplots_adjust(bottom=0.16)
+    plt.tight_layout(rect=[0, 0.12, 1, 0.98])
     plt.savefig(f'{OUT}/20_tsne_umap_combined.png', dpi=200, bbox_inches='tight', facecolor='white')
     plt.close()
     print("  Saved: 20_tsne_umap_combined.png")

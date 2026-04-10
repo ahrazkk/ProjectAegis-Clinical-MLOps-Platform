@@ -5,6 +5,11 @@
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
 const TIMEOUT_MS = 20000;
 
+function readPositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // ─── In-memory cache ────────────────────────────────────────────────────────
 const cache = {
   nodes: null,
@@ -22,8 +27,8 @@ function isCacheValid(time) {
 
 // ─── Performance config (user-adjustable) ───────────────────────────────────
 const DEFAULT_LIMITS = {
-  maxNodes: 2000,
-  maxEdges: 50000,
+  maxNodes: readPositiveInt(import.meta.env.VITE_GALAXY_MAX_NODES, 3000),
+  maxEdges: readPositiveInt(import.meta.env.VITE_GALAXY_MAX_EDGES, 150000),
   maxNeighborhood: 500,
   maxHops: 3,
 };
